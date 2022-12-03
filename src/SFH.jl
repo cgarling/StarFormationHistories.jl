@@ -3,8 +3,10 @@ module SFH
 # Import statements
 import StatsBase: fit, Histogram, Weights, sample
 import SpecialFunctions: erf
-import Interpolations: linear_interpolation
-import Distributions: UnivariateDistribution
+# import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
+# so we'll use the older, less convenient construction method. 
+import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw
+import Distributions: UnivariateDistribution, pdf, cdf, quantile
 
 # Code inclusion
 
@@ -19,29 +21,40 @@ import Distributions: UnivariateDistribution
     interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
 
 Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter.
-"""
-interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
-    linear_interpolation(m_ini, mags)(new_mini)
-interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini) =
-    [linear_interpolation(m_ini, i)(new_mini) for i in mags]
-interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
-    reduce(hcat, linear_interpolation(m_ini, i)(new_mini) for i in eachcol(mags))
 
-"""
-    mini_spacing(m_ini, imf_func, npoints::Int=1000, ret_spacing::Bool=false)
-
-Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf_func(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
-
-I am not currently happy with this implementation. It does not always return exactly `npoints`, and the random sampling means that the results are not easily replicable. Ideally we should replace with something else. Maybe we could attempt to equally partition the range of `m_ini` into `npoints` that span equal CDF intervals? Would require passing a `Distribution.UnivariateDistribution` with `quantile` defined. This should be part of a larger overhaul to ONLY use distributions in this package. Some quick code, where `imf` is a `Distributions.UnivariateDistribution`, like those defined in InitialMassFunctions.jl: 
+# Examples
 ```julia
-julia> qvals = range(0.0, cdf(imf, maximum(m_ini)), length=1000)
-
-julia> new_mini = quantile.(imf,qvals)
+julia> m_ini = [0.08, 0.10, 0.12, 0.14, 0.16]
+julia> mags = [13.545, 12.899, 12.355, 11.459, 10.947]
+julia> new_mini = 0.08:0.01:0.16
+julia> SFH.interpolate_mini(m_ini, mags, new_mini) 
 ```
 """
-function mini_spacing(m_ini, imf_func, npoints::Int=1000, ret_spacing::Bool=false)
+interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
+    extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
+interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini) =
+    [ extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in mags ]
+interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
+    reduce(hcat, extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in eachcol(mags))
+# interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
+#     linear_interpolation(m_ini, mags)(new_mini)
+# interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini) =
+#     [linear_interpolation(m_ini, i)(new_mini) for i in mags]
+# interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
+#     reduce(hcat, linear_interpolation(m_ini, i)(new_mini) for i in eachcol(mags))
+
+
+"""
+    mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
+
+Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
+
+!!! warning
+    This method is inferior to the method that takes the IMF model as a `Distributions.UnivariateDistribution`; that method should always be used if you can express your IMF model as such a distribution with efficient methods for `cdf` and `quantile`.
+"""
+function mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
     Δm = diff(m_ini)
-    inv_imf_vals = inv.(imf_func.(m_ini[begin:end-1] .+ Δm ./ 2))
+    inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
     point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
     # The minimum value in point_intervals should be 2 for the later call to `range`,
     # so if it's 1 we add 1, if it's zero we add 2. 
@@ -73,7 +86,7 @@ function mini_spacing(m_ini, imf_func, npoints::Int=1000, ret_spacing::Bool=fals
 
     # Try new implementation
     # Δm = diff(m_ini)
-    # inv_imf_vals = inv.(imf_func.(m_ini[begin:end-1] .+ Δm ./ 2))
+    # inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
     # point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
     # point_sum = sum(point_intervals) 
     # if point_sum < npoints # Pad out the array so we get the correct length
@@ -98,6 +111,41 @@ function mini_spacing(m_ini, imf_func, npoints::Int=1000, ret_spacing::Bool=fals
         return new_mini, new_spacing
     end
 end
+"""
+    mini_spacing(m_ini, imf::Distributions.UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
+
+Interpolate initial mass vector `m_ini` at `npoints` points such that the change in the CDF of the IMF distribution `imf` is equal between each grid point. If `ret_spacing` is `true`, then both the interpolated initial masses and their spacing will be returned.
+
+Actually this doesn't work that well -- it doesn't sample enough high-mass points, where the change in magnitude is high. Probably need to do something more intelligent with dual weighting. Don't care at the moment. 
+
+# Notes
+ - Requires `cdf(imf,m)` and `quantile(imf,x)` methods to be defined, and ideally optimized. 
+"""
+function mini_spacing(m_ini, imf::UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
+    # Generate an equally-spaced range of CDF values from the minimum isochrone mass `minimum(m_ini)`
+    # to the maximum isochrone mass `maximum(m_ini)`. If `imf` was constructed correctly,
+    # `cdf(imf, maximum(m_ini))` should be ≈ 0, since `minimum(imf) ≈ minium(m_ini)`.
+    max_cdf = cdf(imf, maximum(m_ini))
+    cdf_vals = range(cdf(imf, minimum(m_ini)) + eps(),  max_cdf - eps(), length=1000)
+    # return max_cdf, cdf_vals
+    # Use the quantile (inverse function of CDF) to get initial masses where the CDF .== cdf_vals.
+    new_mini = quantile.(imf,cdf_vals)
+    if !ret_spacing
+        return new_mini
+    else
+        new_spacing = diff(new_mini)
+        return new_mini, new_spacing
+    end
+end
+
+"""
+    dispatch_imf(imf, m) = imf(m)
+    dispatch_imf(imf::Distributions.UnivariateDistribution, m) = Distributions.pdf(imf, m)
+
+Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.UnivariateDistribution`, this will convert the function call into the correct `pdf` call.
+"""
+dispatch_imf(imf, m) = imf(m)
+dispatch_imf(imf::UnivariateDistribution, m) = pdf(imf, m)
 
 ##################################
 # KDE models
@@ -300,20 +348,20 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     return Histogram(edges, mat, :left, false)
 end
 
-function partial_cmd( m_ini, colors, mags, imf_func; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
-    new_mini, new_spacing = mini_spacing(m_ini, imf_func, 1000, true)
+    new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
     new_iso_mags = interpolate_mini(m_ini, mags, new_mini) .+ dmod
     # Approximate the IMF weights on each star in the isochrone as
     # (weights[i] = (m[i+1] - m[i]) * pdf(imf, m[i])
-    # weights = new_spacing .* imf_func.(new_mini[begin:end-1])
+    # weights = new_spacing .* imf.(new_mini[begin:end-1])
     # Might be better to use the actual trapezoidal rule to integrate the PDF across the grid. 
     # (weights[i] = (m[i+1] - m[i]) * ( pdf(imf, m[i]) + pdf(imf, m[i+1]) ) / 2
     # Looks like this amounts to a ~10% difference on average, which is significant actually. 
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
-        weights[i] = new_spacing[i] * (imf_func(new_mini[i]) + imf_func(new_mini[i+1])) / 2
+        weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
     end
     weights = weights .* normalize_value ./ sum(weights)
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
@@ -321,9 +369,9 @@ end
 
 # Need to pass in completeness functions and use them when calculating the weights in addition to the
 # IMF weighting. 
-function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf_func, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
-    new_mini, new_spacing = mini_spacing(m_ini, imf_func, 1000, true)
+    new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [ interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags ] # dmod included here
     colors = new_iso_mags[color_indices[1]] .- new_iso_mags[color_indices[2]]
@@ -332,12 +380,12 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin. 
     # (weights[i] = (m[i+1] - m[i]) * ( pdf(imf, m[i]) + pdf(imf, m[i+1]) ) / 2
-    # This is equivalent to the difference in the CDF across the bin as long as imf_func is a properly normalized pdf
+    # This is equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
     # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     # weights2 = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
-        weights[i] = new_spacing[i] * (imf_func(new_mini[i]) + imf_func(new_mini[i+1])) / 2
+        weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
         # Incorporate completness values
         weights[i] *= completeness_funcs[color_indices[1]](new_iso_mags[color_indices[1]][i]) *
             completeness_funcs[color_indices[2]](new_iso_mags[color_indices[2]][i])
@@ -345,7 +393,7 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     # return weights, weights2
     # weights3 = weights .* weights2
     # @assert all( weights3 .== weights ) # This returns true so it's fine
-    # sum(weights) is now the full integral over the imf_func pdf from minimum(m_ini) -> maximum(m_ini).
+    # sum(weights) is now the full integral over the imf pdf from minimum(m_ini) -> maximum(m_ini).
     # This is equivalent to cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
     # Previously we were dividing by sum(weights) here but I think that is wrong. 
     weights .= weights .* normalize_value # ./ sum(weights)
