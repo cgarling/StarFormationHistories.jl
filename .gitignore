@@ -22,3 +22,6 @@ docs/site/
 # committed for packages, but should be committed for applications that require a static
 # environment.
 Manifest.toml
+
+# Some test files that don't need to be committed
+test/manual/madcash2/
