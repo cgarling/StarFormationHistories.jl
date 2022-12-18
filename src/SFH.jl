@@ -32,7 +32,7 @@ julia> SFH.interpolate_mini(m_ini, mags, new_mini)
 """
 interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
     extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
-interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini) =
+interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T<:Number =
     [ extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in mags ]
 interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
     reduce(hcat, extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in eachcol(mags))
@@ -44,92 +44,126 @@ interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
 #     reduce(hcat, linear_interpolation(m_ini, i)(new_mini) for i in eachcol(mags))
 
 
-"""
-    mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
+# """
+#     mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
 
-Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
+# Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
 
-!!! warning
-    This method is inferior to the method that takes the IMF model as a `Distributions.UnivariateDistribution`; that method should always be used if you can express your IMF model as such a distribution with efficient methods for `cdf` and `quantile`.
+# !!! warning
+#     This method is inferior to the method that takes the IMF model as a `Distributions.UnivariateDistribution`; that method should always be used if you can express your IMF model as such a distribution with efficient methods for `cdf` and `quantile`.
+# """
+# function mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
+#     Δm = diff(m_ini)
+#     inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
+#     point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
+#     # The minimum value in point_intervals should be 2 for the later call to `range`,
+#     # so if it's 1 we add 1, if it's zero we add 2. 
+#     # point_intervals[point_intervals .== 1] .+= 1
+#     @inbounds for i in eachindex( point_intervals )
+#         if point_intervals[i] == 0
+#             point_intervals[i] += 2
+#         elseif point_intervals[i] == 1
+#             point_intervals[i] += 1
+#         end
+#     end
+#     # return point_intervals
+#     # After the `if` clause below we discuss having to chop off the ends of the ranges
+#     # so as not to duplicate masses, so we want to avoid double-counting here as well. 
+#     point_sum = sum(point_intervals) - length(point_intervals)
+#     if point_sum < npoints # Pad out the array so we get the correct length
+#         nsamp = npoints - point_sum
+#         randidx = sample(1:length(point_intervals), npoints - point_sum, replace=true)
+#         # point_intervals[randidx] .+= 1
+#         @inbounds @simd for i in randidx
+#             point_intervals[i] += 1
+#         end
+#     end
+#     # range(start, stop, length=n) includes both the beginning and the ending points, so we'll essentially
+#     # double up on masses if we include the final point, so we have to remove it.
+#     # This works fine but is fairly slow, if speed becomes a problem we can probably rewrite this
+#     # as a faster loop. 
+#     new_mini = reduce(vcat, range(m_ini[i], m_ini[i+1], length=point_intervals[i])[begin:end-1] for i in 1:length(m_ini)-1)
+
+#     # Try new implementation
+#     # Δm = diff(m_ini)
+#     # inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
+#     # point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
+#     # point_sum = sum(point_intervals) 
+#     # if point_sum < npoints # Pad out the array so we get the correct length
+#     #     randidx = sample(1:length(point_intervals), npoints - point_sum, replace=false)
+#     #     point_intervals[randidx] .+= 1
+#     # end
+    
+#     # new_mini = Vector{eltype(m_ini)}(undef, sum(point_intervals))
+#     # current_num = 1
+#     # for i in 1:length(m_ini)-1
+#     #     Δx = (m_ini[i+1] - m_ini[i]) / point_intervals[i]
+#     #     for j in 0:point_intervals[i]-1
+#     #         new_mini[current_num] = m_ini[i] + Δx * j
+#     #         current_num += 1 
+#     #     end
+#     # end
+    
+#     if !ret_spacing
+#         return new_mini
+#     else
+#         new_spacing = diff(new_mini)
+#         return new_mini, new_spacing
+#     end
+# end
+# """
+#     mini_spacing(m_ini, imf::Distributions.UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
+
+# Interpolate initial mass vector `m_ini` at `npoints` points such that the change in the CDF of the IMF distribution `imf` is equal between each grid point. If `ret_spacing` is `true`, then both the interpolated initial masses and their spacing will be returned.
+
+# Actually this doesn't work that well -- it doesn't sample enough high-mass points, where the change in magnitude is high. Probably need to do something more intelligent with dual weighting. Don't care at the moment. 
+
+# # Notes
+#  - Requires `cdf(imf,m)` and `quantile(imf,x)` methods to be defined, and ideally optimized. 
+# """
+# function mini_spacing(m_ini, imf::UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
+#     # Generate an equally-spaced range of CDF values from the minimum isochrone mass `minimum(m_ini)`
+#     # to the maximum isochrone mass `maximum(m_ini)`. If `imf` was constructed correctly,
+#     # `cdf(imf, maximum(m_ini))` should be ≈ 0, since `minimum(imf) ≈ minium(m_ini)`.
+#     max_cdf = cdf(imf, maximum(m_ini))
+#     cdf_vals = range(cdf(imf, minimum(m_ini)) + eps(),  max_cdf - eps(), length=1000)
+#     # Use the quantile (inverse function of CDF) to get initial masses where the CDF .== cdf_vals.
+#     new_mini = quantile.(imf,cdf_vals)
+#     if !ret_spacing
+#         return new_mini
+#     else
+#         new_spacing = diff(new_mini)
+#         return new_mini, new_spacing
+#     end
+# end
 """
-function mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
-    Δm = diff(m_ini)
-    inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-    point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-    # The minimum value in point_intervals should be 2 for the later call to `range`,
-    # so if it's 1 we add 1, if it's zero we add 2. 
-    # point_intervals[point_intervals .== 1] .+= 1
-    @inbounds for i in eachindex( point_intervals )
-        if point_intervals[i] == 0
-            point_intervals[i] += 2
-        elseif point_intervals[i] == 1
-            point_intervals[i] += 1
+    mini_spacing(m_ini::Vector, mags::Vector, Δmag, ret_spacing::Bool=false)
+
+Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`. 
+"""
+function mini_spacing(m_ini::Vector, mags::Vector, Δmag, ret_spacing::Bool=false)
+    @assert length(m_ini) == length(mags)
+    new_mini = Vector{Float64}(undef,1)
+    new_mini[1] = m_ini[1]
+    # Sort the input m_ini and mags. This could be optional. 
+    idx = sortperm(m_ini)
+    m_ini = m_ini[idx]
+    mags = mags[idx]
+    # Loop through the indices, testing if adjacent magnitudes are
+    # different by less than Δm.
+    for i in 1:length(m_ini)-1 
+        diffi = abs(mags[i+1] - mags[i])
+        if diffi > Δmag # Requires interpolation
+            npoints = round(Int, diffi / Δmag, RoundUp)
+            Δmass = m_ini[i+1] - m_ini[i]
+            mass_step = Δmass / npoints
+            for j in 1:npoints
+                push!(new_mini, m_ini[i] + mass_step*j)
+            end
+        else # Does not require interpolation
+            push!(new_mini, m_ini[i+1])
         end
     end
-    # return point_intervals
-    # After the `if` clause below we discuss having to chop off the ends of the ranges
-    # so as not to duplicate masses, so we want to avoid double-counting here as well. 
-    point_sum = sum(point_intervals) - length(point_intervals)
-    if point_sum < npoints # Pad out the array so we get the correct length
-        nsamp = npoints - point_sum
-        randidx = sample(1:length(point_intervals), npoints - point_sum, replace=true)
-        # point_intervals[randidx] .+= 1
-        @inbounds @simd for i in randidx
-            point_intervals[i] += 1
-        end
-    end
-    # range(start, stop, length=n) includes both the beginning and the ending points, so we'll essentially
-    # double up on masses if we include the final point, so we have to remove it.
-    # This works fine but is fairly slow, if speed becomes a problem we can probably rewrite this
-    # as a faster loop. 
-    new_mini = reduce(vcat, range(m_ini[i], m_ini[i+1], length=point_intervals[i])[begin:end-1] for i in 1:length(m_ini)-1)
-
-    # Try new implementation
-    # Δm = diff(m_ini)
-    # inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-    # point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-    # point_sum = sum(point_intervals) 
-    # if point_sum < npoints # Pad out the array so we get the correct length
-    #     randidx = sample(1:length(point_intervals), npoints - point_sum, replace=false)
-    #     point_intervals[randidx] .+= 1
-    # end
-    
-    # new_mini = Vector{eltype(m_ini)}(undef, sum(point_intervals))
-    # current_num = 1
-    # for i in 1:length(m_ini)-1
-    #     Δx = (m_ini[i+1] - m_ini[i]) / point_intervals[i]
-    #     for j in 0:point_intervals[i]-1
-    #         new_mini[current_num] = m_ini[i] + Δx * j
-    #         current_num += 1 
-    #     end
-    # end
-    
-    if !ret_spacing
-        return new_mini
-    else
-        new_spacing = diff(new_mini)
-        return new_mini, new_spacing
-    end
-end
-"""
-    mini_spacing(m_ini, imf::Distributions.UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-
-Interpolate initial mass vector `m_ini` at `npoints` points such that the change in the CDF of the IMF distribution `imf` is equal between each grid point. If `ret_spacing` is `true`, then both the interpolated initial masses and their spacing will be returned.
-
-Actually this doesn't work that well -- it doesn't sample enough high-mass points, where the change in magnitude is high. Probably need to do something more intelligent with dual weighting. Don't care at the moment. 
-
-# Notes
- - Requires `cdf(imf,m)` and `quantile(imf,x)` methods to be defined, and ideally optimized. 
-"""
-function mini_spacing(m_ini, imf::UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-    # Generate an equally-spaced range of CDF values from the minimum isochrone mass `minimum(m_ini)`
-    # to the maximum isochrone mass `maximum(m_ini)`. If `imf` was constructed correctly,
-    # `cdf(imf, maximum(m_ini))` should be ≈ 0, since `minimum(imf) ≈ minium(m_ini)`.
-    max_cdf = cdf(imf, maximum(m_ini))
-    cdf_vals = range(cdf(imf, minimum(m_ini)) + eps(),  max_cdf - eps(), length=1000)
-    # return max_cdf, cdf_vals
-    # Use the quantile (inverse function of CDF) to get initial masses where the CDF .== cdf_vals.
-    new_mini = quantile.(imf,cdf_vals)
     if !ret_spacing
         return new_mini
     else
@@ -350,7 +384,8 @@ end
 
 function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
-    new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
+    # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
+    new_mini, new_spacing = mini_spacing(m_ini, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
     new_iso_mags = interpolate_mini(m_ini, mags, new_mini) .+ dmod
     # Approximate the IMF weights on each star in the isochrone as
@@ -371,7 +406,8 @@ end
 # IMF weighting. 
 function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
-    new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
+    # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
+    new_mini, new_spacing = mini_spacing(m_ini, mags[y_index], 0.01, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [ interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags ] # dmod included here
     colors = new_iso_mags[color_indices[1]] .- new_iso_mags[color_indices[2]]
@@ -405,5 +441,6 @@ end
 
 # Method exports
 export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
+
 
 end # module
