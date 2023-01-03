@@ -6,7 +6,8 @@ import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw
-import Distributions: UnivariateDistribution, pdf, cdf, quantile
+import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile
+import Random: AbstractRNG, default_rng
 
 # Code inclusion
 
@@ -179,7 +180,7 @@ end
 Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.UnivariateDistribution`, this will convert the function call into the correct `pdf` call.
 """
 dispatch_imf(imf, m) = imf(m)
-dispatch_imf(imf::UnivariateDistribution, m) = pdf(imf, m)
+dispatch_imf(imf::UnivariateDistribution{Continuous}, m) = pdf(imf, m)
 
 ##################################
 # KDE models
