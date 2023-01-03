@@ -6,10 +6,12 @@ import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw
+import Roots: find_zero
 import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile
 import Random: AbstractRNG, default_rng
 
 # Code inclusion
+include("simulate.jl")
 
 # Code
 ##################################
