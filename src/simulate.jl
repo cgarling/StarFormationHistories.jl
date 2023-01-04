@@ -120,12 +120,12 @@ end
 # Notes
 ## Population Masses
 Given a particular isochrone with an initial mass vector `mini_vec`, it will never cover the full range of stellar
-birth masses because stars that die are not included on the isochrone. As such, these stars will be sampled by
+birth masses because stars that die are not included in the isochrone. As such, these stars will be sampled by
 `generate_mock_stars` (assuming that the maximum mass of your `imf` type is set to a physical value like 100 solar
 masses), but will not end up in the returned catalog. As such, the sum of the initial mass vector you get out
 will be less than what you requested. The fraction of mass that ends up in the final returned catalog will depend
 on your IMF model and your isochrone. Generally, if your requested stellar mass is `limit` and the sum of the initial mass vector returned by `generate_mock_stars` is `x * limit` with `x < 1`, `x` can be identified as the surviving mass
-fraction, which should be equal to the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
+fraction, which should have an expectation value given by the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
 """
 function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
@@ -150,8 +150,8 @@ function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector
         if (mass_sample < mmin) | (mass_sample > mmax)
             continue
         end
-        mag_sample = itp(mass_sample) # .+ dist_mod
-        push!(mass_vec, mass_sample)
+        mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
+        push!(mass_vec, mass_sample)  # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
         push!(mag_vec, mag_sample)
     end
     return mass_vec, mag_vec
