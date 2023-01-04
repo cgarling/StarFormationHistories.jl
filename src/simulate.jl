@@ -45,6 +45,26 @@ function find_Mv_flat_mu(μ, area, dist_mod)
     return MV_from_L(L_total)
 end
 
+#### Metallicity utilities
+"""
+    Y_from_Z(Z)
+Calculates the helium mass fraction (Y) for a star given its metal mass fraction (Z) using the approximation `Y = 0.2485 + 1.78Z` as assumed for [PARSEC](http://stev.oapd.inaf.it/cgi-bin/cmd_3.7) isochrones. 
+"""
+Y_from_Z(Z) = 0.2485 + 1.78Z
+"""
+    X_from_Z(Z)
+Calculates the hydrogen mass fraction (X) for a star given its metal mass fraction (Z) via `X = 1 - (Z + Y)`, with the helium mass fraction `Y` approximated via [`SFH.Y_from_Z`](@ref). 
+"""
+X_from_Z(Z) = 1 - (Y_from_Z(Z) + Z)
+"""
+    MH_from_Z(Z, solZ=0.0152)
+Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`SFH.X_from_Z`](@ref). This is based on an approximation and may not be suitable for precision calculations.
+"""
+MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ))
+# PARSEC says that the solar Z is 0.0152 and Z/X = 0.0207, but they don't quite agree
+# when assuming their provided Y=0.2485+1.78Z. We'll adopt their solZ here, but this
+# should probably not be used for precision calculations.
+
 ################################################
 #### Interpret arguments for generate_mock_stars
 
