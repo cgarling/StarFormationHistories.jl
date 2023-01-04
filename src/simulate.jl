@@ -83,7 +83,7 @@ function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractMatrix{<:Re
                              `mags` argument."))
     end
 end
-# Should improve the shape checks for this method.
+# Should improve the shape checks on `mags` for this method.
 function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T}) where T <: AbstractVector{<:Real}
     # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors.
     # E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each
@@ -131,6 +131,7 @@ function mass_limits(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T},
     end
     return mmin, mmax
 end
+
 ###############################################
 #### Functions to generate mock galaxy catalogs from SSPs
 
@@ -204,7 +205,7 @@ function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{
             push!(mag_vec, mag_sample)
         end
     end
-    println(MV_from_L(total)) # Print the sampled absolute magnitude. 
+    # println(MV_from_L(total)) # Print the sampled absolute magnitude. 
     return mass_vec, mag_vec
 end
 
