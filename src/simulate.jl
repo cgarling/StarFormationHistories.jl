@@ -156,3 +156,36 @@ function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector
     end
     return mass_vec, mag_vec
 end
+
+# Not quite right yet; we only want to count stars that survive to present day in the `total` accumulator, but mass_limits slightly complicates our implementation at the moment.
+# Tried to fix it, not sure what the performance impact is going to be...
+function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, limit_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+    # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
+    mags = ingest_mags(mini_vec, mags)
+    mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
+    idxlim = findfirst(x->x==lim_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
+    limit = L_from_MV(limit + dist_mod) # Convert the provided `limit` from magnitudes into luminosity.
+    itp = interpolate((mini_vec,), mags, Gridded(Linear()))
+    mmin1, mmax1 = extrema(mini_vec) # Need this to determine validity for mag interpolation.
+    mmin2, mmax2 = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Need this to determine mass that corresponds to mag_lim, if provided. 
+    
+    total = zero(eltype(imf))
+    mass_vec = Vector{eltype(imf)}(undef,0)
+    mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
+    while total < limit
+        mass_sample = rand(rng, imf)  # Just sample one star.
+        # Continue loop if sampled mass is outside of isochrone range.
+        if (mass_sample < mmin1) | (mass_sample > mmax1)
+            continue
+        end
+        mag_sample = itp(mass_sample) # Interpolate the sampled mass.
+        total += L_from_MV(mag_sample[idxlim]) # Add luminosity to total.
+        # Only push to the output vectors if the sampled mass is in the valid range. 
+        if mmin2 <= mass_sample # <= mmax2 
+            push!(mass_vec, mass_sample)
+            push!(mag_vec, mag_sample)
+        end
+    end
+    println(MV_from_L(total)) - dist_mod # Print the sampled absolute magnitude. 
+    return mass_vec, mag_vec
+end
