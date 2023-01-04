@@ -132,7 +132,7 @@ function mass_limits(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T},
     return mmin, mmax
 end
 ###############################################
-#### Functions to generate mock galaxy catalogs
+#### Functions to generate mock galaxy catalogs from SSPs
 
 """
     generate_mock_stars_mass
@@ -177,17 +177,15 @@ function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector
     return mass_vec, mag_vec
 end
 
-# Not quite right yet; we only want to count stars that survive to present day in the `total` accumulator, but mass_limits slightly complicates our implementation at the moment.
-# Tried to fix it, not sure what the performance impact is going to be...
-function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, limit_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
-    idxlim = findfirst(x->x==lim_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
-    limit = L_from_MV(limit + dist_mod) # Convert the provided `limit` from magnitudes into luminosity.
+    idxlim = findfirst(x->x==absmag_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
+    limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax1 = extrema(mini_vec) # Need this to determine validity for mag interpolation.
-    mmin2, mmax2 = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Need this to determine mass that corresponds to mag_lim, if provided. 
+    mmin2, mmax2 = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
     
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
@@ -199,13 +197,16 @@ function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{
             continue
         end
         mag_sample = itp(mass_sample) # Interpolate the sampled mass.
-        total += L_from_MV(mag_sample[idxlim]) # Add luminosity to total.
+        total += L_from_MV(mag_sample[idxlim] - dist_mod) # Add luminosity to total, subtracting the distance modulus.
         # Only push to the output vectors if the sampled mass is in the valid range. 
         if mmin2 <= mass_sample # <= mmax2 
             push!(mass_vec, mass_sample)
             push!(mag_vec, mag_sample)
         end
     end
-    println(MV_from_L(total)) - dist_mod # Print the sampled absolute magnitude. 
+    println(MV_from_L(total)) # Print the sampled absolute magnitude. 
     return mass_vec, mag_vec
 end
+
+###############################################
+#### Functions to generate composite mock galaxy catalogs from multiple SSPs
