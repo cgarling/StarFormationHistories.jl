@@ -68,7 +68,7 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 ################################################
 #### Interpret arguments for generate_mock_stars
 
-function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractMatrix{<:Real})
+function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
     shape = size(mags)
     if shape[1] == length(mini_vec)
         return collect(eachrow(mags)) # eachrow returns views which are fast but annoying.
@@ -84,7 +84,7 @@ function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractMatrix{<:Re
     end
 end
 # Should improve the shape checks on `mags` for this method.
-function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T}) where T <: AbstractVector{<:Real}
+function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
     # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors.
     # E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each
     # with length 100. 
@@ -113,9 +113,9 @@ function ingest_mags(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T}) 
     end
 end
 
-function mass_limits(mini_vec::AbstractVector{<:Real}, mags::AbstractVector{T},
-                     mag_names::AbstractVector{String}, mag_lim::Real,
-                     mag_lim_name::String) where T <: AbstractVector{<:Real}
+function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
+                     mag_names::Vector{String}, mag_lim::Real,
+                     mag_lim_name::String) where T <: Vector{<:Real}
     mmin, mmax = extrema(mini_vec) 
     # Update mmin respecing `mag_lim`, if provided.
     if isfinite(mag_lim)
@@ -136,7 +136,7 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    generate_mock_stars_mass
+    generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
 
 # Notes
 ## Population Masses
@@ -148,7 +148,7 @@ will be less than what you requested. The fraction of mass that ends up in the f
 on your IMF model and your isochrone. Generally, if your requested stellar mass is `limit` and the sum of the initial mass vector returned by `generate_mock_stars` is `x * limit` with `x < 1`, `x` can be identified as the surviving mass
 fraction, which should have an expectation value given by the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
 """
-function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -178,7 +178,7 @@ function generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector
     return mass_vec, mag_vec
 end
 
-function generate_mock_stars_mag(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+function generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
