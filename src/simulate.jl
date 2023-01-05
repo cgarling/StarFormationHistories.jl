@@ -136,7 +136,13 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    generate_mock_stars_mass(mini_vec::AbstractVector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+    generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+
+# Arguments
+ - `mini_vec::Vector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone.
+ - `mags` contains the magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. This can either be
+    - `mags::Vector{Vector{<:Real}}`, 
+    - `mags::Matrix{<:Real}
 
 # Notes
 ## Population Masses
@@ -148,7 +154,7 @@ will be less than what you requested. The fraction of mass that ends up in the f
 on your IMF model and your isochrone. Generally, if your requested stellar mass is `limit` and the sum of the initial mass vector returned by `generate_mock_stars` is `x * limit` with `x < 1`, `x` can be identified as the surviving mass
 fraction, which should have an expectation value given by the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
 """
-function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
