@@ -77,24 +77,15 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
         return collect(eachcol(mags)) # eachrow returns views which are fast but annoying.
         # return [mags[:,i] for i in 1:length(mini_vec)]
     else
-        throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing a Matrix{<:Real},
-                             then it should be 2-dimensional and have size of NxM or MxN, where N is the number of
-                             elements in mini_vec, and M is the number of filters represented in the
-                             `mags` argument."))
+        throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in mini_vec, and M is the number of filters represented in the `mags` argument."))
     end
 end
 # Should improve the shape checks on `mags` for this method.
 function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
-    # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors.
-    # E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each
-    # with length 100. 
-    # The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
+    # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors. E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each with length 100. The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
     if length(mags) != length(mini_vec)
         if length(mags[1]) != length(mini_vec) # If the above is false, then this should be true; otherwise error. 
-            throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing
-                                 a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN,
-                                 where N is the number of elements in mini_vec, and M is the number of filters
-                                 represented in the `mags` argument."))
+            throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN, where N is the number of elements in mini_vec, and M is the number of filters represented in the `mags` argument."))
         else
             return collect(eachrow(hcat(mags...))) # eachrow returns views which are fast but annoying. 
             # mat = hcat(mags...)
@@ -112,6 +103,7 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vecto
         return mags
     end
 end
+ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no ingest_mags method for the provided mini_vec/mags types. See the documentation for the public functions, (e.g., [generate_mock_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized. 
 
 function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
                      mag_names::Vector{String}, mag_lim::Real,
@@ -136,25 +128,28 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+    (sampled_masses, sampled_mags) = generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
 
 # Arguments
  - `mini_vec::Vector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone.
- - `mags` contains the magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. This can either be
-    - `mags::Vector{Vector{<:Real}}`, 
-    - `mags::Matrix{<:Real}
+ - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`SFH.ingest_mags`](@ref). Valid inputs are:
+    - `mags::Vector{Vector{<:Real}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
+    - `mags::Matrix{<:Real}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
+ - `mag_names::Vector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned.
+ - `limit::Real` gives the total birth stellar mass of the population you want to sample. See the "Notes" section on population masses for more information.
+ - `imf::Distributions.UnivariateDistribution{Distributions.Continuous}` is a continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
+
+# Keyword Arguments
+ - `dist_mod::Real=0` is the distance modulus (see [`SFH.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
+ - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
+ - `mag_lim::Real=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
+ - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite. 
 
 # Notes
 ## Population Masses
-Given a particular isochrone with an initial mass vector `mini_vec`, it will never cover the full range of stellar
-birth masses because stars that die are not included in the isochrone. As such, these stars will be sampled by
-`generate_mock_stars` (assuming that the maximum mass of your `imf` type is set to a physical value like 100 solar
-masses), but will not end up in the returned catalog. As such, the sum of the initial mass vector you get out
-will be less than what you requested. The fraction of mass that ends up in the final returned catalog will depend
-on your IMF model and your isochrone. Generally, if your requested stellar mass is `limit` and the sum of the initial mass vector returned by `generate_mock_stars` is `x * limit` with `x < 1`, `x` can be identified as the surviving mass
-fraction, which should have an expectation value given by the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
+Given a particular isochrone with an initial mass vector `mini_vec`, it will never cover the full range of stellar birth masses because stars that die are not included in the isochrone. As such, these stars will be sampled by `generate_mock_stars` (assuming that the maximum mass of your `imf` type is set to a physical value like 100 solar masses), but will not end up in the returned catalog. As such, the sum of the initial mass vector you get out will be less than what you requested. The fraction of mass that ends up in the final returned catalog will depend on your IMF model and your isochrone. Generally, if your requested stellar mass is `limit` and the sum of the initial mass vector returned by `generate_mock_stars` is `x * limit` with `x < 1`, `x` can be identified as the surviving mass fraction, which should have an expectation value given by the integral `QuadGK.quadgk(x->x*pdf(imf,x), mmin, maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), mmin, mmax)[1]`, with `mmin` and `mmax` being the minimum and maximum mass that can be sampled from your IMF model object `imf`. 
 """
-function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -184,11 +179,17 @@ function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vec
     return mass_vec, mag_vec
 end
 
-function generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags::Vector{Vector{T}}, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") where T<:Real
+"""
+    (sampled_masses, sampled_mags) =  generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+
+Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::Vector{String}`. Other arguments are shared with [`generate_mock_stars_mass`](@ref), which contains the main documentation.
+"""
+function generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
     idxlim = findfirst(x->x==absmag_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
+    idxlim == nothing && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array.")) # Throw error if absmag_name not in mag_names.
     limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax1 = extrema(mini_vec) # Need this to determine validity for mag interpolation.
