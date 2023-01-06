@@ -77,7 +77,7 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
         return collect(eachcol(mags)) # eachrow returns views which are fast but annoying.
         # return [mags[:,i] for i in 1:length(mini_vec)]
     else
-        throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in mini_vec, and M is the number of filters represented in the `mags` argument."))
+        throw(ArgumentError("generate_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
     end
 end
 # Should improve the shape checks on `mags` for this method.
@@ -85,7 +85,7 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vecto
     # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors. E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each with length 100. The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
     if length(mags) != length(mini_vec)
         if length(mags[1]) != length(mini_vec) # If the above is false, then this should be true; otherwise error. 
-            throw(ArgumentError("generate_mock_stars received a misshapen `mags` argument. When providing a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN, where N is the number of elements in mini_vec, and M is the number of filters represented in the `mags` argument."))
+            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
         else
             return collect(eachrow(hcat(mags...))) # eachrow returns views which are fast but annoying. 
             # mat = hcat(mags...)
@@ -103,7 +103,7 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vecto
         return mags
     end
 end
-ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no ingest_mags method for the provided mini_vec/mags types. See the documentation for the public functions, (e.g., [generate_mock_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized. 
+ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized. 
 
 function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
                      mag_names::Vector{String}, mag_lim::Real,
@@ -128,7 +128,7 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
 
 # Arguments
  - `mini_vec::Vector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone.
@@ -154,7 +154,7 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
 \\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
 ```
 """
-function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -185,15 +185,15 @@ function generate_mock_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vec
 end
 
 """
-    (sampled_masses, sampled_mags) =  generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
 
-Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::Vector{String}`. Other arguments are shared with [`generate_mock_stars_mass`](@ref), which contains the main documentation.
+Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::Vector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
 
 # Notes
 ## Population Magnitudes
-Unlike when sampling a population to a fixed initial birth mass, as is implemented in [`generate_mock_stars_mag`](@ref), when generating a population up to a fixed absolute magnitude, only stars that survive to present-day contribute to the flux of the population. If you choose to limit the apparent magnitude of stars returned by passing the `mag_lim` and `mag_lim_name` keyword arguments, stars fainter than your chosen limit will still be sampled and will still contribute their luminosity to the total population, but they will not be contained in the returned output. 
+Unlike when sampling a population to a fixed initial birth mass, as is implemented in [`generate_stars_mag`](@ref), when generating a population up to a fixed absolute magnitude, only stars that survive to present-day contribute to the flux of the population. If you choose to limit the apparent magnitude of stars returned by passing the `mag_lim` and `mag_lim_name` keyword arguments, stars fainter than your chosen limit will still be sampled and will still contribute their luminosity to the total population, but they will not be contained in the returned output. 
 """
-function generate_mock_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -227,3 +227,46 @@ end
 
 ###############################################
 #### Functions to generate composite mock galaxy catalogs from multiple SSPs
+
+function generate_stars_mass_composite(mini_vec::Vector{T}, mags::Vector, mag_names::Vector{String}, limit::Real, massfrac::Vector{<:Real}, imf::UnivariateDistribution{Continuous}; kws...) where T<:Vector{<:Real} # dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") 
+    !(length(mini_vec) == length(mags) == length(massfrac)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all be vectors of equal length."))
+    ncomposite = length(mini_vec) # Number of stellar populations provided.
+    massfrac ./= sum(massfrac) # Renormalize massfrac to sum to 1.
+    # Allocate output vectors.
+    massvec = [ Vector{eltype(imf)}(undef,0) for i in 1:ncomposite ]
+    mag_vec = [ Vector{Vector{eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
+    Threads.@threads for i in eachindex(mini_vec, mags, massfrac)
+        result = generate_stars_mass(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf; kws...)
+        massvec[i] = result[1]
+        mag_vec[i] = result[2]
+    end
+    return massvec, mag_vec
+end
+
+# For generate_stars_mags_composite we probably want to support both luminosity and initial mass fractions.
+function generate_stars_mag_composite(mini_vec::Vector{T}, mags::Vector, mag_names::Vector{String}, absmag::Real, absmag_name::String, fracs::Vector{<:Real}, imf::UnivariateDistribution{Continuous}; frac_type::String="lum", kws...) where T<:Vector{<:Real}
+    !(length(mini_vec) == length(mags) == length(fracs)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all be vectors of equal length."))
+    ncomposite = length(mini_vec) # Number of stellar populations provided.
+    fracs ./= sum(fracs) # Renormalize fracs to sum to 1.
+    # Interpret whether user requests `fracs` represent luminosity or mass fractions.
+    if frac_type == "lum"
+        limit = L_from_MV(absmag)   # Convert the provided `limit` from magnitudes into luminosity.
+        fracs = fracs .* limit      # Portion the total luminosity across the different input models.
+        @. fracs = MV_from_L(fracs) # Convert back to magnitudes.
+    elseif frac_type == "mass"
+        throw(ArgumentError("`frac_type == mass` not yet implemented."))
+    else
+        throw(ArgumentError("Supported `frac_type` arguments for generate_stars_mag_composite are \"lum\" or \"mass\"."))
+    end
+    # Allocate output vectors.
+    massvec = [ Vector{eltype(imf)}(undef,0) for i in 1:ncomposite ]
+    mag_vec = [ Vector{Vector{eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
+    Threads.@threads for i in eachindex(mini_vec, mags, fracs)
+        result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf; kws...)
+        massvec[i] = result[1]
+        mag_vec[i] = result[2]
+    end
+    return massvec, mag_vec
+end
