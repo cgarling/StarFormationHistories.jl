@@ -149,20 +149,23 @@ struct Binaries{T <: Real} <: AbstractBinaryModel
     fraction::T
 end
 
+"""
+Mutates input `mags` array with sampled binary (if any) and returns the sampled mass of the binary star. Returns `zero(mass)` if no binary is sampled, but will return a non-zero mass even if a binary is outside the valid initial mass range `(mmin, mmax)`. 
+"""
 sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
 function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
     frac = binarymodel.fraction
     r = rand(rng) # Random uniform number
     if r <= frac  # Generate a binary star
         mass_new = rand(rng, imf)
-        if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range. 
+        if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range
             return mass_new 
         end
         mags_new = itp(mass_new)
         for i in eachindex(mags)
             L = L_from_MV(mags[i])
             L += L_from_MV(mags_new[i])
-            mags[i] = MV_from_L(L)
+            mags[i] = MV_from_L(L) # Mutate the existing mags array
         end
         return mass_new
     else
@@ -201,7 +204,7 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
 \\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
 ```
 """
-function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -226,7 +229,10 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
             continue
         end
         mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
-        push!(mass_vec, mass_sample)  # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
+        # See if we sample any binary stars
+        binary_mass = sample_binary!(mass_sample, mmin, mmax, mag_sample, imf, itp, rng, binary_model)
+        total += binary_mass
+        push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
         push!(mag_vec, mag_sample)
     end
     return mass_vec, mag_vec
