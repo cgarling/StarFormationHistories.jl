@@ -139,6 +139,39 @@ function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
 end
 
 ###############################################
+#### Types and methods for non-interacting binary calculations
+abstract type AbstractBinaryModel end
+Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
+""" The `NoBinaries` type indicates that no binaries of any kind should be created. """
+struct NoBinaries <: AbstractBinaryModel end
+
+struct Binaries{T <: Real} <: AbstractBinaryModel
+    fraction::T
+end
+
+sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
+function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
+    frac = binarymodel.fraction
+    r = rand(rng) # Random uniform number
+    if r <= frac  # Generate a binary star
+        mass_new = rand(rng, imf)
+        if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range. 
+            return mass_new 
+        end
+        mags_new = itp(mass_new)
+        for i in eachindex(mags)
+            L = L_from_MV(mags[i])
+            L += L_from_MV(mags_new[i])
+            mags[i] = MV_from_L(L)
+        end
+        return mass_new
+    else
+        return zero(mass)
+    end
+end
+
+
+###############################################
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
