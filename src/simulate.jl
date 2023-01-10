@@ -3,7 +3,7 @@
     distance_modulus(distance)
 Finds distance modulus for distance in parsecs. 
 """
-distance_modulus(distance) =  5*log10(distance/10)
+distance_modulus(distance) =  5 * log10(distance/10)
 """
     distance_modulus_to_distance(dist_mod)
 Converts distance modulus to distance in parsecs.
@@ -18,29 +18,29 @@ arcsec_to_pc(arcsec, dist_mod) = exp10(dist_mod/5 + 1) * atan( deg2rad(arcsec/36
     pc_to_arcsec(pc, dist_mod)
 Inverse of `arcsec_to_pc`.
 """
-pc_to_arcsec(pc, dist_mod) = rad2deg( tan( pc/exp10(dist_mod/5 + 1)))*3600
+pc_to_arcsec(pc, dist_mod) = rad2deg( tan( pc / exp10(dist_mod/5 + 1) ) ) * 3600
 """
     angular_transformation_distance(angle, distance0, distance1)
 Transforms an angular separation in arcseconds at distance `distance0` in parsecs to another distance `distance1` in parsecs. Uses the small angle approximation. 
 """
 function angular_transformation_distance(angle, distance0, distance1)
-    pc0 = arcsec_to_pc(angle,distance_modulus(distance0))
-    return pc_to_arcsec(pc0,distance_modulus(distance1))
+    pc0 = arcsec_to_pc(angle, distance_modulus(distance0))
+    return pc_to_arcsec(pc0, distance_modulus(distance1))
 end
 
 #### Luminosity Utilities
-L_from_MV( absmagv ) = exp10(0.4 * (4.8 - absmagv))
+L_from_MV(absmagv) = exp10(0.4 * (4.8 - absmagv))
 MV_from_L(lum) = 4.8 - 2.5 * log10(lum)
 """ Luminosity in watts. """
 M_bol_from_L(lum) = 71.1974 - 2.5 * log10(lum)
 """ Returns watts. """
-L_from_M_bol( absbolmag ) = exp10((71.1974-absbolmag)/2.5)
+L_from_M_bol( absbolmag ) = exp10((71.1974 - absbolmag)/2.5)
 """
     find_Mv_flat_mu(μ, area, dist_mod)
 Given a constant surface brightness `μ`, an angular area `area`, and a distance modulus `dist_mod`, returns the magnitude of the feature. 
 """
 function find_Mv_flat_mu(μ, area, dist_mod)
-    L = L_from_MV(μ-dist_mod)
+    L = L_from_MV(μ - dist_mod)
     L_total = L * area
     return MV_from_L(L_total)
 end
@@ -103,7 +103,21 @@ function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vecto
         return mags
     end
 end
-ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized. 
+ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized.
+
+"""
+    (new_mini_vec, new_mags) = sort_ingested(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
+Takes `mini_vec` and `mags` (after calling `ingest_mags` and converting to a Vector{Vector{<:Real}}) and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` to ensure there are no repeat entries.
+"""
+function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
+    idx = sortperm(mini_vec)
+    if idx != eachindex(mini_vec)
+        mini_vec = mini_vec[idx]
+        mags = mags[idx]
+    end
+    deduplicate_knots!(mini_vec) # Interpolations.jl function. 
+    return mini_vec, mags
+end
 
 function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
                      mag_names::Vector{String}, mag_lim::Real,
@@ -158,6 +172,7 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
+    mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     # itp = extrapolate(interpolate((mini_vec,), mags, Gridded(Linear())), Throw())
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     # Get minimum and maximum masses provided by the isochrone, respecting `mag_lim`, if provided.
@@ -197,6 +212,7 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
+    mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     idxlim = findfirst(x->x==absmag_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
     idxlim == nothing && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array.")) # Throw error if absmag_name not in mag_names.
     limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
@@ -270,3 +286,37 @@ function generate_stars_mag_composite(mini_vec::Vector{T}, mags::Vector, mag_nam
     end
     return massvec, mag_vec
 end
+
+###############################################
+#### Functions for modelling observational effects
+
+function model_cmd(mags::Vector{T}, errfuncs::Vector, completefuncs::Vector; rng::AbstractRNG=default_rng()) where T<:Vector{<:Real}
+    nstars = length(mags)
+    nfilters = length(first(mags))
+    !(nfilters == length(errfuncs) == length(completefuncs)) && throw(ArgumentError("The `errfuncs` and `completefuncs` arguments to `model_cmd` must have length equal to the elements of `mags` representing the number of filters that you are providing magnitudes for."))
+    randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
+    # magmat = hcat(mags...)
+    # completeness = hcat([ completefuncs[i].(view(magmat,i,:)) for i in 1:nfilters ]...)
+    # completeness = map(x->reduce(*,x), eachrow(completeness))
+    # return completeness
+    completeness = ones(nstars) # Vector{eltype(mags[1])}(undef, nstars)
+    cvals = Vector{eltype(completeness)}(undef, nfilters)
+    # Estimate the overall completeness as the product of the single-band completeness values.
+    for i in eachindex(mags)
+        cvals .= mags[i]
+        for j in eachindex(completefuncs)
+            completeness[i] *= completefuncs[j](cvals[j])
+        end
+    end
+    # Pick out the entries where the random number is less than the product of the single-band completeness values 
+    good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
+    ret_mags = mags[good] # Get the good mags to be returned.
+    for i in eachindex(ret_mags)
+        cvals .= ret_mags[i]
+        for j in eachindex(errfuncs)
+            ret_mags[i][j] += ( randn(rng) * errfuncs[j](cvals[j]) ) # Add error. 
+        end
+    end
+    return ret_mags
+end
+# model_cmd(mags::Matrix, args...; kws...) = model_cmd(

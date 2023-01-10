@@ -5,7 +5,7 @@ import StatsBase: fit, Histogram, Weights, sample
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
-import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw
+import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw, deduplicate_knots!
 import Roots: find_zero
 import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile
 import Random: AbstractRNG, default_rng
