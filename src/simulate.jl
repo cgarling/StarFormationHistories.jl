@@ -140,20 +140,23 @@ end
 
 ###############################################
 #### Types and methods for non-interacting binary calculations
+""" `SFH.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the SFH package. All concrete subtypes must implement the [`SFH.sample_binary!`](@ref) method. """
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """ The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
-
+""" The `Binaries` type takes one argument `fraction` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction). This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed reduction relative to `NoBinaries`. """
 struct Binaries{T <: Real} <: AbstractBinaryModel
     fraction::T
 end
 
 """
-Mutates input `mags` array with sampled binary (if any) and returns the sampled mass of the binary star. Returns `zero(mass)` if no binary is sampled, but will return a non-zero mass even if a binary is outside the valid initial mass range `(mmin, mmax)`. 
+    binary_mass = sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::T) where T <: SFH.AbstractBinaryModel
+
+Mutates input `mags` array that represents a single star's per-filter magnitudes by adding luminosity from unresolved binaries (if any) and returns the sampled mass of the binary star(s). Returns `zero(mass)` if no binary is sampled, but will return a non-zero mass even if a binary is outside the valid initial mass range `(mmin, mmax)`. Other details may vary based on the input `binarymodel`. 
 """
-sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
-function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
+@inline sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
+@inline function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
     frac = binarymodel.fraction
     r = rand(rng) # Random uniform number
     if r <= frac  # Generate a binary star
@@ -211,12 +214,12 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     # itp = extrapolate(interpolate((mini_vec,), mags, Gridded(Linear())), Throw())
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
-    # Get minimum and maximum masses provided by the isochrone, respecting `mag_lim`, if provided.
-    mmin, mmax = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name)
+    mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
+    mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
     # We might be able to gain some efficiency by creating a new truncated IMF with lower bound mmin,
     # when mag_lim is not infinite. Looks like a factor of 2 improvement but without renormalizing `limit`,
     # it will not sample the correct amount of stellar mass. 
-    # mmin > minimum(mini_vec) && (imf = truncated(imf; lower=mmin))
+    # mmin1 > minimum(mini_vec) && (imf = truncated(imf; lower=mmin1))
     # Setup for iteration. 
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
@@ -225,12 +228,12 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
         mass_sample = rand(rng, imf) # Just sample one star.
         total += mass_sample         # Add mass to total.
         # Continue loop if sampled mass is outside of isochrone range.
-        if (mass_sample < mmin) | (mass_sample > mmax)
+        if (mass_sample < mmin2) | (mass_sample > mmax)
             continue
         end
         mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
         # See if we sample any binary stars
-        binary_mass = sample_binary!(mass_sample, mmin, mmax, mag_sample, imf, itp, rng, binary_model)
+        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf, itp, rng, binary_model)
         total += binary_mass
         push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
         push!(mag_vec, mag_sample)
@@ -256,8 +259,8 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     idxlim == nothing && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array.")) # Throw error if absmag_name not in mag_names.
     limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
-    mmin1, mmax1 = extrema(mini_vec) # Need this to determine validity for mag interpolation.
-    mmin2, mmax2 = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
+    mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
+    mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
     
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
@@ -265,13 +268,13 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     while total < limit
         mass_sample = rand(rng, imf)  # Just sample one star.
         # Continue loop if sampled mass is outside of isochrone range.
-        if (mass_sample < mmin1) | (mass_sample > mmax1)
+        if (mass_sample < mmin1) | (mass_sample > mmax)
             continue
         end
         mag_sample = itp(mass_sample) # Interpolate the sampled mass.
         total += L_from_MV(mag_sample[idxlim] - dist_mod) # Add luminosity to total, subtracting the distance modulus.
         # Only push to the output vectors if the sampled mass is in the valid range. 
-        if mmin2 <= mass_sample # <= mmax2 
+        if mmin2 <= mass_sample 
             push!(mass_vec, mass_sample)
             push!(mag_vec, mag_sample)
         end
