@@ -181,7 +181,7 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
 
 # Arguments
  - `mini_vec::Vector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone.
@@ -196,7 +196,8 @@ end
  - `dist_mod::Real=0` is the distance modulus (see [`SFH.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
  - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
  - `mag_lim::Real=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
- - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite. 
+ - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite.
+ - `binary_model::SFH.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
 
 # Notes
 ## Population Masses
@@ -212,7 +213,9 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
-    # itp = extrapolate(interpolate((mini_vec,), mags, Gridded(Linear())), Throw())
+    # Construct the sampler object for the provided imf; for some distributions, this will return a
+    # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
+    imf_sampler = sampler(imf) 
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
     mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
@@ -225,7 +228,7 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
     mass_vec = Vector{eltype(imf)}(undef,0)
     mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
     while total < limit
-        mass_sample = rand(rng, imf) # Just sample one star.
+        mass_sample = rand(rng, imf_sampler) # Just sample one star.
         total += mass_sample         # Add mass to total.
         # Continue loop if sampled mass is outside of isochrone range.
         if (mass_sample < mmin2) | (mass_sample > mmax)
@@ -233,7 +236,7 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
         end
         mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
         # See if we sample any binary stars
-        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf, itp, rng, binary_model)
+        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         total += binary_mass
         push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
         push!(mag_vec, mag_sample)
@@ -242,7 +245,7 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
 end
 
 """
-    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
 
 Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::Vector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
 
@@ -250,7 +253,7 @@ Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g.
 ## Population Magnitudes
 Unlike when sampling a population to a fixed initial birth mass, as is implemented in [`generate_stars_mag`](@ref), when generating a population up to a fixed absolute magnitude, only stars that survive to present-day contribute to the flux of the population. If you choose to limit the apparent magnitude of stars returned by passing the `mag_lim` and `mag_lim_name` keyword arguments, stars fainter than your chosen limit will still be sampled and will still contribute their luminosity to the total population, but they will not be contained in the returned output. 
 """
-function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V")
+function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -258,6 +261,9 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     idxlim = findfirst(x->x==absmag_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
     idxlim == nothing && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array.")) # Throw error if absmag_name not in mag_names.
     limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
+    # Construct the sampler object for the provided imf; for some distributions, this will return a
+    # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
+    imf_sampler = sampler(imf)
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
     mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
@@ -266,12 +272,15 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     mass_vec = Vector{eltype(imf)}(undef,0)
     mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
     while total < limit
-        mass_sample = rand(rng, imf)  # Just sample one star.
+        mass_sample = rand(rng, imf_sampler)  # Just sample one star.
         # Continue loop if sampled mass is outside of isochrone range.
         if (mass_sample < mmin1) | (mass_sample > mmax)
             continue
         end
         mag_sample = itp(mass_sample) # Interpolate the sampled mass.
+        # See if we sample any binary stars
+        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
+        mass_sample += binary_mass
         total += L_from_MV(mag_sample[idxlim] - dist_mod) # Add luminosity to total, subtracting the distance modulus.
         # Only push to the output vectors if the sampled mass is in the valid range. 
         if mmin2 <= mass_sample 
