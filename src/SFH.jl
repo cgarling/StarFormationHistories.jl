@@ -1,13 +1,14 @@
 module SFH
 
 # Import statements
-import StatsBase: fit, Histogram, Weights, sample
+import StatsBase: fit, Histogram, Weights, sample, mean
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw, deduplicate_knots!
 import Roots: find_zero
 import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile, sampler
+import QuadGK: quadgk
 import Random: AbstractRNG, default_rng
 
 # Code inclusion
@@ -19,11 +20,11 @@ include("simulate.jl")
 # Isochrone utilities
 
 """
-    interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini)
-    interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini)
-    interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
+    new_mags::Vector = interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini)
+    new_mags::Vector{Vector} = interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini)
+    new_mags::Matrix = interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
 
-Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter.
+Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter. 
 
 # Examples
 ```julia
@@ -34,18 +35,11 @@ julia> SFH.interpolate_mini(m_ini, mags, new_mini)
 ```
 """
 interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
-    extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
+    interpolate((m_ini,), mags, Gridded(Linear()))(new_mini) # extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
 interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T<:Number =
-    [ extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in mags ]
+    [ interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags ]
 interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
-    reduce(hcat, extrapolate(interpolate((m_ini,), i, Gridded(Linear())), Throw())(new_mini) for i in eachcol(mags))
-# interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
-#     linear_interpolation(m_ini, mags)(new_mini)
-# interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini) =
-#     [linear_interpolation(m_ini, i)(new_mini) for i in mags]
-# interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
-#     reduce(hcat, linear_interpolation(m_ini, i)(new_mini) for i in eachcol(mags))
-
+    reduce(hcat, interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in eachcol(mags))
 
 # """
 #     mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
@@ -142,7 +136,11 @@ interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
 """
     mini_spacing(m_ini::Vector, mags::Vector, Δmag, ret_spacing::Bool=false)
 
-Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`. 
+Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
+
+```julia
+julia> SFH.mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16], [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
+```
 """
 function mini_spacing(m_ini::Vector, mags::Vector, Δmag, ret_spacing::Bool=false)
     @assert length(m_ini) == length(mags)
@@ -183,6 +181,12 @@ Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@re
 """
 dispatch_imf(imf, m) = imf(m)
 dispatch_imf(imf::UnivariateDistribution{Continuous}, m) = pdf(imf, m)
+
+"""
+    mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+Calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk`. This is a generic fallback; generally better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
+"""
+mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
 
 ##################################
 # KDE models
@@ -359,7 +363,7 @@ end
 
 Returns a `StatsBase.Histogram` type containing the unnormalized, 2D CMD (i.e., Hess diagram) where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These should be equal in size. This is akin to a KDE where each point is broadened by its own PRF. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
 
-Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to evaluate smoothed isochrone models. 
+Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
 function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     nstars = size(colors)
@@ -377,37 +381,34 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
         # Construct the star object
         obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
         # Insert the star object
-        cutout_size = size(obj) 
-        # cutout_size = ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
-        # cutout_size=(10,10)
-        addstar!(mat, obj, cutout_size) #, cutout_size::Tuple{Int,Int}=size(obj))
+        cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) ) # (10,10)
+        addstar!(mat, obj, cutout_size) 
     end
     return Histogram(edges, mat, :left, false)
 end
 
-function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
-    # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     new_mini, new_spacing = mini_spacing(m_ini, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
     new_iso_mags = interpolate_mini(m_ini, mags, new_mini) .+ dmod
     # Approximate the IMF weights on each star in the isochrone as
-    # (weights[i] = (m[i+1] - m[i]) * pdf(imf, m[i])
-    # weights = new_spacing .* imf.(new_mini[begin:end-1])
-    # Might be better to use the actual trapezoidal rule to integrate the PDF across the grid. 
-    # (weights[i] = (m[i+1] - m[i]) * ( pdf(imf, m[i]) + pdf(imf, m[i+1]) ) / 2
-    # Looks like this amounts to a ~10% difference on average, which is significant actually. 
+    # the trapezoidal rule integral across the bin.
+    # This is ~equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
+    # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
+        weights[i] *= normalize_value / mean_mass # Correct normalization
     end
-    weights = weights .* normalize_value ./ sum(weights)
+    # Previously we were dividing by sum(weights) here but I think that is wrong. 
+    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
 # Need to pass in completeness functions and use them when calculating the weights in addition to the
 # IMF weighting. 
-function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     new_mini, new_spacing = mini_spacing(m_ini, mags[y_index], 0.01, true)
@@ -418,24 +419,20 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     color_err = [ sqrt( mag_err[color_indices[1]][i]^2 + mag_err[color_indices[2]][i]^2 ) for i in eachindex(new_mini) ]
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin. 
-    # (weights[i] = (m[i+1] - m[i]) * ( pdf(imf, m[i]) + pdf(imf, m[i+1]) ) / 2
     # This is equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
     # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
-    # weights2 = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
-        # Incorporate completness values
+        # Incorporate completeness values
         weights[i] *= completeness_funcs[color_indices[1]](new_iso_mags[color_indices[1]][i]) *
             completeness_funcs[color_indices[2]](new_iso_mags[color_indices[2]][i])
+        weights[i] *= normalize_value / mean_mass # Correct normalization
     end
-    # return weights, weights2
-    # weights3 = weights .* weights2
-    # @assert all( weights3 .== weights ) # This returns true so it's fine
     # sum(weights) is now the full integral over the imf pdf from minimum(m_ini) -> maximum(m_ini).
     # This is equivalent to cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
     # Previously we were dividing by sum(weights) here but I think that is wrong. 
-    weights .= weights .* normalize_value # ./ sum(weights)
+    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd_smooth( colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
                            color_err[begin:end-1], mag_err[y_index][begin:end-1]; weights=weights,
                            edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
