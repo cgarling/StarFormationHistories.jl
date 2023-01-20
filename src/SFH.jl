@@ -355,7 +355,7 @@ The following keyword arguments are passed to `SFH.calculate_edges` to determine
 function bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     @assert size(colors) == size(mags)
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
-    return fit(Histogram, (colors, mags), Weights(weights), edges)
+    return fit(Histogram, (colors, mags), Weights(weights), edges; closed=:left)
 end
 """
     result::StatsBase.Histogram =
@@ -376,7 +376,7 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     xwidth, ywidth = step(edges[1]), step(edges[2])
     for i in eachindex(colors)
         # Convert colors, mags, color_err, and mag_err from magnitude-space to pixel-space in `mat`
-        x0, y0, σx, σy = histogram_pix(colors[i], edges[1]), histogram_pix(mags[i], edges[2]),
+        x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(mags[i], edges[2]) - 0.5,
         color_err[i] / xwidth, mag_err[i] / ywidth
         # Construct the star object
         obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
