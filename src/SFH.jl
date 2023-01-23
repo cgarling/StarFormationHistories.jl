@@ -5,14 +5,17 @@ import StatsBase: fit, Histogram, Weights, sample, mean
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
-import Interpolations: extrapolate, interpolate, Gridded, Linear, Throw, deduplicate_knots!
+import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import Roots: find_zero
 import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile, sampler
 import QuadGK: quadgk
+import LoopVectorization: @turbo
+import Optim
 import Random: AbstractRNG, default_rng
 
 # Code inclusion
 include("simulate.jl")
+include("fitting.jl")
 
 # Code
 ##################################
@@ -20,8 +23,8 @@ include("simulate.jl")
 # Isochrone utilities
 
 """
-    new_mags::Vector = interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini)
-    new_mags::Vector{Vector} = interpolate_mini(m_ini, mags::Vector{Vector{<:Number}}, new_mini)
+    new_mags::Vector = interpolate_mini(m_ini, mags::Vector{<:Real}, new_mini)
+    new_mags::Vector{Vector} = interpolate_mini(m_ini, mags::Vector{Vector{<:Real}}, new_mini)
     new_mags::Matrix = interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
 
 Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter. 
@@ -31,13 +34,20 @@ Function to interpolate `mags` as a function of initial mass vector `m_ini` onto
 julia> m_ini = [0.08, 0.10, 0.12, 0.14, 0.16]
 julia> mags = [13.545, 12.899, 12.355, 11.459, 10.947]
 julia> new_mini = 0.08:0.01:0.16
-julia> SFH.interpolate_mini(m_ini, mags, new_mini) 
+julia> SFH.interpolate_mini(m_ini, mags, new_mini)
+julia> mags = [mags, mags] # Vector{Vector{<:Real}}
+julia> SFH.interpolate_mini(m_ini, mags, new_mini)
 ```
 """
-interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) =
-    interpolate((m_ini,), mags, Gridded(Linear()))(new_mini) # extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
-interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T<:Number =
-    [ interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags ]
+function interpolate_mini(m_ini, mags::Vector{<:Real}, new_mini)
+    m_ini, mags = sort_ingested(m_ini, mags) # from simulate.jl include'd above
+    return interpolate((m_ini,), mags, Gridded(Linear()))(new_mini)
+end
+# interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) = interpolate((m_ini,), mags, Gridded(Linear()))(new_mini) # extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
+# I don't think these two methods are actually used by anything so not going to optimize,
+# although we could use these in partial_cmd_smooth if we wanted. 
+interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T <: Real =
+    [ interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags ] 
 interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
     reduce(hcat, interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in eachcol(mags))
 
@@ -440,7 +450,7 @@ end
 
 
 # Method exports
-export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
+export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth, generate_stars_mass, generate_stars_mag, generate_stars_mass_composite, generate_stars_mag_composite, model_cmd, fit_templates
 
 
 end # module

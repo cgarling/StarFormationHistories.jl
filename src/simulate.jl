@@ -69,12 +69,15 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 #### Interpret arguments for generate_mock_stars
 
 function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
+    ndims(mags) != 2 && throw(ArgumentError("`generate_stars...` received a `mags` argument that is a Matrix{<:Real} with `ndims(mags) != 2`; when providing a `mags::Matrix{<:Real}`, it must always be 2-dimensional."))
     shape = size(mags)
     if shape[1] == length(mini_vec)
         return collect(eachrow(mags)) # eachrow returns views which are fast but annoying.
+        # copy(reinterpret(SVector{shape[2],Float64}, vec(transpose(mags))))
         # return [mags[i,:] for i in 1:length(mini_vec)]
     elseif shape[2] == length(mini_vec)
         return collect(eachcol(mags)) # eachrow returns views which are fast but annoying.
+        # copy(reinterpret(SVector{shape[1],Float64}, vec(mags)))
         # return [mags[:,i] for i in 1:length(mini_vec)]
     else
         throw(ArgumentError("generate_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
@@ -106,10 +109,11 @@ end
 ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized.
 
 """
-    (new_mini_vec, new_mags) = sort_ingested(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
-Takes `mini_vec` and `mags` (after calling `ingest_mags` and converting to a Vector{Vector{<:Real}}) and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` to ensure there are no repeat entries.
+    (new_mini_vec, new_mags) = sort_ingested(mini_vec::Vector{<:Real}, mags::Vector)
+Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` to ensure there are no repeat entries. `mags` can be a Vector{Vector}, such as is returned by [`SFH.ingest_mags`](@ref), or just a Vector{<:Real}; in either case, you must ensure that `length(mini_vec) == length(mags)`. 
 """
-function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
+function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector) # mags::Vector{T}) where T <: Vector{<:Real}
+    @assert length(mini_vec) == length(mags)
     idx = sortperm(mini_vec)
     if idx != eachindex(mini_vec)
         mini_vec = mini_vec[idx]
