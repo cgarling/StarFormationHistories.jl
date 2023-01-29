@@ -67,19 +67,25 @@ using Test
             @test spg_result2.x ≈ x rtol=tset_rtol
         end
         # Try an even harder example with Poisson sampling and larger dynamic range of variables
+        tset_rtol=1e-2
         let x=rand(N_models).*100, x0=ones(N_models), M=[rand(hist_size...) for i in 1:N_models], N=rand.(Poisson.(sum(x .* M))), C=zeros(hist_size), G=zeros(N_models)
             # @benchmark SFH.fg!($true, $G, $x, $M, $N, $C) $ ∼140 μs
             # Optim fails here unless I make ∇loglikelihood return NaN when composite < 0,
+            # Actually, works if loglikelihood returns -Inf rather than 0 in fail state
             optim_result1 = @btime Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,$M,$N,$C) ), $x0, Optim.LBFGS())  # 11 ms, 80 f(x) and ∇f(x) calls; correct answer if ∇loglikelihood returns NaN when composite < 0; if it returns 0, then this fails, giving negative coefficients.
             @test Optim.converged(optim_result1) # Test convergence
+            @test Optim.minimizer(optim_result1) ≈ x rtol=tset_rtol
             optim_result2 = @btime Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,$M,$N,$C) ), zeros(N_models), fill(Inf,N_models), $x0, Optim.Fminbox(Optim.LBFGS())) # 40 ms; 250 f(x) and ∇f(x) calls; correct answer even when ∇loglikelihood returns 0 for composite < 0
             @test Optim.converged(optim_result2) # Test convergence
+            @test Optim.minimizer(optim_result2) ≈ x rtol=tset_rtol
             spg_result1 = @btime SPGBox.spgbox((g,x)->SFH.fg!(true,g,x,$M,$N,$C), $x0; eps=1e-8) # 5 ms, 30 f(x) and ∇f(x) evaluations; correct answer
             @test spg_result1.ierr == 0 # Test convergence achieved
+            @test spg_result1.x ≈ x rtol=tset_rtol
             spg_result2 = @btime SPGBox.spgbox((g,x)->SFH.fg!(true,g,x,$M,$N,$C), $x0; lower=zeros(N_models), upper=fill(Inf,N_models), eps=1e-8) # 5 ms, 30 f(x) and ∇f(x) evaluations; correct answer
             @test spg_result2.ierr == 0 # Test convergence achieved
+            @test spg_result2.x ≈ x rtol=tset_rtol
             # @test Optim.minimizer(optim_result1) ≈ Optim.minimizer(optim_result2) ≈ spg_result1.x ≈ spg_result2.x # Test all optimizations have similar result
-            @test Optim.minimizer(optim_result2) ≈ spg_result1.x ≈ spg_result2.x # Test all optimizations have similar result
+            @test Optim.minimizer(optim_result1) ≈ Optim.minimizer(optim_result2) ≈ spg_result1.x ≈ spg_result2.x # Test all optimizations have similar result
         end
     end
 end

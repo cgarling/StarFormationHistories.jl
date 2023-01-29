@@ -417,8 +417,7 @@ function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, m
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
-# Need to pass in completeness functions and use them when calculating the weights in addition to the
-# IMF weighting. 
+# This needs some optimization. 
 function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
