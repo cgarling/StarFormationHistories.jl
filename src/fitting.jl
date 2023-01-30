@@ -54,8 +54,7 @@ Log(likelihood) given by Equation 10 in Dolphin 2002.
             # result += ifelse( (mi != z0) & (ni == z0), ni - mi - ni * log(ni / one(T)), z0)
         end
     end
-     # Penalizing result==0 here massively improves convergence robustness
-    # result != zero(T) ? (return result) : (return -convert(T,Inf))
+    # Penalizing result==0 here massively improves convergence robustness
     result != zero(T) ? (return result) : (return -typemax(T))
 end
 function loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
@@ -81,7 +80,8 @@ Gradient of [`SFH.loglikelihood`](@ref) with respect to the coefficient; Equatio
             @inbounds mi = model[i,j]
             @inbounds ni = data[i,j]
             # Returning NaN is required for Optim.jl but not for SPGBox.jl
-            result += ifelse( ci > zero(T), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
+            # result += ifelse( ci > zero(T), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
+            result += ifelse( (ci > zero(T)) & (ni > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
             # result += ci > zero(T) ? -mi * (one(T) - ni/ci) : zero(T) # NaN) 
             # result += ifelse( (ci > zero(T)) & (mi > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
         end
@@ -197,8 +197,18 @@ end
 #     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
 # end
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-    return SPGBox.spgbox((g,x)->SFH.fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax)
+    return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
 end
+
+# function fit_templates2(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models))) where {S <: Number, T <: AbstractMatrix{S}}
+#     G = similar(x0)
+#     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
+#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)])
+#     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
+# end
+# LBFGSB.lbfgsb(f, g!, x0; m, lb, ub, kwargs...)
+# LBFGSB.lbfgsb(f, x0; m, lb, ub, kwargs...) # f returns objective, gradient
+
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
 # N1 = rand.( Poisson.( (250.0 .* M1))) .+ rand.(Poisson.((500.0 .* M2)))
