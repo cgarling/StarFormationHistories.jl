@@ -12,6 +12,7 @@ import QuadGK: quadgk
 import LoopVectorization: @turbo
 import Optim
 import SPGBox
+import LBFGSB
 import Random: AbstractRNG, default_rng
 
 # Code inclusion

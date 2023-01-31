@@ -34,7 +34,13 @@ end
 
 """
 
-Log(likelihood) given by Equation 10 in Dolphin 2002. 
+Log(likelihood) given by Equation 10 in Dolphin 2002.
+
+# Performance Notes
+ - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)' and `data=similar(composite)`.
+ - ~20 μs for `composite=Matrix{Float64}(undef,99,99)' and `data=Matrix{Int64}(undef,99,99)`.
+ - ~9.3 μs for `composite=Matrix{Float32}(undef,99,99)' and `data=similar(composite)`.
+ - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)' and `data=Matrix{Int64}(undef,99,99)`.
 """
 @inline function loglikelihood(composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
     T = promote_type(eltype(composite), eltype(data))
@@ -43,18 +49,15 @@ Log(likelihood) given by Equation 10 in Dolphin 2002.
     result = zero(T) 
     @turbo for j in axes(composite, 2)  # LoopVectorization.@turbo gives 4x speedup here
         for i in axes(composite, 1)       
-            @inbounds ci = composite[i,j]
+            # Setting eps() as minimum of composite greatly improves stability of convergence
+            @inbounds ci = max( composite[i,j], eps(T) ) 
             @inbounds ni = data[i,j]
-            # log_arg = ni / ci
-            # (log_arg == Inf) | (log_arg < zero(T)) ? (return -Inf) : (result += ni - ci - ni * log(log_arg))
-            # result += ifelse( (ci != zero(T)) & (ni != zero(T)), ni - ci - ni * log(ni / ci), zero(T))
-            # result += ifelse( (ci > zero(T)) & (ni > zero(T)), ni - ci - ni * log(ni / ci), zero(T))
-            result += (ci > zero(T)) & (ni > zero(T)) ? ni - ci - ni * log(ni / ci) : zero(T)
-            # result += ifelse( (mi == z0) & (ni != z0), ni - mi, z0)
-            # result += ifelse( (mi != z0) & (ni == z0), ni - mi - ni * log(ni / one(T)), z0)
+            # result += (ci > zero(T)) & (ni > zero(T)) ? ni - ci - ni * log(ni / ci) : zero(T)
+            # result += ni > zero(T) ? ni - ci - ni * log(ni / ci) : zero(T)
+            result += ifelse( ni > zero(T), ni - ci - ni * log(ni / ci), zero(T) )
         end
     end
-    # Penalizing result==0 here massively improves convergence robustness
+    # Penalizing result==0 here improves stability of convergence
     result != zero(T) ? (return result) : (return -typemax(T))
 end
 function loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
@@ -67,7 +70,11 @@ end
 
 """
 
-Gradient of [`SFH.loglikelihood`](@ref) with respect to the coefficient; Equation 21 in Dolphin 2002. 
+Gradient of [`SFH.loglikelihood`](@ref) with respect to the coefficient; Equation 21 in Dolphin 2002.
+
+# Performance Notes
+ - ~4.1 μs for model, composite, data all being Matrix{Float64}(undef,99,99).
+ - ~1.3 μs for model, composite, data all being Matrix{Float32}(undef,99,99). 
 """
 @inline function ∇loglikelihood(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
     T = promote_type(eltype(model), eltype(composite), eltype(data))
@@ -76,14 +83,13 @@ Gradient of [`SFH.loglikelihood`](@ref) with respect to the coefficient; Equatio
     result = zero(T)
     for j in axes(model, 2)  # ~4x speedup from LoopVectorization.@turbo here
         @turbo for i in axes(model, 1)
-            @inbounds ci = composite[i,j]
+            # Setting eps() as minimum of composite greatly improves stability of convergence.
+            @inbounds ci = max( composite[i,j], eps(T) )
             @inbounds mi = model[i,j]
             @inbounds ni = data[i,j]
             # Returning NaN is required for Optim.jl but not for SPGBox.jl
-            # result += ifelse( ci > zero(T), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
-            result += ifelse( (ci > zero(T)) & (ni > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
-            # result += ci > zero(T) ? -mi * (one(T) - ni/ci) : zero(T) # NaN) 
-            # result += ifelse( (ci > zero(T)) & (mi > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN) 
+            # result += ifelse( (ci > zero(T)) & (ni > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN)
+            result += ifelse( ni > zero(T), -mi * (one(T) - ni/ci), zero(T) )
         end
     end
     return result
@@ -131,17 +137,7 @@ Light wrapper for `SFH.fg` that computes loglikelihood and gradient simultaneous
     @assert axes(data) == axes(composite)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(eltype(data)), eltype(composite))
     # Fill the composite array with the equivalent of sum( coeffs .* models )
-    # fill!(composite, zero(eltype(composite))) # composite .= zero(eltype(composite))
-    # for k in axes(coeffs,1) # @turbo doesn't help with this loop 
-    #     @inbounds ck = coeffs[k]
-    #     @inbounds model = models[k]
-    #     for j in axes(composite,2)
-    #         for i in axes(composite,1) # Putting @turbo here doesn't really help.
-    #             @inbounds composite[i,j] += model[i,j] * ck
-    #         end
-    #     end
-    # end
-    composite!(composite, coeffs, models) # Fill the composite array
+    composite!(composite, coeffs, models) 
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(models)
         # Fill the gradient array
@@ -196,18 +192,24 @@ end
 # function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
 #     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
 # end
-function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-    return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
-end
-
+# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
+#     return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
+# end
 # function fit_templates2(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models))) where {S <: Number, T <: AbstractMatrix{S}}
 #     G = similar(x0)
 #     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
-#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)])
+#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1e-12, bounds=[(0.0,Inf) for i in 1:length(x0)])
 #     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
 # end
+function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    G = similar(x0)
+    fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
+    LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
 # LBFGSB.lbfgsb(f, g!, x0; m, lb, ub, kwargs...)
 # LBFGSB.lbfgsb(f, x0; m, lb, ub, kwargs...) # f returns objective, gradient
+# LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
+# Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation
 
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
