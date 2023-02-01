@@ -10,9 +10,12 @@ import Roots: find_zero
 import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile, sampler
 import QuadGK: quadgk
 import LoopVectorization: @turbo
-import Optim
-import SPGBox
+import Optim  # Gone
+import SPGBox # Gone 
 import LBFGSB
+import StaticArrays: SVector
+import LogDensityProblems # For random uncertainties in SFH fits
+import DynamicHMC         # For random uncertainties in SFH fits
 import Random: AbstractRNG, default_rng
 
 # Code inclusion

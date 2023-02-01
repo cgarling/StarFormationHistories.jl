@@ -211,6 +211,30 @@ end
 # LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
 # Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation
 
+function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1)
+
+    @. coeffs = coeffs * normalize_value # Transform the coefficients to proper stellar masses
+    mstar_total = sum(coeffs) # Calculate the total stellar mass of the model
+    # Calculate the stellar mass per time bin by summing over the different MH at each logAge
+    unique_logAge = unique(logAge)
+    mstar_arr = similar(coeffs)
+    mean_mh_arr = zeros(eltype(MH),length(logAge))
+    for i in eachindex(unique_logAge)
+        Mstar_tmp = zero(eltype(mstar_arr))
+        mh_tmp = Vector{eltype(MH)}(undef,0)
+        for j in eachindex(logAge)
+            if unique_logAge[i] == logAge[j]
+                Mstar_tmp += coeffs[j]
+                push!(mh_tmp, MH[j])
+            end
+        end
+        mstar_arr[i] = Mstar_tmp
+        mean_mh_arr[i] = mean(mh_tmp)
+    end
+    cum_sfr_arr = cumsum(reverse(mstar_arr)) ./ mstar_total
+    return cum_sfr_arr, mean_mh_arr
+end
+
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
 # N1 = rand.( Poisson.( (250.0 .* M1))) .+ rand.(Poisson.((500.0 .* M2)))
@@ -220,3 +244,37 @@ end
 # G=[1.0, 1.0]; coe=[5.0,5.0]; MM=[M1,M2]
 # fg!(true,G,coe,MM,N1,C1)
 # @benchmark fg!($true,$G,$coe,$MM,$N1,$C1)
+
+
+###############################################################################
+# HMC utilities
+
+struct HMCModel{T,S,V}
+    models::T
+    composite::S
+    data::V
+end
+
+# This model will return loglikelihood and gradient
+LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
+LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
+
+function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
+    composite = problem.composite
+    models = problem.models
+    data = problem.data
+    dims = length(models)
+    # Transform the provided x
+    x = SVector{dims}(exp(i) for i in logx)
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = loglikelihood(composite, data) + sum(logx) # sum(logx) is the log-Jacobian correction
+    # ∇logL = SVector{dims}( ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ) # The `* x[i]` is the Jacobian correction
+    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ] # The `* x[i]` is the Jacobian correction
+    return logL, ∇logL
+end
+
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer=100; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    instance = HMCModel( models, composite, data )
+    return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
+end
