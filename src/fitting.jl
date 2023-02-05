@@ -211,14 +211,23 @@ end
 # LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
 # Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation
 
-function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1)
-
-    @. coeffs = coeffs * normalize_value # Transform the coefficients to proper stellar masses
+# Not very efficient but don't care
+# Returns cumulative SFH, 
+function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
+    @assert axes(coeffs) == axes(logAge) == axes(MH)
+    coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
     mstar_total = sum(coeffs) # Calculate the total stellar mass of the model
     # Calculate the stellar mass per time bin by summing over the different MH at each logAge
+    if ~sorted # If we aren't sure that logAge is sorted, we sort. 
+        idx = sortperm(logAge)
+        logAge = logAge[idx]
+        coeffs = coeffs[idx]
+        MH = MH[idx] 
+    end
     unique_logAge = unique(logAge)
+    dt = diff( vcat(0, exp10.(unique_logAge)) )
     mstar_arr = similar(coeffs)
-    mean_mh_arr = zeros(eltype(MH),length(logAge))
+    mean_mh_arr = zeros(eltype(MH), length(logAge))
     for i in eachindex(unique_logAge)
         Mstar_tmp = zero(eltype(mstar_arr))
         mh_tmp = Vector{eltype(MH)}(undef,0)
@@ -232,8 +241,32 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
         mean_mh_arr[i] = mean(mh_tmp)
     end
     cum_sfr_arr = cumsum(reverse(mstar_arr)) ./ mstar_total
-    return cum_sfr_arr, mean_mh_arr
+    reverse!(cum_sfr_arr)
+    return unique_logAge, cum_sfr_arr, mstar_arr ./ dt, mean_mh_arr
 end
+
+# function calculate_sfr(coeffs::AbstractVector, logAge::AbstractVector; normalize_value=1, sorted::Bool=false)
+#     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
+#     if ~sorted # If we aren't sure that logAge is sorted, we sort. 
+#         idx = sortperm(logAge)
+#         logAge = logAge[idx]
+#         coeffs = coeffs[idx]
+#     end
+#     unique_logAge = unique(logAge)
+#     dt = diff( vcat(0, exp10.(unique_logAge)) )
+#     # Figure out total stellar mass as a function of logAge if there are duplicates in logAge
+#     mstar_arr = similar(coeffs)
+#     for i in eachindex(unique_logAge)
+#         Mstar_tmp = zero(eltype(mstar_arr))
+#         for j in eachindex(logAge)
+#             if unique_logAge[i] == logAge[j]
+#                 Mstar_tmp += coeffs[j]
+#             end
+#         end
+#         mstar_arr[i] = Mstar_tmp
+#     end
+#     return mstar_arr ./ dt
+# end
 
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
@@ -268,9 +301,9 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
     x = SVector{dims}(exp(i) for i in logx)
     # Update the composite model matrix
     composite!( composite, x, models )
-    logL = loglikelihood(composite, data) + sum(logx) # sum(logx) is the log-Jacobian correction
+    logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
     # ∇logL = SVector{dims}( ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ) # The `* x[i]` is the Jacobian correction
-    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ] # The `* x[i]` is the Jacobian correction
+    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
     return logL, ∇logL
 end
 
