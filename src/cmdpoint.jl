@@ -149,7 +149,8 @@ end
 
 evaluate(model::Gaussian2D, x::Real, y::Real) = 
     # gauss2D(x, y, parameters(model)...)
-    # The Gauss-Legendre integration is 25x slower for a few percent precision increase.
+    # The 5x5 Gauss-Legendre integration is 25x slower for a few percent precision increase.
+    # The 3x3 Gauss-Legendre integration seems like a good compromise. About as fast as the old GaussianPSFAsymmetric. 
     # Might keep if making the templates ends up not taking very long. 
     gauss2d_integral_halfpix(x, y, parameters(model)...)
 
