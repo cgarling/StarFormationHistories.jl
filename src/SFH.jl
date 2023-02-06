@@ -317,7 +317,7 @@ Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`
     δy = y-y0
     # If `Δx = SVector{2}( x-x0, y-y0 )`, below is `transpose(Δx) * inv(Σ) * Δx`
     exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-    return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
+    return A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B
 end
 # Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5] or just half of the regular gauss-legendre intervals.
 # Suffers from numerical undersampling when σx=sqrt(Σ[1]) and σy=sqrt(σ[y]) are much less than 1 pixel.
@@ -342,7 +342,7 @@ const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444
         δy = y-y0+legendre_x_halfpix[j]
         # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
         exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
+        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * ( A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B )
     end
     return result
 end
@@ -462,15 +462,22 @@ function bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), elty
 end
 """
     result::StatsBase.Histogram =
-    bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    bin_cmd_smooth( colors, mags, color_err, mag_err; cov_type::Integer=1, weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
-Returns a `StatsBase.Histogram` type containing the unnormalized, 2D CMD (i.e., Hess diagram) where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These should be equal in size. This is akin to a KDE where each point is broadened by its own PRF. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
+Returns a `StatsBase.Histogram` type containing the unnormalized, 2D CMD (i.e., Hess diagram) where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These should be equal in size. This is akin to a KDE where each point is broadened by its own PRF.
+
+Other arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). The only unique keyword argument is `cov_tpe::Integer`, which can be either `1`, `2`, or `3`. If `cov_type==1`, then the errors are modeled as independent along the x and y axes using [`SFH.GaussianPSFAsymmetric`](@ref). If `cov_type==2`, then the errors are modeled as covariant for, e.g., `y=B`, `x=B-V`. If `cov_type==3`, then the errors are modeled as covariant for, e.g., `y=V`, `x=B-V`.
+
+ To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
-function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+function bin_cmd_smooth( colors, mags, color_err, mag_err; cov_type::Integer=1, weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     nstars = size(colors)
     @assert nstars == size(mags) == size(color_err) == size(mag_err) == size(weights)
+    if (cov_type != 1) & (cov_type != 2) & (cov_type != 3)
+        throw(ArgumentError("Keyword argument `cov_type` to `bin_cmd_smooth` must be either 1, 2, or 3."))
+    end
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Construct matrix to hold the 2D histogram
@@ -482,7 +489,13 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
         x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(mags[i], edges[2]) - 0.5,
         color_err[i] / xwidth, mag_err[i] / ywidth
         # Construct the star object
-        obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+        if cov_type == 1 # No x->y covariance; e.g. y=B, x=V-R 
+            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+        elseif cov_type == 2 # x->y covariance for y=B, x=B-V
+            obj = Gaussian2D(x0, y0, SMatrix{2,2}(σx^2+σy^2,σy^2,σy^2,σy^2), weights[i], 0.0)
+        else # x->y covariance for y=V, x=B-V
+            obj = Gaussian2D(x0, y0, SMatrix{2,2}(σx^2+σy^2,-σy^2,-σy^2,σy^2), weights[i], 0.0)
+        end
         # Insert the star object
         cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) ) # (10,10)
         addstar!(mat, obj, cutout_size) 
@@ -509,7 +522,7 @@ function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, m
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
-# This needs some optimization. 
+# This needs some optimization. Probably could be dealing with sources fainter than the `edges` in a better way. 
 function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
@@ -535,8 +548,15 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     # This is equivalent to cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
     # Previously we were dividing by sum(weights) here but I think that is wrong. 
     # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
+    if y_index == first(color_indices)
+        cov_type = 2
+    elseif y_index == last(color_indices)
+        cov_type = 3
+    else
+        cov_type = 1
+    end
     return bin_cmd_smooth( colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
-                           color_err[begin:end-1], mag_err[y_index][begin:end-1]; weights=weights,
+                           color_err[begin:end-1], mag_err[y_index][begin:end-1]; cov_type=cov_type, weights=weights,
                            edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
