@@ -262,12 +262,13 @@ evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) =
     gaussian_psf_asymmetric_integral_halfpix(x, y, parameters(model)...)
 
 ##################################
+
 """
     Gaussian2D(x0::Real,y0::Real,Σ::AbstractMatrix{<:Real})
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
 
-Type representing the general 2D Gaussian distribution with covariance matrix `Σ`.
+Type representing the general 2D Gaussian distribution with covariance matrix `Σ`, defined as ...
 
 # Parameters
  - `x0`, the center of the model along the first matrix dimension
@@ -310,24 +311,21 @@ centroid(model::Gaussian2D) = (model.x0, model.y0)
 Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`.  
 """
 @inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-    @assert axes(Σ) == (1:2, 1:2)
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
-    invΣ = SMatrix{2,2}(Σ[4], -Σ[3], -Σ[2], Σ[1]) ./ detΣ# 2x2 Matrix inverse
-    δx = SVector{2}( x-x0, y-y0 )
-    return exp( -transpose(δx) * invΣ * δx / 2) / 2π / sqrt(detΣ)
-end
-@inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::SMatrix{2,2,<:Real,4},A::Real,B::Real)
-    detΣ = det(Σ) 
-    invΣ = inv(Σ) 
-    δx = SVector{2}( x-x0, y-y0 )
-    return exp( -transpose(δx) * invΣ * δx / 2) / 2π / sqrt(detΣ)
+    # invΣ = SMatrix{2,2}(Σ[4], -Σ[3], -Σ[2], Σ[1]) ./ detΣ # 2x2 Matrix inverse
+    δx = x-x0
+    δy = y-y0
+    # If `Δx = SVector{2}( x-x0, y-y0 )`, below is `transpose(Δx) * inv(Σ) * Δx`
+    exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
+    return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
 end
 # Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5] or just half of the regular gauss-legendre intervals.
+# Suffers from numerical undersampling when σx=sqrt(Σ[1]) and σy=sqrt(σ[y]) are much less than 1 pixel.
+# About 1% accuracy for Σ=[0.1 0.0; 0.0 0.1]
 const legendre_x_halfpix = SVector{3,Float64}(-0.3872983346207417, 0.0, 0.3872983346207417) 
 const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444444,0.2777777777777778)
 # const legendre_x_halfpix = SVector{5,Float64}(-0.453089922969332, -0.2692346550528415, 0.0, 0.2692346550528415, 0.453089922969332) 
 # const legendre_w_halfpix = SVector{5,Float64}(0.11846344252809454, 0.23931433524968324, 0.28444444444444444, 0.23931433524968324, 0.11846344252809454)
-# @inline gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real) = sum( legendre_w_halfpix[i] * legendre_w_halfpix[j] * gauss2D(x + legendre_x_halfpix[i], y + legendre_x_halfpix[j], x0, y0, Σ, A, B) for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1) )
 # @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
 #     result = 0.0
 #     for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
@@ -336,23 +334,19 @@ const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444
 #     return result
 # end
 @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
+    @assert size(Σ) == (2,2)
     result = 0.0
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
-    invΣ = SMatrix{2,2}(Σ[4], -Σ[3], -Σ[2], Σ[1]) ./ detΣ # 2x2 Matrix inverse
-    @inbounds @turbo for i in axes(legendre_x_halfpix,1)
-        for j in axes(legendre_x_halfpix,1)
-            δx = x-x0+legendre_x_halfpix[i]
-            δy = y-y0+legendre_x_halfpix[j]
-            # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
-            exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-            result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
-        end
+    @inbounds @turbo for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
+        δx = x-x0+legendre_x_halfpix[i]
+        δy = y-y0+legendre_x_halfpix[j]
+        # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
+        exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
+        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
     end
     return result
 end
-evaluate(model::Gaussian2D, x::Real, y::Real) = 
-    # gauss2D(x, y, parameters(model)...)
-    gauss2d_integral_halfpix(x, y, parameters(model)...)
+evaluate(model::Gaussian2D, x::Real, y::Real) = gauss2d_integral_halfpix(x, y, parameters(model)...)
 
 
 ##################################
