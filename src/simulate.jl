@@ -67,53 +67,57 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 
 ################################################
 #### Interpret arguments for generate_mock_stars
+"""
+    new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
+    new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
 
-function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
-    ndims(mags) != 2 && throw(ArgumentError("`generate_stars...` received a `mags` argument that is a Matrix{<:Real} with `ndims(mags) != 2`; when providing a `mags::Matrix{<:Real}`, it must always be 2-dimensional."))
+# Returns
+ - `new_mags::Base.ReinterpretArray{SVector}`: a `length(mini_vec)` vector of SVectors containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
+"""
+function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
+    if ndims(mags) != 2 # Check dimensionality of mags argument
+        throw(ArgumentError("`generate_stars...` received a `mags::AbstractMatrix{<:Real}` with `ndims(mags) != 2`; when providing a `mags::AbstractMatrix{<:Real}`, it must always be 2-dimensional."))
+    end
+    nstars = length(mini_vec)
     shape = size(mags)
-    if shape[1] == length(mini_vec)
-        return collect(eachrow(mags)) # eachrow returns views which are fast but annoying.
-        # copy(reinterpret(SVector{shape[2],Float64}, vec(transpose(mags))))
-        # return [mags[i,:] for i in 1:length(mini_vec)]
-    elseif shape[2] == length(mini_vec)
-        return collect(eachcol(mags)) # eachrow returns views which are fast but annoying.
-        # copy(reinterpret(SVector{shape[1],Float64}, vec(mags)))
-        # return [mags[:,i] for i in 1:length(mini_vec)]
+    if shape[1] == nstars
+        return copy(reinterpret(SVector{shape[2],S}, vec(permutedims(mags))))
+    elseif shape[2] == nstars
+        return copy(reinterpret(SVector{shape[1],S}, vec(mags)))
     else
-        throw(ArgumentError("generate_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
+        throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractMatrix{<:Real}`, then it should be 2-dimensional and have size of (N,M) or (M,N), where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
     end
 end
-# Should improve the shape checks on `mags` for this method.
-function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
+function ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
     # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors. E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each with length 100. The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
     if length(mags) != length(mini_vec)
-        if length(mags[1]) != length(mini_vec) # If the above is false, then this should be true; otherwise error. 
-            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
+        nstars = length(first(mags))
+        if ~mapreduce(x->isequal(nstars,length(x)), &, mags)
+            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractVector{AbstractVector{<:Real}}` with `length(mags)!=length(mini_vec)`, then each element of `mags` should have length equal to `length(mini_vec)`."))
         else
-            return collect(eachrow(hcat(mags...))) # eachrow returns views which are fast but annoying. 
-            # mat = hcat(mags...)
-            # return [mat[i,:] for i in 1:length(mini_vec)]
-            # mags = [[mags[i][j]] for j=eachindex(mags[i]),i=eachindex(mags)]
-            # new_mags = [ Vector{T}(undef,length(mags)) for i in 1:length(mini_vec) ]
-            # @inbounds for i in eachindex(mags)
-            #     @inbounds for j in eachindex(mags[i])
-            #         new_mags[j][i] = mags[i][j]
-            #     end
-            # end
-            # mags = new_mags
+            nfilters = length(mags)
+            return reinterpret(SVector{nfilters,S}, vec(permutedims(hcat(mags...))))
         end
     else
-        return mags
+        # Check that every vector in mags has equal length.
+        nfilters = length(first(mags))
+        if eltype(mags) <: SVector
+            return mags
+        elseif ~mapreduce(x->isequal(nfilters,length(x)), &, mags)
+            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractVector{AbstractVector{<:Real}}` with `length(mags)==length(mini_vec)`, each element of `mags` must have equal length, representing the number of filters being used."))
+        else
+            return reinterpret(SVector{nfilters,S}, vec(hcat(mags...)))
+        end
     end
 end
 ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized.
 
 """
-    (new_mini_vec, new_mags) = sort_ingested(mini_vec::Vector{<:Real}, mags::Vector)
-Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` to ensure there are no repeat entries. `mags` can be a Vector{Vector}, such as is returned by [`SFH.ingest_mags`](@ref), or just a Vector{<:Real}; in either case, you must ensure that `length(mini_vec) == length(mags)`. 
+    (new_mini_vec, new_mags) = sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on `mini_vec` to ensure there are no repeat entries. Arguments must satisfy `length(mini_vec) == length(mags)`. 
 """
-function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector) # mags::Vector{T}) where T <: Vector{<:Real}
-    @assert length(mini_vec) == length(mags)
+function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+    @assert axes(mini_vec) == axes(mags)
     idx = sortperm(mini_vec)
     if idx != eachindex(mini_vec)
         mini_vec = mini_vec[idx]
@@ -123,9 +127,10 @@ function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector) # mags::Vector{T}
     return mini_vec, mags
 end
 
-function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
-                     mag_names::Vector{String}, mag_lim::Real,
-                     mag_lim_name::String) where T <: Vector{<:Real}
+function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
+                     mag_names::AbstractVector{String}, mag_lim::Number,
+                     mag_lim_name::String) where T <: AbstractVector{<:Number}
+    @assert axes(mini_vec) == axes(mags) 
     mmin, mmax = extrema(mini_vec) 
     # Update mmin respecing `mag_lim`, if provided.
     if isfinite(mag_lim)
@@ -166,7 +171,7 @@ Mutates input `mags` array that represents a single star's per-filter magnitudes
     if r <= frac  # Generate a binary star
         mass_new = rand(rng, imf)
         if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range
-            return mass_new 
+            return mass_new # We'll return it so it can be incremented to the mass tracker
         end
         mags_new = itp(mass_new)
         for i in eachindex(mags)
@@ -177,6 +182,47 @@ Mutates input `mags` array that represents a single star's per-filter magnitudes
         return mass_new
     else
         return zero(mass)
+    end
+end
+"""
+    binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::SFH.AbstractBinaryModel)
+
+Simulates the effects of unresolved binaries on stellar photometry without mutation. Implementation depends on the choice of `binarymodel`.
+
+# Arguments
+ - `mass`; the initial mass of the single star
+ - `mmin`; minimum mass to consider for stellar companions
+ - `mmax`; maximum mass to consider for stellar companions
+ - `mags`; a vector-like object giving the magnitudes of the single star in each filter
+ - `imf`; an object implementing `rand(imf)` to draw a random single-star mass
+ - `itp`; a callable object that returns the magnitudes of a star with mass `m` when called as `itp(m)`
+ - `rng::AbstractRNG`; the random number generator to use when sampling stars
+ - `binarymodel::SFH.AbstractBinaryModel`; an instance of a binary model that determines which implementation will be used. 
+
+# Returns
+ - `binary_mass`; the total mass of the additional stellar companions
+ - `new_mags`; the effective magnitude of the multiple stellar system 
+"""
+@inline sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass), mags
+@inline function sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
+    frac = binarymodel.fraction
+    r = rand(rng) # Random uniform number
+    if r <= frac  # Generate a binary star
+        mass_new = rand(rng, imf)
+        if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range
+            return mass_new, mags 
+        end
+        mags_new = itp(mass_new)
+        # for i in eachindex(mags)
+        #     L = L_from_MV(mags[i])
+        #     L += L_from_MV(mags_new[i])
+        #     mags[i] = MV_from_L(L) # Mutate the existing mags array
+        # end
+        # return mass_new
+        result = MV_from_L.( L_from_MV.(mags) .+ L_from_MV.(mags_new) )
+        return mass_new, result
+    else
+        return zero(mass), mags
     end
 end
 
@@ -212,7 +258,7 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
 \\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
 ```
 """
-function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
+function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
     mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
@@ -230,7 +276,8 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
     # Setup for iteration. 
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
-    mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
+    # mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
+    mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         mass_sample = rand(rng, imf_sampler) # Just sample one star.
         total += mass_sample         # Add mass to total.
@@ -240,7 +287,8 @@ function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{S
         end
         mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
         # See if we sample any binary stars
-        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
+        # binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
+        binary_mass, mag_sample = sample_binary(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         total += binary_mass
         push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
         push!(mag_vec, mag_sample)
