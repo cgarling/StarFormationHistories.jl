@@ -131,9 +131,11 @@ function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T}
                      mag_names::AbstractVector{String}, mag_lim::Number,
                      mag_lim_name::String) where T <: AbstractVector{<:Number}
     @assert axes(mini_vec) == axes(mags) 
-    mmin, mmax = extrema(mini_vec) 
+    mmin, mmax = extrema(mini_vec)
     # Update mmin respecing `mag_lim`, if provided.
-    if isfinite(mag_lim)
+    if !isfinite(mag_lim)
+        return mmin, mmax
+    else
         idxmag = findfirst(x->x==mag_lim_name, mag_names) # Find the index into mag_lim_names where == mag_lim_name.
         idxmag == nothing && throw(ArgumentError("Provided `mag_lim_name` is not contained in provided `mag_names` array."))
         if mag_lim < mags[findfirst(x->x==mmin, mini_vec)][idxmag]
@@ -141,10 +143,10 @@ function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T}
             mag_lim < minimum(tmp_mags) && throw(DomainError(mag_lim, "The provided `mag_lim` is brighter than all the stars in the input `mags` array assuming the input distance modulus `dist_mod`. Revise your arguments."))
             # Solve for stellar initial mass where mag == mag_lim by constructing interpolator and root-finding.
             itp = interpolate((mini_vec,), tmp_mags, Gridded(Linear()))
-            mmin = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
+            mmin2 = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
         end
+        return mmin2, mmax
     end
-    return mmin, mmax
 end
 
 ###############################################
@@ -258,9 +260,11 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
 \\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
 ```
 """
-function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
+generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
+    generate_stars_mass(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
+function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, limit::Number, imf::UnivariateDistribution{Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3)) where {N, T<:Number}
     # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
-    mags = ingest_mags(mini_vec, mags)
+    # mags = ingest_mags(mini_vec, mags)
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     # Construct the sampler object for the provided imf; for some distributions, this will return a
@@ -276,21 +280,19 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names
     # Setup for iteration. 
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
-    # mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
     mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         mass_sample = rand(rng, imf_sampler) # Just sample one star.
-        total += mass_sample         # Add mass to total.
+        total += mass_sample # Add mass to total.
         # Continue loop if sampled mass is outside of isochrone range.
         if (mass_sample < mmin2) | (mass_sample > mmax)
             continue
         end
-        mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
+        mag_sample = itp(mass_sample) 
         # See if we sample any binary stars
-        # binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         binary_mass, mag_sample = sample_binary(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         total += binary_mass
-        push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
+        push!(mass_vec, mass_sample + binary_mass) 
         push!(mag_vec, mag_sample)
     end
     return mass_vec, mag_vec
