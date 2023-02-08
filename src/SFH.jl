@@ -2,14 +2,14 @@ module SFH
 
 # Import statements
 import StatsBase: fit, Histogram, Weights, sample, mean
-import LinearAlgebra: det, inv
+import LinearAlgebra: det, inv # Gone
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
-import Roots: find_zero
-import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile, sampler
-import QuadGK: quadgk
+import Roots: find_zero # For mass_limits in simulate.jl
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, cdf, quantile, sampler
+import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import LoopVectorization: @turbo
 import Optim  # Gone
 import SPGBox # Gone 
@@ -23,8 +23,6 @@ import Random: AbstractRNG, default_rng
 include("simulate.jl")
 include("fitting.jl")
 
-# Code
-##################################
 ##################################
 # Isochrone utilities
 
@@ -191,18 +189,19 @@ end
 
 """
     dispatch_imf(imf, m) = imf(m)
-    dispatch_imf(imf::Distributions.UnivariateDistribution, m) = Distributions.pdf(imf, m)
+    dispatch_imf(imf::Distributions.ContinuousUnivariateDistribution, m) = Distributions.pdf(imf, m)
 
-Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.UnivariateDistribution`, this will convert the function call into the correct `pdf` call.
+Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.ContinuousUnivariateDistribution`, this will convert the function call into the correct `pdf` call.
 """
 dispatch_imf(imf, m) = imf(m)
-dispatch_imf(imf::UnivariateDistribution{Continuous}, m) = pdf(imf, m)
+dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 
 """
-    mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
-Calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk`. This is a generic fallback; generally better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
+    mean(imf::Distributions.ContinuousUnivariateDistribution; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+
+Simple one-linear that calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk` with the passed keyword arguments `kws...`. This is a generic fallback; better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
 """
-mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+mean(imf::Distribution{Univariate, Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
 
 ##################################
 # KDE models
@@ -498,7 +497,8 @@ function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, m
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin.
     # This is ~equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
-    # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
+    # i.e., if imf is a Distributions.ContinuousUnivariateDistribution,
+    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
@@ -522,7 +522,8 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin. 
     # This is equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
-    # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
+    # i.e., if imf is a Distributions.ContinuousUnivariateDistribution,
+    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
