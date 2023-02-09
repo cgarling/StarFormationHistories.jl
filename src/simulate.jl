@@ -389,33 +389,55 @@ end
 ###############################################
 #### Functions for modelling observational effects
 
-function model_cmd(mags::Vector{T}, errfuncs::Vector, completefuncs::Vector; rng::AbstractRNG=default_rng()) where T<:Vector{<:Real}
+function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
-    !(nfilters == length(errfuncs) == length(completefuncs)) && throw(ArgumentError("The `errfuncs` and `completefuncs` arguments to `model_cmd` must have length equal to the elements of `mags` representing the number of filters that you are providing magnitudes for."))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
     randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
-    # magmat = hcat(mags...)
-    # completeness = hcat([ completefuncs[i].(view(magmat,i,:)) for i in 1:nfilters ]...)
-    # completeness = map(x->reduce(*,x), eachrow(completeness))
-    # return completeness
-    completeness = ones(nstars) # Vector{eltype(mags[1])}(undef, nstars)
-    cvals = Vector{eltype(completeness)}(undef, nfilters)
+    completeness = ones(axes(mags,1))
     # Estimate the overall completeness as the product of the single-band completeness values.
     for i in eachindex(mags)
-        cvals .= mags[i]
         for j in eachindex(completefuncs)
-            completeness[i] *= completefuncs[j](cvals[j])
+            completeness[i] *= completefuncs[j](mags[i][j])
         end
     end
     # Pick out the entries where the random number is less than the product of the single-band completeness values 
     good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
     ret_mags = mags[good] # Get the good mags to be returned.
     for i in eachindex(ret_mags)
-        cvals .= ret_mags[i]
         for j in eachindex(errfuncs)
-            ret_mags[i][j] += ( randn(rng) * errfuncs[j](cvals[j]) ) # Add error. 
+            ret_mags[i][j] += ( randn(rng) * errfuncs[j](ret_mags[i][j]) ) # Add error. 
         end
     end
     return ret_mags
 end
-# model_cmd(mags::Matrix, args...; kws...) = model_cmd(
+# This is slower than the above implementation but I don't care to optimize it at the moment.
+function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where {N, T <: Number}
+    nstars = length(mags)
+    nfilters = length(first(mags))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
+    randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
+    completeness = ones(axes(mags,1))
+    # Estimate the overall completeness as the product of the single-band completeness values.
+    for i in eachindex(mags)
+        for j in eachindex(completefuncs)
+            completeness[i] *= completefuncs[j](mags[i][j])
+        end
+    end
+    # Pick out the entries where the random number is less than the product of the single-band completeness values 
+    good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
+    good_mags = mags[good] # Get the good mags to be returned.
+    ret_mags = similar(good_mags) 
+    for i in eachindex(good_mags)
+        err_scale = sacollect(SVector{N,T}, errfuncs[j](good_mags[i][j]) for j in eachindex(errfuncs))
+        ret_mags[i] = good_mags[i] .+ ( randn(rng,SVector{N,T}) .* err_scale)
+    end
+    return ret_mags
+end
+# In Julia 1.9 we should just be able to do stack(v). 
+# eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)
+# eltorows(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), :, dim)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = mapreduce(eltocols, hcat, v)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols(i) for i in v)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols.(v))
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = hcat(eltocols.(v)...)

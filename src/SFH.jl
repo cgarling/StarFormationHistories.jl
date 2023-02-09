@@ -14,7 +14,7 @@ import LoopVectorization: @turbo
 import Optim  # Gone
 import SPGBox # Gone 
 import LBFGSB
-import StaticArrays: SVector, SMatrix
+import StaticArrays: SVector, SMatrix, sacollect
 import LogDensityProblems # For random uncertainties in SFH fits
 import DynamicHMC         # For random uncertainties in SFH fits
 import Random: AbstractRNG, default_rng
@@ -307,7 +307,7 @@ centroid(model::Gaussian2D) = (model.x0, model.y0)
 """
     gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
 
-Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`.  
+Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`SFH.gauss2d_integral_halfpix`](@ref). 
 """
 @inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
