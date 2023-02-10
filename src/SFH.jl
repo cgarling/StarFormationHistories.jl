@@ -132,7 +132,7 @@ Type representing the 2D asymmetric Gaussian PSF without rotation (no θ).
  - `A`, and additional multiplicative constant in front of the normalized Gaussian
  - `B`, a constant additive background across the PSF
 """
-struct GaussianPSFAsymmetric{T <: Real} # <: AnalyticPSFModel
+struct GaussianPSFAsymmetric{T <: Real} 
     x0::T
     y0::T
     σx::T
@@ -382,6 +382,11 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     # Get the pixel width in each dimension; this currently only works if edges[1] and [2] are AbstractRange. 
     xwidth, ywidth = step(edges[1]), step(edges[2])
     for i in eachindex(colors)
+        # Cut out stars that are too far away from the histogram region
+        # if ( ((colors[i] - 3*color_err[i]) > maximum(edges[1])) | ((colors[i] + 3*color_err[i]) < minimum(edges[1])) ) |
+        #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) < minimum(edges[2])) )
+        #     continue
+        # end
         # Convert colors, mags, color_err, and mag_err from magnitude-space to pixel-space in `mat`
         x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(mags[i], edges[2]) - 0.5,
         color_err[i] / xwidth, mag_err[i] / ywidth
