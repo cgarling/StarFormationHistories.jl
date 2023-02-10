@@ -71,8 +71,10 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
     new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
     new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
 
+Reinterprets provided `mags` to be in the correct format for input to `Interpolations.interpolate`.
+
 # Returns
- - `new_mags::Base.ReinterpretArray{SVector}`: a `length(mini_vec)` vector of SVectors containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
+ - `new_mags::Base.ReinterpretArray{StaticArrays.SVector}`: a `length(mini_vec)` vector of StaticArrays.SVectors containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
 """
 function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
     if ndims(mags) != 2 # Check dimensionality of mags argument
@@ -114,6 +116,7 @@ ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` met
 
 """
     (new_mini_vec, new_mags) = sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+
 Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on `mini_vec` to ensure there are no repeat entries. Arguments must satisfy `length(mini_vec) == length(mags)`. 
 """
 function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
@@ -127,6 +130,33 @@ function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
     return mini_vec, mags
 end
 
+"""
+    (mmin, mmax) = mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
+                     mag_names::AbstractVector{String}, mag_lim::Number,
+                     mag_lim_name::String) where T <: AbstractVector{<:Number}
+
+Calculates initial mass limits that reflect a given faint-end magnitude limit.
+
+# Arguments
+ - `mini_vec::AbstractVector{<:Number}`: a length `nstars` vector containing initial stellar masses.
+ - `mags::AbstractVector{<:AbstractVector{<:Number}}`: a length `nstars` vector, with each element being a length `nfilters` vector giving the magnitudes of each star in the filters `mag_names`.
+ - `mag_names::AbstractVector{String}`: a vector giving the names of each filter as strings.
+ - `mag_lim::Number`: the faint-end magnitude limit you wish to use.
+ - `mag_lim_name::String`: the name of the filter in which `mag_lim` is to be applied. Must be contained in `mag_names`.
+
+# Returns
+ - `mmin::eltype(mini_vec)`: the initial mass corresponding to your requested `mag_lim` in the filter `mag_lim_name`. If all stars provided are brighter than your requested `mag_lim`, then this will be equal to `minimum(mini_vec)`.
+ - `mmax::eltype(mini_vec)`: the maximum valid mass in `mini_vec`; simply `maximum(mini_vec)`.
+
+# Examples
+```julia
+julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0],[3.0],[2.0],[1.0]], ["F090W"], 2.5, "F090W")
+(0.15, 0.3)
+
+julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]], ["F090W","F150W"], 2.5, "F090W")
+(0.15, 0.3)
+```
+"""
 function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
                      mag_names::AbstractVector{String}, mag_lim::Number,
                      mag_lim_name::String) where T <: AbstractVector{<:Number}
@@ -144,8 +174,10 @@ function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T}
             # Solve for stellar initial mass where mag == mag_lim by constructing interpolator and root-finding.
             itp = interpolate((mini_vec,), tmp_mags, Gridded(Linear()))
             mmin2 = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
+            return mmin2, mmax
+        else
+            return mmin, mmax
         end
-        return mmin2, mmax
     end
 end
 
@@ -161,31 +193,6 @@ struct Binaries{T <: Real} <: AbstractBinaryModel
     fraction::T
 end
 
-"""
-    binary_mass = sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::T) where T <: SFH.AbstractBinaryModel
-
-Mutates input `mags` array that represents a single star's per-filter magnitudes by adding luminosity from unresolved binaries (if any) and returns the sampled mass of the binary star(s). Returns `zero(mass)` if no binary is sampled, but will return a non-zero mass even if a binary is outside the valid initial mass range `(mmin, mmax)`. Other details may vary based on the input `binarymodel`. 
-"""
-@inline sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
-@inline function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
-    frac = binarymodel.fraction
-    r = rand(rng) # Random uniform number
-    if r <= frac  # Generate a binary star
-        mass_new = rand(rng, imf)
-        if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range
-            return mass_new # We'll return it so it can be incremented to the mass tracker
-        end
-        mags_new = itp(mass_new)
-        for i in eachindex(mags)
-            L = L_from_MV(mags[i])
-            L += L_from_MV(mags_new[i])
-            mags[i] = MV_from_L(L) # Mutate the existing mags array
-        end
-        return mass_new
-    else
-        return zero(mass)
-    end
-end
 """
     binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::SFH.AbstractBinaryModel)
 
@@ -222,8 +229,7 @@ Simulates the effects of unresolved binaries on stellar photometry without mutat
     end
 end
 
-
-###############################################
+#########################################################
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
@@ -264,10 +270,6 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
     mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
-    # We might be able to gain some efficiency by creating a new truncated IMF with lower bound mmin,
-    # when mag_lim is not infinite. Looks like a factor of 2 improvement but without renormalizing `limit`,
-    # it will not sample the correct amount of stellar mass. 
-    # mmin1 > minimum(mini_vec) && (imf = truncated(imf; lower=mmin1))
     
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)

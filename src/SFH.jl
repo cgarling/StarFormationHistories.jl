@@ -1,14 +1,13 @@
 module SFH
 
-# Import statements
 import StatsBase: fit, Histogram, Weights, sample, mean
-import LinearAlgebra: det, inv # Gone
+# import LinearAlgebra: det, inv # Gone
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import Roots: find_zero # For mass_limits in simulate.jl
-import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, cdf, quantile, sampler
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, sampler # cdf
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import LoopVectorization: @turbo
 import Optim  # Gone
@@ -43,112 +42,23 @@ julia> mags = [mags, mags] # Vector{Vector{<:Real}}
 julia> SFH.interpolate_mini(m_ini, mags, new_mini)
 ```
 """
-function interpolate_mini(m_ini, mags::Vector{<:Real}, new_mini)
+function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number},
+                          new_mini::AbstractVector{<:Number})
     m_ini, mags = sort_ingested(m_ini, mags) # from simulate.jl include'd above
     return interpolate((m_ini,), mags, Gridded(Linear()))(new_mini)
 end
-# interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) = interpolate((m_ini,), mags, Gridded(Linear()))(new_mini) # extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
 # I don't think these two methods are actually used by anything so not going to optimize,
 # although we could use these in partial_cmd_smooth if we wanted. 
-interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T <: Real =
+interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}},
+                 new_mini::AbstractVector{<:Number}) =
     [ interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags ] 
-interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
+interpolate_mini(m_ini::AbstractVector{<:Number},
+                 mags::AbstractMatrix{<:Number},
+                 new_mini::AbstractVector{<:Number}) =
     reduce(hcat, interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in eachcol(mags))
 
-# """
-#     mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
-
-# Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
-
-# !!! warning
-#     This method is inferior to the method that takes the IMF model as a `Distributions.UnivariateDistribution`; that method should always be used if you can express your IMF model as such a distribution with efficient methods for `cdf` and `quantile`.
-# """
-# function mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
-#     Δm = diff(m_ini)
-#     inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-#     point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-#     # The minimum value in point_intervals should be 2 for the later call to `range`,
-#     # so if it's 1 we add 1, if it's zero we add 2. 
-#     # point_intervals[point_intervals .== 1] .+= 1
-#     @inbounds for i in eachindex( point_intervals )
-#         if point_intervals[i] == 0
-#             point_intervals[i] += 2
-#         elseif point_intervals[i] == 1
-#             point_intervals[i] += 1
-#         end
-#     end
-#     # return point_intervals
-#     # After the `if` clause below we discuss having to chop off the ends of the ranges
-#     # so as not to duplicate masses, so we want to avoid double-counting here as well. 
-#     point_sum = sum(point_intervals) - length(point_intervals)
-#     if point_sum < npoints # Pad out the array so we get the correct length
-#         nsamp = npoints - point_sum
-#         randidx = sample(1:length(point_intervals), npoints - point_sum, replace=true)
-#         # point_intervals[randidx] .+= 1
-#         @inbounds @simd for i in randidx
-#             point_intervals[i] += 1
-#         end
-#     end
-#     # range(start, stop, length=n) includes both the beginning and the ending points, so we'll essentially
-#     # double up on masses if we include the final point, so we have to remove it.
-#     # This works fine but is fairly slow, if speed becomes a problem we can probably rewrite this
-#     # as a faster loop. 
-#     new_mini = reduce(vcat, range(m_ini[i], m_ini[i+1], length=point_intervals[i])[begin:end-1] for i in 1:length(m_ini)-1)
-
-#     # Try new implementation
-#     # Δm = diff(m_ini)
-#     # inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-#     # point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-#     # point_sum = sum(point_intervals) 
-#     # if point_sum < npoints # Pad out the array so we get the correct length
-#     #     randidx = sample(1:length(point_intervals), npoints - point_sum, replace=false)
-#     #     point_intervals[randidx] .+= 1
-#     # end
-    
-#     # new_mini = Vector{eltype(m_ini)}(undef, sum(point_intervals))
-#     # current_num = 1
-#     # for i in 1:length(m_ini)-1
-#     #     Δx = (m_ini[i+1] - m_ini[i]) / point_intervals[i]
-#     #     for j in 0:point_intervals[i]-1
-#     #         new_mini[current_num] = m_ini[i] + Δx * j
-#     #         current_num += 1 
-#     #     end
-#     # end
-    
-#     if !ret_spacing
-#         return new_mini
-#     else
-#         new_spacing = diff(new_mini)
-#         return new_mini, new_spacing
-#     end
-# end
-# """
-#     mini_spacing(m_ini, imf::Distributions.UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-
-# Interpolate initial mass vector `m_ini` at `npoints` points such that the change in the CDF of the IMF distribution `imf` is equal between each grid point. If `ret_spacing` is `true`, then both the interpolated initial masses and their spacing will be returned.
-
-# Actually this doesn't work that well -- it doesn't sample enough high-mass points, where the change in magnitude is high. Probably need to do something more intelligent with dual weighting. Don't care at the moment. 
-
-# # Notes
-#  - Requires `cdf(imf,m)` and `quantile(imf,x)` methods to be defined, and ideally optimized. 
-# """
-# function mini_spacing(m_ini, imf::UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-#     # Generate an equally-spaced range of CDF values from the minimum isochrone mass `minimum(m_ini)`
-#     # to the maximum isochrone mass `maximum(m_ini)`. If `imf` was constructed correctly,
-#     # `cdf(imf, maximum(m_ini))` should be ≈ 0, since `minimum(imf) ≈ minium(m_ini)`.
-#     max_cdf = cdf(imf, maximum(m_ini))
-#     cdf_vals = range(cdf(imf, minimum(m_ini)) + eps(),  max_cdf - eps(), length=1000)
-#     # Use the quantile (inverse function of CDF) to get initial masses where the CDF .== cdf_vals.
-#     new_mini = quantile.(imf,cdf_vals)
-#     if !ret_spacing
-#         return new_mini
-#     else
-#         new_spacing = diff(new_mini)
-#         return new_mini, new_spacing
-#     end
-# end
 """
-    mini_spacing(m_ini::AbstractVector{<:Real}, mags::AbstractVector{<:Real}, Δmag, ret_spacing::Bool=false)
+    mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag, ret_spacing::Bool=false)
 
 Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
@@ -156,7 +66,8 @@ Returns a new sampling of stellar masses given the initial mass vector `m_ini` f
 julia> SFH.mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16], [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
 ```
 """
-function mini_spacing(m_ini::AbstractVector{<:Real}, mags::AbstractVector{<:Real}, Δmag, ret_spacing::Bool=false)
+function mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag,
+                      ret_spacing::Bool=false)
     @assert axes(m_ini) == axes(mags)
     new_mini = Vector{Float64}(undef,1)
     new_mini[1] = first(m_ini)
@@ -199,7 +110,7 @@ dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 """
     mean(imf::Distributions.ContinuousUnivariateDistribution; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
 
-Simple one-linear that calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk` with the passed keyword arguments `kws...`. This is a generic fallback; better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
+Simple one-liner that calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk` with the passed keyword arguments `kws...`. This is a generic fallback; better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
 """
 mean(imf::Distribution{Univariate, Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
 
@@ -207,9 +118,9 @@ mean(imf::Distribution{Univariate, Continuous}; kws...) = quadgk(x->x*pdf(imf,x)
 # KDE models
 
 """
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real)
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real)
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
 
 Type representing the 2D asymmetric Gaussian PSF without rotation (no θ).
 
@@ -263,7 +174,7 @@ evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) =
 ##################################
 
 """
-    Gaussian2D(x0::Real,y0::Real,Σ::AbstractMatrix{<:Real})
+    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
 
@@ -318,20 +229,14 @@ Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`
     exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
     return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
 end
-# Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5] or just half of the regular gauss-legendre intervals.
+# Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5]
+# which is half of the regular Gauss-Legendre intervals.
 # Suffers from numerical undersampling when σx=sqrt(Σ[1]) and σy=sqrt(σ[y]) are much less than 1 pixel.
 # About 1% accuracy for Σ=[0.1 0.0; 0.0 0.1]
 const legendre_x_halfpix = SVector{3,Float64}(-0.3872983346207417, 0.0, 0.3872983346207417) 
 const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444444,0.2777777777777778)
 # const legendre_x_halfpix = SVector{5,Float64}(-0.453089922969332, -0.2692346550528415, 0.0, 0.2692346550528415, 0.453089922969332) 
 # const legendre_w_halfpix = SVector{5,Float64}(0.11846344252809454, 0.23931433524968324, 0.28444444444444444, 0.23931433524968324, 0.11846344252809454)
-# @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-#     result = 0.0
-#     for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
-#         @inbounds result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * gauss2D(x + legendre_x_halfpix[i], y + legendre_x_halfpix[j], x0, y0, Σ, A, B)
-#     end
-#     return result
-# end
 @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
     @assert size(Σ) == (2,2)
     result = 0.0
@@ -383,10 +288,9 @@ Function to calculate the bin edges for 2D histograms.
  - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
 function calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
-# function calculate_edges(; edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing)
     if edges !== nothing
         return edges
-    else # if edges === nothing
+    else 
         xlim, ylim = sort(xlim), sort(ylim)
         # Calculate nbins if it hasn't been provided. 
         if nbins === nothing
@@ -459,6 +363,7 @@ function bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), elty
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     return fit(Histogram, (colors, mags), Weights(weights), edges; closed=:left)
 end
+
 """
     result::StatsBase.Histogram =
     bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
