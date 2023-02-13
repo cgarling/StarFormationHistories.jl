@@ -91,7 +91,6 @@ function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S 
     end
 end
 function ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
-    # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors. E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each with length 100. The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
     if length(mags) != length(mini_vec)
         nstars = length(first(mags))
         if ~mapreduce(x->isequal(nstars,length(x)), &, mags)

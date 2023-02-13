@@ -226,19 +226,30 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     end
     unique_logAge = unique(logAge)
     dt = diff( vcat(0, exp10.(unique_logAge)) )
-    mstar_arr = similar(coeffs)
-    mean_mh_arr = zeros(eltype(MH), length(logAge))
+    mstar_arr = similar(unique_logAge) # similar(coeffs)
+    mean_mh_arr = zeros(eltype(MH), length(unique_logAge))
     for i in eachindex(unique_logAge)
         Mstar_tmp = zero(eltype(mstar_arr))
         mh_tmp = Vector{eltype(MH)}(undef,0)
+        coeff_tmp = Vector{eltype(coeffs)}(undef,0)
         for j in eachindex(logAge)
             if unique_logAge[i] == logAge[j]
                 Mstar_tmp += coeffs[j]
                 push!(mh_tmp, MH[j])
+                push!(coeff_tmp, coeffs[j])
             end
         end
         mstar_arr[i] = Mstar_tmp
-        mean_mh_arr[i] = mean(mh_tmp)
+        coeff_sum = sum(coeff_tmp)
+        if coeff_sum == 0
+            if i == 1
+                mean_mh_arr[i] = mean(mh_tmp)
+            else
+                mean_mh_arr[i] = mean_mh_arr[i-1]
+            end
+        else
+            mean_mh_arr[i] = sum( mh_tmp .* coeff_tmp ) / sum(coeff_tmp) # mean(mh_tmp)
+        end
     end
     cum_sfr_arr = cumsum(reverse(mstar_arr)) ./ mstar_total
     reverse!(cum_sfr_arr)
@@ -298,16 +309,40 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
     data = problem.data
     dims = length(models)
     # Transform the provided x
-    x = SVector{dims}(exp(i) for i in logx)
+    x = [ exp(i) for i in logx ]
     # Update the composite model matrix
     composite!( composite, x, models )
     logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
-    # ∇logL = SVector{dims}( ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ) # The `* x[i]` is the Jacobian correction
     ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
     return logL, ∇logL
 end
 
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer=100; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+# Version with just one chain; no threading
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     instance = HMCModel( models, composite, data )
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
+end
+
+function extract_initialization(state)
+    (; Q, κ, ϵ) = state.final_warmup_state
+    (; q = Q.q, κ, ϵ)
+end
+
+# Version with multiple chains and multithreading
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert nchains >= 1
+    instances = [ HMCModel( models, composite[i], data ) for i in 1:Threads.nthreads() ]
+    # Do the warmup
+    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
+                                         warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
+    final_init = extract_initialization(warmup)
+    # Do the MCMC
+    result_arr = []
+    Threads.@threads for i in 1:nchains
+        tid = Threads.threadid()
+        result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
+                                             initialization=final_init, kws...)
+        push!(result_arr, result) # Order doesn't matter so push when completed
+    end
+    return result_arr
 end

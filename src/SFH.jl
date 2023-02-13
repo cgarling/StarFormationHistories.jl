@@ -344,22 +344,22 @@ end
 
 """
     result::StatsBase.Histogram =
-    bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
+    bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
 
-Returns a `StatsBase.Histogram` type containing the unnormalized, 2D binned CMD (i.e., Hess diagram) from the provided x-axis photometric `colors` and y-axis photometric `mags`. These should be equal in size. You can either specify the bin edges directly via the `edges` keyword, or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
 # Keyword Arguments
- - `weights` is a array of size equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`.
+ - `weights::AbstractVector{<:Number}` is a array of length equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`.
 The following keyword arguments are passed to `SFH.calculate_edges` to determine the bin edges of the histogram.
- - `edges` is a tuple of vectors-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
- - `xlim`; a length-2 indexable object (e.g., a Vector{Float64} or NTuple{2,Float64)) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
- - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25, 20]`. This is only used if `edges` is not provided.
+ - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
+ - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
+ - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
  - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
  - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
  - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
-function bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
-    @assert size(colors) == size(mags)
+function bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), length(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    @assert length(colors) == length(mags) == length(weights)
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     return fit(Histogram, (colors, mags), Weights(weights), edges; closed=:left)
 end
@@ -368,13 +368,12 @@ end
     result::StatsBase.Histogram =
     bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
-Returns a `StatsBase.Histogram` type containing the unnormalized, 2D CMD (i.e., Hess diagram) where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These should be equal in size. This is akin to a KDE where each point is broadened by its own PRF. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
 function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
-    nstars = size(colors)
-    @assert nstars == size(mags) == size(color_err) == size(mag_err) == size(weights)
+    @assert axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Construct matrix to hold the 2D histogram
@@ -383,11 +382,11 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     xwidth, ywidth = step(edges[1]), step(edges[2])
     for i in eachindex(colors)
         # Skip stars that are 3σ away from the histogram region in either x or y. 
-        if ( ((colors[i] - 3*color_err[i]) > maximum(edges[1])) | ((colors[i] + 3*color_err[i]) < minimum(edges[1])) )
-            |
-            ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) < minimum(edges[2])) )
-            continue
-        end
+        # if (((colors[i] - 3*color_err[i]) > maximum(edges[1])) | ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
+        #     |
+        #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) < minimum(edges[2])) )
+        #     continue
+        # end
         # Convert colors, mags, color_err, and mag_err from magnitude-space to pixel-space in `mat`
         x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(mags[i], edges[2]) - 0.5,
         color_err[i] / xwidth, mag_err[i] / ywidth
@@ -400,7 +399,13 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     return Histogram(edges, mat, :left, false)
 end
 
-function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+"""
+    result::StatsBase.Histogram =
+    partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+
+Creates an error-free Hess diagram for stars from an isochrone with x-axis photometric `colors`, y-axis photometric magnitudes `mags`, and initial masses `m_ini`. Because this is not smoothed by photometric errors, it is not generally useful but is provided for comparative checks. Most arguments are as in [`bin_cmd`](@ref). The only unique keyword arguments are `normalize_value::Number` which is a multiplicative factor giving the effective stellar mass you want in the Hess diagram, and `mean_mass::Number` which is the mean stellar mass implied by the provided initial mass function `imf`. 
+"""
+function partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     new_mini, new_spacing = mini_spacing(m_ini, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
@@ -415,13 +420,36 @@ function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, m
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
         weights[i] *= normalize_value / mean_mass # Correct normalization
     end
-    # Previously we were dividing by sum(weights) here but I think that is wrong. 
-    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
-# This needs some optimization. 
-function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+"""
+    result::StatsBase.Histogram =
+    partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+
+Main function for generating template Hess diagrams from a single stellar population of stars from an isochrone, including photometric error and completeness.
+
+# Arguments
+ - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars.
+ - `mags::AbstractVector{<:AbstractVector{<:Number}}` is a vector of vectors. Each constituent vector with index `i` should have `length(mags[i]) == length(m_ini)`, representing the magnitudes of the stars in each of the magnitudes considered. In most cases, mags should contain 2 (if y-axis mag is also involved in the x-axis color) or 3 vectors.
+ - `mag_err_funcs` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the 1σ photometric errors in the filters provided in `mags`. Each callable must take a single argument and return a `Number`. The length `mag_err_funcs` must be equal to the length of `mags`.
+ - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you could set yindex=1. 
+ - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then color indices could be `[1,2]` or `(1,2)` or similar.
+ - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model.
+ - `completeness_functions` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the single-filter completeness fractions as a function of magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
+
+# Keyword Arguments
+ - `dmod::Number=0` distance modulus in magnitudes to apply to the input `mags`.
+ - `normalize_value::Number=1` gives the total stellar mass of population you wish to model.
+ - `mean_mass::Number` gives the expectation value for a random star drawn from your provided `imf`. This will be computed for you if your provided `imf` is a valid continuous, univariate `Distributions.Distribution` object.
+ - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it overrides the following keyword arguments that offer other ways to specify the extent of the Hess diagram.
+ - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
+ - `ylim`; as `xlim` but for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
+ - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
+ - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
+ - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
+"""
+function partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     new_mini, new_spacing = mini_spacing(m_ini, mags[y_index], 0.01, true)
@@ -445,8 +473,6 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     end
     # sum(weights) is now the full integral over the imf pdf from minimum(m_ini) -> maximum(m_ini).
     # This is equivalent to cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
-    # Previously we were dividing by sum(weights) here but I think that is wrong. 
-    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd_smooth( colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
                            color_err[begin:end-1], mag_err[y_index][begin:end-1]; weights=weights,
                            edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
