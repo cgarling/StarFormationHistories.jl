@@ -167,7 +167,8 @@ Generates a vector of initial stellar mass normalizations for input to `fit_temp
 julia> x0 = SFH.construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
 9-element Vector{Float64}: ...
 
-julia> sum(x0) = 5.05... # Close to `normalize_value`. 
+julia> sum(x0)
+5.05... # Close to `normalize_value`. 
 """
 function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
     minlog, maxlog = extrema(logage)
