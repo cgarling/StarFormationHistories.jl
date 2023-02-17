@@ -173,44 +173,6 @@ function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T))
     return result
 end
 
-"""
-
-# Notes
- - It can be helpful to normalize your `models` to contain realistic total stellar masses; then the fit coefficients can be low and have a tighter dynamic range which can help with the optimization.
- - We recommend that the initial coefficients vector `x0` be set for constant star formation rate. 
-"""
-# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     # return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
-#     return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ),
-#                           zeros(S,length(models)), fill(convert(S,Inf),length(models)), # Bounds constraints
-#                           x0, Optim.Fminbox(Optim.LBFGS()), # ; alphaguess=LineSearches.InitialStatic(1.0, false),
-#                                                          # linesearch=LineSearches.MoreThuente())), # ; alphamin=0.01,
-#                                                          # alphamax=Inf))))#,
-#                                                          # ; linesearch=LineSearches.HagerZhang())),
-#                           Optim.Options(f_tol=1e-5))
-# end
-# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
-# end
-# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-#     return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
-# end
-# function fit_templates2(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     G = similar(x0)
-#     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
-#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1e-12, bounds=[(0.0,Inf) for i in 1:length(x0)])
-#     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
-# end
-function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    G = similar(x0)
-    fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
-    LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
-end
-# LBFGSB.lbfgsb(f, g!, x0; m, lb, ub, kwargs...)
-# LBFGSB.lbfgsb(f, x0; m, lb, ub, kwargs...) # f returns objective, gradient
-# LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
-# Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation
-
 # Not very efficient but don't care
 # Returns cumulative SFH, 
 function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
@@ -256,28 +218,41 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     return unique_logAge, cum_sfr_arr, mstar_arr ./ dt, mean_mh_arr
 end
 
-# function calculate_sfr(coeffs::AbstractVector, logAge::AbstractVector; normalize_value=1, sorted::Bool=false)
-#     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
-#     if ~sorted # If we aren't sure that logAge is sorted, we sort. 
-#         idx = sortperm(logAge)
-#         logAge = logAge[idx]
-#         coeffs = coeffs[idx]
-#     end
-#     unique_logAge = unique(logAge)
-#     dt = diff( vcat(0, exp10.(unique_logAge)) )
-#     # Figure out total stellar mass as a function of logAge if there are duplicates in logAge
-#     mstar_arr = similar(coeffs)
-#     for i in eachindex(unique_logAge)
-#         Mstar_tmp = zero(eltype(mstar_arr))
-#         for j in eachindex(logAge)
-#             if unique_logAge[i] == logAge[j]
-#                 Mstar_tmp += coeffs[j]
-#             end
-#         end
-#         mstar_arr[i] = Mstar_tmp
-#     end
-#     return mstar_arr ./ dt
+"""
+
+# Notes
+ - It can be helpful to normalize your `models` to contain realistic total stellar masses; then the fit coefficients can be low and have a tighter dynamic range which can help with the optimization.
+ - We recommend that the initial coefficients vector `x0` be set for constant star formation rate. 
+"""
+# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
+#     # return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
+#     return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ),
+#                           zeros(S,length(models)), fill(convert(S,Inf),length(models)), # Bounds constraints
+#                           x0, Optim.Fminbox(Optim.LBFGS()), # ; alphaguess=LineSearches.InitialStatic(1.0, false),
+#                                                          # linesearch=LineSearches.MoreThuente())), # ; alphamin=0.01,
+#                                                          # alphamax=Inf))))#,
+#                                                          # ; linesearch=LineSearches.HagerZhang())),
+#                           Optim.Options(f_tol=1e-5))
 # end
+# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
+#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
+# end
+# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
+#     return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
+# end
+# function fit_templates2(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models))) where {S <: Number, T <: AbstractMatrix{S}}
+#     G = similar(x0)
+#     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
+#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1e-12, bounds=[(0.0,Inf) for i in 1:length(x0)])
+#     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
+# end
+function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    G = similar(x0)
+    fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
+    LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
+# LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
+# Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation.
 
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
@@ -289,6 +264,104 @@ end
 # fg!(true,G,coe,MM,N1,C1)
 # @benchmark fg!($true,$G,$coe,$MM,$N1,$C1)
 
+###############################################################################
+# Fitting with a metallicity distribution function rather than totally free per logage
+_gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
+# _gausstest(x,age,α,β,σ) = inv(σ) * exp( -((x-(α*age+β))/σ)^2 / 2 )
+# ForwardDiff.derivative(x -> _gausstest(-1.0, 1e9, -1e-10, x, 0.2), -0.4) = -2.74
+# _dgaussdβ(x,age,α,β,σ) = (μ = α*age+β; (x-μ) * exp( -((x-μ)/σ)^2 / 2 ) * inv(σ)^3)
+# _dgaussdβ(-1.0,1e9,-1e-10,-0.4,0.2) = -2.74
+@inline function fg2!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+    # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
+    # entry in logAge, plus α and β to define the MDF at fixed logAge
+    @assert axes(data) == axes(composite)
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
+    # Compute the coefficients on each model template given the `variables` and the MDF
+    coeffs = Vector{S}(undef,length(models))
+    coeff_variables = variables[begin:end-2]
+    α, β = variables[end-1], variables[end]
+    unique_logAge = unique(logAge)
+    @assert length(variables) == length(unique_logAge)+2
+    norm_vals = Vector{S}(undef,length(unique_logAge))
+    for i in eachindex(unique_logAge)
+        la = unique_logAge[i]
+        μ = α * exp10(la) + β # Find the mean metallicity of this age bin
+        # println(μ)
+        idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+        tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+        A = sum(tmp_coeffs)
+        norm_vals[i] = A
+        # Make sure sum over tmp_coeffs equals 1 and write to coeffs
+        coeffs[idxs] .= tmp_coeffs .* coeff_variables[i] ./ A 
+    end
+    # Fill the composite array with the equivalent of sum( coeffs .* models )
+    composite!(composite, coeffs, models)
+    # Stuff to enable ForwardDiff
+    # composite = sum( coeffs .* models )
+    # return -loglikelihood(composite, data)
+    if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+        @assert axes(G) == axes(variables)
+        # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
+        fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        # Now need to do the transformation to the `variables` rather than model coefficients
+        G[end-1] = zero(eltype(G))
+        G[end] = zero(eltype(G))
+        for i in axes(G,1)[begin:end-2] # 1:length(variables)-2
+            la = unique_logAge[i]
+            μ = α * exp10(la) + β # Find the mean metallicity of this age bin
+            idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+            tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+            A = sum(tmp_coeffs)
+            # This should be correct for any MDF model at fixed logAge
+            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] * 
+            #     ((metallicities[j]-μ) * exp( -((metallicities[j]-μ)/σ)^2 / 2 ) * inv(σ)^3) for j in idxs )
+            G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
+                ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
+                  exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
+                ) for j in idxs)
+            # G[end] += G[i] * -sum( 
+            #     ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
+            #       exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
+            #     ) for j in idxs)
+        end
+        return -loglikelihood(composite, data) # Return the negative loglikelihood
+    end
+    # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
+    #     @assert axes(G) == axes(models)
+    #     # Fill the gradient array
+    #     for i in axes(models,1)
+    #         @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
+    #     end
+    # elseif F != nothing # Optim.optimize wants only objective
+    #     return -loglikelihood(composite, data) # Return the negative loglikelihood
+    # end
+end
+
+# unique_logAge = range(6.6, 10.1; step=0.1)
+# unique_MH = range(-2.2, 0.3; step=0.1)
+# template_logAge = repeat(unique_logAge; inner=length(unique_MH))
+# template_MH = repeat(unique_MH; outer=length(unique_logAge))
+# models = [rand(99,99) for i in 1:length(template_logAge)]
+# coeffs = rand(length(template_logAge))
+# data = sum( coeffs .* models )
+# variables = ones(length(unique_logAge)+2)
+# C = similar(data)
+# G = rand(length(unique_logAge)+2)
+# variables[end] = -0.4 # Intercept at present-day
+# variables[end-1] = -1.103700353306591e-10 # Slope in MH/yr, with yr being in terms of lookback 
+# tmpans = SFH.fg2!(true, G, variables, models, data, C, template_logAge, template_MH, 0.2)
+# println(sum(tmpans[1:length(unique_MH)]) ≈ 1) # This should be true if properly normalized
+# This checks that the mean MH is correct for the first unique logAge
+# println( isapprox(-0.4, sum( tmpans[1:length(unique_MH)] .* unique_MH ) / sum( tmpans[1:length(unique_MH)] ), atol=1e-3 ) )
+# import ForwardDiff
+# ForwardDiff.gradient( x-> SFH.fg2!(true, G, x, models, data, C, template_logAge, template_MH, 0.2), variables)
+# FiniteDifferences is very slow but agrees with ForwardDiff
+# import FiniteDifferences
+# FiniteDifferences.grad(FiniteDifferences.central_fdm(5, 1), x-> SFH.fg2!(true, rand(length(variables)), x, models, data, C, template_logAge, template_MH, 0.2), variables)
+# G2 = similar(coeffs)
+# @benchmark SFH.fg!($true, $G2, $coeffs, $models, $data, $C) # 7.6 ms
+# @benchmark SFH.fg2!($true, $G, $variables, $models, $data, $C, $template_logAge, $template_MH, $0.2) # currently 8 ms
 
 ###############################################################################
 # HMC utilities
