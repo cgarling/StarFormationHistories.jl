@@ -182,8 +182,6 @@ function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T))
     for i in eachindex(logage, result)
         la = logage[i]
         idx = findfirst( x -> x==la, unique_logage )
-        # idx = min( length(dt), idx )
-        # result[i] = sfr * dt[idx] / num_ages[idx]
         result[i] = sfr * dt[idx-1] / num_ages[idx-1]
     end
     return result
