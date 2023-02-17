@@ -295,9 +295,11 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
         coeffs[idxs] .= tmp_coeffs .* coeff_variables[i] ./ A 
     end
     # Fill the composite array with the equivalent of sum( coeffs .* models )
-    composite!(composite, coeffs, models)
+    # composite!(composite, coeffs, models)
     # Stuff to enable ForwardDiff
-    # composite = sum( coeffs .* models )
+    composite = sum( coeffs .* models )
+    # return coeffs[1]
+    # return ∇loglikelihood(models[1], composite, data)
     # return -loglikelihood(composite, data)
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
@@ -308,23 +310,42 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
         G[end] = zero(eltype(G))
         for i in axes(G,1)[begin:end-2] # 1:length(variables)-2
             la = unique_logAge[i]
-            μ = α * exp10(la) + β # Find the mean metallicity of this age bin
+            age = exp10(la)
+            μ = α * age + β # Find the mean metallicity of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
             A = sum(tmp_coeffs)
             # This should be correct for any MDF model at fixed logAge
-            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            # @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            @inbounds G[i] = -sum( fullG[idxs[j]] * tmp_coeffs[j] / A for j in eachindex(idxs) )
+            
+            # G[end] += -sum( fullG[idxs[j]] * tmp_coeffs[j] / A * variables[i] for j in eachindex(idxs) )
             # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] * 
+            # G[end] += G[i] * -sum( 
             #     ((metallicities[j]-μ) * exp( -((metallicities[j]-μ)/σ)^2 / 2 ) * inv(σ)^3) for j in idxs )
-            G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
-                ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
-                  exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
-                ) for j in idxs)
+            # G[end] += G[i] * -sum( 
+            #     ((metallicities[j]-μ) * exp( -((metallicities[j]-μ)/σ)^2 / 2 ) * inv(σ)^3) for j in idxs ) / sum(tmp_coeffs)
+            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
+            #     ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
+            #       exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
+            #     ) for j in idxs)
             # G[end] += G[i] * -sum( 
             #     ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
             #       exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
             #     ) for j in idxs)
+            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
+            # G[end] += G[i] * -sum(
+            # return -sum( fullG[j] * coeffs[j] / variables[i] *
+            # return G[i] * -sum(
+            #     tmp_coeffs[j] * 
+            #         ( (metallicities[idxs[j]] - μ) / sum(tmp_coeffs) / σ^2 -
+            #     sum( tmp_coeffs[k] * (metallicities[idxs[k]] - μ) for k in eachindex(idxs)) / σ^2 / sum(tmp_coeffs)^2)
+            #     for j in eachindex(idxs))
+            G[end] += -sum( fullG[idxs[j]] * variables[i] *
+                ( ((metallicities[idxs[j]]-μ) * exp( -((metallicities[idxs[j]]-μ)/σ)^2 / 2 ) * inv(σ)^3) / A -
+                tmp_coeffs[j] / A^2 * sum( ((metallicities[idxs[k]]-μ) * exp( -((metallicities[idxs[k]]-μ)/σ)^2 / 2 ) * inv(σ)^3) for k in eachindex(idxs) ) ) for j in eachindex(idxs))
         end
+        # return coeffs[1]
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
     # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
@@ -338,6 +359,22 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
     # end
 end
 
+function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+    unique_logAge = unique(logAge)
+    α, β = variables[end-1], variables[end]
+    coeffs = reduce(vcat, begin
+                  la = unique_logAge[i]
+                  μ = α * exp10(la) + β
+                  idxs = findall( ==(la), logAge)
+                  tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs]
+                  A = sum(tmp_coeffs)
+                  tmp_coeffs .* variables[i] ./ A 
+                    end for i in eachindex(unique_logAge) )
+    
+    composite = sum( coeffs .* models )
+    return -loglikelihood(composite, data)
+    
+end
 # unique_logAge = range(6.6, 10.1; step=0.1)
 # unique_MH = range(-2.2, 0.3; step=0.1)
 # template_logAge = repeat(unique_logAge; inner=length(unique_MH))
