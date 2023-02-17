@@ -295,11 +295,9 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
         coeffs[idxs] .= tmp_coeffs .* coeff_variables[i] ./ A 
     end
     # Fill the composite array with the equivalent of sum( coeffs .* models )
-    # composite!(composite, coeffs, models)
+    composite!(composite, coeffs, models)
     # Stuff to enable ForwardDiff
-    composite = sum( coeffs .* models )
-    # return coeffs[1]
-    # return ∇loglikelihood(models[1], composite, data)
+    # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
@@ -319,33 +317,18 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
             # @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
             @inbounds G[i] = -sum( fullG[idxs[j]] * tmp_coeffs[j] / A for j in eachindex(idxs) )
             
-            # G[end] += -sum( fullG[idxs[j]] * tmp_coeffs[j] / A * variables[i] for j in eachindex(idxs) )
-            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] * 
-            # G[end] += G[i] * -sum( 
-            #     ((metallicities[j]-μ) * exp( -((metallicities[j]-μ)/σ)^2 / 2 ) * inv(σ)^3) for j in idxs )
-            # G[end] += G[i] * -sum( 
-            #     ((metallicities[j]-μ) * exp( -((metallicities[j]-μ)/σ)^2 / 2 ) * inv(σ)^3) for j in idxs ) / sum(tmp_coeffs)
-            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
-            #     ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
-            #       exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
-            #     ) for j in idxs)
-            # G[end] += G[i] * -sum( 
-            #     ( exp(-((metallicities[j]-μ)/σ)^2) * (metallicities[j] - μ) / (A/σ)^2 / σ^4 -
-            #       exp(-((metallicities[j]-μ)/σ)^2 / 2) * (metallicities[j] - μ) / (A/σ) / σ^3
-            #     ) for j in idxs)
-            # G[end] += -sum( fullG[j] * coeffs[j] / variables[i] *
-            # G[end] += G[i] * -sum(
-            # return -sum( fullG[j] * coeffs[j] / variables[i] *
-            # return G[i] * -sum(
-            #     tmp_coeffs[j] * 
-            #         ( (metallicities[idxs[j]] - μ) / sum(tmp_coeffs) / σ^2 -
-            #     sum( tmp_coeffs[k] * (metallicities[idxs[k]] - μ) for k in eachindex(idxs)) / σ^2 / sum(tmp_coeffs)^2)
-            #     for j in eachindex(idxs))
-            G[end] += -sum( fullG[idxs[j]] * variables[i] *
-                ( ((metallicities[idxs[j]]-μ) * exp( -((metallicities[idxs[j]]-μ)/σ)^2 / 2 ) * inv(σ)^3) / A -
-                tmp_coeffs[j] / A^2 * sum( ((metallicities[idxs[k]]-μ) * exp( -((metallicities[idxs[k]]-μ)/σ)^2 / 2 ) * inv(σ)^3) for k in eachindex(idxs) ) ) for j in eachindex(idxs))
+            # G[end] += -sum( fullG[idxs[j]] * variables[i] *
+            #     ( ((metallicities[idxs[j]]-μ) * exp( -((metallicities[idxs[j]]-μ)/σ)^2 / 2 ) * inv(σ)^3) / A -
+            #     tmp_coeffs[j] / A^2 * sum( ((metallicities[idxs[k]]-μ) * exp( -((metallicities[idxs[k]]-μ)/σ)^2 / 2 ) * inv(σ)^3) for k in eachindex(idxs) ) ) for j in eachindex(idxs))
+            βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
+            dLdβ = -sum( fullG[idxs[j]] * variables[i] *
+                ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
+                         for j in eachindex(idxs)) / A / σ^2
+            dLdα = dLdβ * age
+            G[end-1] += dLdα
+            G[end] += dLdβ
+
         end
-        # return coeffs[1]
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
     # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
