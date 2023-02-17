@@ -157,18 +157,34 @@ Light wrapper for `SFH.fg` that computes loglikelihood and gradient simultaneous
 end
 
 # Write a function here to take in logage array and return x0 (normalized total mass) such that the SFR is constant. Afterward, might want to write another method call that also takes metallicity and metallicity model and tweaks x0 according to some prior metallicity model.
-function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T<:Number
+"""
+    x0::typeof(logage) = construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
+
+Generates a vector of initial stellar mass normalizations for input to `fit_templates` or `hmc_sample` with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logage` vector that contains the `log10(age [yr])` of each isochrone that you are going to input as models.
+
+# Examples
+```julia
+julia> x0 = SFH.construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
+9-element Vector{Float64}: ...
+
+julia> sum(x0) = 5.05... # Close to `normalize_value`. 
+"""
+function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
     minlog, maxlog = extrema(logage)
     sfr = normalize_value / (exp10(maxlog) - exp10(minlog)) # Average SFR / yr
     unique_logage = sort!(unique(logage))
     num_ages = [count(logage .== la) for la in unique_logage] # number of entries per unique
+    # unique_logage is sorted, but we want the first element to be zero to properly calculate
+    # the dt from present-day to the most recent logage in the vector, so vcat it on
+    unique_logage = vcat( [zero(T)], unique_logage )
     dt = [exp10(unique_logage[i+1]) - exp10(unique_logage[i]) for i in 1:length(unique_logage)-1]
     result = similar(logage)
     for i in eachindex(logage, result)
         la = logage[i]
         idx = findfirst( x -> x==la, unique_logage )
-        idx = min( length(dt), idx )
-        result[i] = sfr * dt[idx] / num_ages[idx]
+        # idx = min( length(dt), idx )
+        # result[i] = sfr * dt[idx] / num_ages[idx]
+        result[i] = sfr * dt[idx-1] / num_ages[idx-1]
     end
     return result
 end
@@ -286,7 +302,6 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
     for i in eachindex(unique_logAge)
         la = unique_logAge[i]
         μ = α * exp10(la) + β # Find the mean metallicity of this age bin
-        # println(μ)
         idxs = findall( ==(la), logAge) # Find all entries that match this logAge
         tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
         A = sum(tmp_coeffs)
@@ -296,9 +311,6 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
     end
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     composite!(composite, coeffs, models)
-    # Stuff to enable ForwardDiff
-    # composite = sum( coeffs .* models )
-    # return -loglikelihood(composite, data)
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
