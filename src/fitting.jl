@@ -188,8 +188,6 @@ function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T))
     return result
 end
 
-# Not very efficient but don't care
-# Returns cumulative SFH, 
 function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
     @assert axes(coeffs) == axes(logAge) == axes(MH)
     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
@@ -279,36 +277,114 @@ end
 # fg!(true,G,coe,MM,N1,C1)
 # @benchmark fg!($true,$G,$coe,$MM,$N1,$C1)
 
-###############################################################################
+######################################################################################
 # Fitting with a metallicity distribution function rather than totally free per logage
+
+"""
+    x0::Vector = construct_x0_mdf(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
+
+Generates a vector of initial stellar mass normalizations for input to `fit_templates_mdf` or `hmc_sample_mdf` with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logage` vector that contains the `log10(age [yr])` of each isochrone that you are going to input as models.
+
+The difference between this function and [`SFH.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logage`) while [`SFH.construct_x0`](@ref) returns an `x0` vector that is of length `length(logage)`; that is, a normalization factor for every entry in `logage`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logage)[i]`. 
+
+# Notes
+
+# Examples
+```julia
+julia> SFH.construct_x0_mdf([9.0,8.0,7.0]; normalize_value=5.0)
+3-element Vector{Float64}:
+ 4.545454545454545
+ 0.45454545454545453
+ 0.050505045454545455
+
+julia> SFH.construct_x0_mdf(repeat([9.0,8.0,7.0,8.0];inner=3); normalize_value=5.0)
+3-element Vector{Float64}:
+ 4.545454545454545
+ 0.45454545454545453
+ 0.050505045454545455
+
+julia> SFH.construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3); normalize_value=5.0) ≈ SFH.construct_x0([9.0,8.0,7.0]; normalize_value=5.0)
+true
+```
+"""
+function construct_x0_mdf(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
+    minlog, maxlog = extrema(logage)
+    sfr = normalize_value / (exp10(maxlog) - exp10(minlog)) # Average SFR / yr
+    unique_logage = unique(logage)
+    idxs = sortperm(unique_logage)
+    # unique_logage is sorted, but we want the first element to be zero to properly calculate
+    # the dt from present-day to the most recent logage in the vector, so vcat it on
+    sorted_ul = vcat([zero(T)], unique_logage[idxs])
+    dt = [exp10(sorted_ul[i+1]) - exp10(sorted_ul[i]) for i in 1:length(sorted_ul)-1]
+    # return sfr .* dt
+    return [ begin
+                idx = findfirst( ==(sorted_ul[i+1]), unique_logage )
+                sfr * dt[idx]
+             end for i in eachindex(dt) ]
+end
+
 _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
 # _gausstest(x,age,α,β,σ) = inv(σ) * exp( -((x-(α*age+β))/σ)^2 / 2 )
 # ForwardDiff.derivative(x -> _gausstest(-1.0, 1e9, -1e-10, x, 0.2), -0.4) = -2.74
 # _dgaussdβ(x,age,α,β,σ) = (μ = α*age+β; (x-μ) * exp( -((x-μ)/σ)^2 / 2 ) * inv(σ)^3)
 # _dgaussdβ(-1.0,1e9,-1e-10,-0.4,0.2) = -2.74
+
+"""
+    coeffs, norm_vals = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
+
+Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of `fit_template_mdf` and `hmc_sample_mdf`. The `variables` returned by these functions is of length `length(unique(logAge))+2`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final two elements are α and β defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * exp10(unique(logAge)[i]) / 1e10 + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. They are normalized such that the weights sum to one for all of the isochrones of a given unique `logAge`. Also returns `norm_vals`, a vector that gives the multiplicative prefactor that was used to normalize the Gaussian weights; this is needed for the gradient calculation but is otherwise not of use. 
+"""
+function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
+    S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(σ))
+    # Compute the coefficients on each model template given the `variables` and the MDF
+    α, β = variables[end-1], variables[end]
+    unique_logAge = unique(logAge)
+    @assert length(variables) == length(unique_logAge)+2
+    coeffs = Vector{S}(undef,length(logAge))
+    norm_vals = Vector{S}(undef,length(unique_logAge))
+    for i in eachindex(unique_logAge)
+        la = unique_logAge[i]
+        μ = α * exp10(la) / 1e9 + β # Find the mean metallicity of this age bin
+        idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+        tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+        A = sum(tmp_coeffs)
+        norm_vals[i] = A
+        # Make sure sum over tmp_coeffs equals 1 and write to coeffs
+        coeffs[idxs] .= tmp_coeffs .* variables[i] ./ A
+    end
+    return coeffs, norm_vals
+end
+
+"""
+variables[begin:end-2] are stellar mass coefficients
+variables[end-1] is the slope of the age-MH relation in [MH] / [10Gyr; (lookback)], e.g. -1.0
+variables[end] is the intercept of the age-MH relation in MH at present-day, e.g. -0.4
+"""
 @inline function fg2!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
     # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge
     @assert axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
     # Compute the coefficients on each model template given the `variables` and the MDF
-    coeffs = Vector{S}(undef,length(models))
-    coeff_variables = variables[begin:end-2]
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    @assert length(variables) == length(unique_logAge)+2
-    norm_vals = Vector{S}(undef,length(unique_logAge))
-    for i in eachindex(unique_logAge)
-        la = unique_logAge[i]
-        μ = α * exp10(la) + β # Find the mean metallicity of this age bin
-        idxs = findall( ==(la), logAge) # Find all entries that match this logAge
-        tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
-        A = sum(tmp_coeffs)
-        norm_vals[i] = A
-        # Make sure sum over tmp_coeffs equals 1 and write to coeffs
-        coeffs[idxs] .= tmp_coeffs .* coeff_variables[i] ./ A 
-    end
+    # @assert length(variables) == length(unique_logAge)+2
+    # coeffs = Vector{S}(undef,length(models))
+    # norm_vals = Vector{S}(undef,length(unique_logAge))
+    # for i in eachindex(unique_logAge)
+    #     la = unique_logAge[i]
+    #     μ = α * exp10(la) / 1e10 + β # Find the mean metallicity of this age bin
+    #     idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+    #     tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+    #     A = sum(tmp_coeffs)
+    #     norm_vals[i] = A
+    #     # Make sure sum over tmp_coeffs equals 1 and write to coeffs
+    #     coeffs[idxs] .= tmp_coeffs .* variables[i] ./ A 
+    # end
+    coeffs, norm_vals = calculate_coeffs_mdf(variables, logAge, metallicities, σ)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
+    # composite = sum( coeffs .* models )
+    # return -loglikelihood(composite, data)
     composite!(composite, coeffs, models)
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
@@ -317,16 +393,16 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-1] = zero(eltype(G))
         G[end] = zero(eltype(G))
-        for i in axes(G,1)[begin:end-2] # 1:length(variables)-2
+        for i in axes(G,1)[begin:end-2] 
             la = unique_logAge[i]
-            age = exp10(la)
+            age = exp10(la) / 1e9 # the / 1e10 makes α the slope in MH/Gyr, improves convergence
             μ = α * age + β # Find the mean metallicity of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
             A = sum(tmp_coeffs)
             # This should be correct for any MDF model at fixed logAge
-            # @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
-            @inbounds G[i] = -sum( fullG[idxs[j]] * tmp_coeffs[j] / A for j in eachindex(idxs) )
+            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            # @inbounds G[i] = -sum( fullG[idxs[j]] * tmp_coeffs[j] / A for j in eachindex(idxs) )
             
             # G[end] += -sum( fullG[idxs[j]] * variables[i] *
             #     ( ((metallicities[idxs[j]]-μ) * exp( -((metallicities[idxs[j]]-μ)/σ)^2 / 2 ) * inv(σ)^3) / A -
@@ -338,20 +414,57 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
             dLdα = dLdβ * age
             G[end-1] += dLdα
             G[end] += dLdβ
-
         end
         return -loglikelihood(composite, data) # Return the negative loglikelihood
-    end
     # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
     #     @assert axes(G) == axes(models)
     #     # Fill the gradient array
     #     for i in axes(models,1)
     #         @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
     #     end
-    # elseif F != nothing # Optim.optimize wants only objective
-    #     return -loglikelihood(composite, data) # Return the negative loglikelihood
-    # end
+    elseif F != nothing # Optim.optimize wants only objective
+        return -loglikelihood(composite, data) # Return the negative loglikelihood
+    end
 end
+
+function fit_templates_mdf(models::AbstractVector{T},
+                           data::AbstractMatrix{<:Number},
+                           logAge::AbstractVector{<:Number},
+                           metallicities::AbstractVector{<:Number},
+                           σ::Number;
+                           composite=Matrix{S}(undef,size(data)),
+                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5]),
+                           factr::Number=1e-12,
+                           pgtol::Number=1e-5,
+                           iprint::Integer=0,
+                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    G = similar(x0)
+    fg(x) = (R = SFH.fg2!(true,G,x,models,data,composite,logAge,metallicities,σ); return R,G)
+    unique_logage = unique(logAge)
+    @assert length(x0) == length(unique_logage)+2
+    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
+    ub = fill(Inf,length(unique_logage)+2)
+    LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
+
+function fit_templates_mdf_spg(models::AbstractVector{T},
+                               data::AbstractMatrix{<:Number},
+                               logAge::AbstractVector{<:Number},
+                               metallicities::AbstractVector{<:Number},
+                               σ::Number;
+                               composite=Matrix{Float64}(undef,size(data)),
+                               x0=ones(length(models)),
+                               eps::Number=1e-5,
+                               nfevalmax::Integer=1000,
+                               nitmax::Integer=100,
+                               m::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
+    unique_logage = unique(logAge)
+    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
+    ub = fill(Inf,length(unique_logage)+2)
+    return SPGBox.spgbox((g,x)->SFH.fg2!(true,g,x,models,data,composite,logAge,metallicities,σ), x0; lower=lb, upper=ub, eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=m)
+end
+
+# function hmc_sample_mdf()
 
 function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
     unique_logAge = unique(logAge)
@@ -369,6 +482,7 @@ function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, da
     return -loglikelihood(composite, data)
     
 end
+
 # unique_logAge = range(6.6, 10.1; step=0.1)
 # unique_MH = range(-2.2, 0.3; step=0.1)
 # template_logAge = repeat(unique_logAge; inner=length(unique_MH))
