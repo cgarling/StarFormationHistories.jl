@@ -277,6 +277,63 @@ end
 # fg!(true,G,coe,MM,N1,C1)
 # @benchmark fg!($true,$G,$coe,$MM,$N1,$C1)
 
+###############################################################################
+# HMC utilities
+
+struct HMCModel{T,S,V}
+    models::T
+    composite::S
+    data::V
+end
+
+# This model will return loglikelihood and gradient
+LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
+LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
+
+function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
+    composite = problem.composite
+    models = problem.models
+    data = problem.data
+    dims = length(models)
+    # Transform the provided x
+    x = [ exp(i) for i in logx ]
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
+    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
+    return logL, ∇logL
+end
+
+# Version with just one chain; no threading
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    instance = HMCModel( models, composite, data )
+    return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
+end
+
+function extract_initialization(state)
+    (; Q, κ, ϵ) = state.final_warmup_state
+    (; q = Q.q, κ, ϵ)
+end
+
+# Version with multiple chains and multithreading
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert nchains >= 1
+    instances = [ HMCModel( models, composite[i], data ) for i in 1:Threads.nthreads() ]
+    # Do the warmup
+    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
+                                         warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
+    final_init = extract_initialization(warmup)
+    # Do the MCMC
+    result_arr = []
+    Threads.@threads for i in 1:nchains
+        tid = Threads.threadid()
+        result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
+                                             initialization=final_init, kws...)
+        push!(result_arr, result) # Order doesn't matter so push when completed
+    end
+    return result_arr
+end
+
 ######################################################################################
 # Fitting with a metallicity distribution function rather than totally free per logage
 
@@ -466,21 +523,155 @@ end
 
 # function hmc_sample_mdf()
 
-function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+# function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+#     unique_logAge = unique(logAge)
+#     α, β = variables[end-1], variables[end]
+#     coeffs = reduce(vcat, begin
+#                   la = unique_logAge[i]
+#                   μ = α * exp10(la) + β
+#                   idxs = findall( ==(la), logAge)
+#                   tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs]
+#                   A = sum(tmp_coeffs)
+#                   tmp_coeffs .* variables[i] ./ A 
+#                     end for i in eachindex(unique_logAge) )
+    
+#     composite = sum( coeffs .* models )
+#     return -loglikelihood(composite, data)
+# end
+
+"""
+This version of mdf fg! also fits σ
+"""
+@inline function fg3!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) where T <: AbstractMatrix{<:Number}
+    # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
+    # entry in logAge, plus α and β to define the MDF at fixed logAge
+    @assert axes(data) == axes(composite)
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
+    # Compute the coefficients on each model template given the `variables` and the MDF
+    α, β, σ = variables[end-2], variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    α, β = variables[end-1], variables[end]
-    coeffs = reduce(vcat, begin
-                  la = unique_logAge[i]
-                  μ = α * exp10(la) + β
-                  idxs = findall( ==(la), logAge)
-                  tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs]
-                  A = sum(tmp_coeffs)
-                  tmp_coeffs .* variables[i] ./ A 
-                    end for i in eachindex(unique_logAge) )
-    
-    composite = sum( coeffs .* models )
-    return -loglikelihood(composite, data)
-    
+    # Calculate the per-template coefficents and normalization values
+    coeffs, norm_vals = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-1),
+                                             logAge, metallicities, σ)
+    # Fill the composite array with the equivalent of sum( coeffs .* models )
+    # composite = sum( coeffs .* models )
+    # return -loglikelihood(composite, data)
+    composite!(composite, coeffs, models)
+    if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+        @assert axes(G) == axes(variables)
+        # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
+        fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        # Now need to do the transformation to the `variables` rather than model coefficients
+        G[end-2] = zero(eltype(G))
+        G[end-1] = zero(eltype(G))
+        G[end] = zero(eltype(G))
+        for i in axes(G,1)[begin:end-3] 
+            la = unique_logAge[i]
+            age = exp10(la) / 1e9 # the / 1e10 makes α the slope in MH/Gyr, improves convergence
+            μ = α * age + β # Find the mean metallicity of this age bin
+            idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+            tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+            A = sum(tmp_coeffs)
+            # This should be correct for any MDF model at fixed logAge
+            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
+            dLdβ = -sum( fullG[idxs[j]] * variables[i] *
+                ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
+                         for j in eachindex(idxs)) / A / σ^2
+            dLdα = dLdβ * age
+            σsum = sum( tmp_coeffs[j] / σ *
+                ( (metallicities[idxs[j]]-μ)^2 / σ^2 - 1) for j in eachindex(idxs))
+            dLdσ = -sum( fullG[idxs[j]] * variables[i] *
+                (tmp_coeffs[j] / σ * ((metallicities[idxs[j]]-μ)^2 / σ^2 - 1) -
+                tmp_coeffs[j] / A * σsum) for j in eachindex(idxs)) / A
+            G[end-2] += dLdα
+            G[end-1] += dLdβ
+            G[end] += dLdσ
+        end
+        return -loglikelihood(composite, data) # Return the negative loglikelihood
+    # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
+    #     @assert axes(G) == axes(models)
+    #     # Fill the gradient array
+    #     for i in axes(models,1)
+    #         @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
+    #     end
+    elseif F != nothing # Optim.optimize wants only objective
+        return -loglikelihood(composite, data) # Return the negative loglikelihood
+    end
+end
+
+# This version fits σ and so doesn't take that as a final argument
+function fit_templates_mdf(models::AbstractVector{T},
+                           data::AbstractMatrix{<:Number},
+                           logAge::AbstractVector{<:Number},
+                           metallicities::AbstractVector{<:Number};
+                           composite=Matrix{S}(undef,size(data)),
+                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+                           factr::Number=1e-12,
+                           pgtol::Number=1e-5,
+                           iprint::Integer=0,
+                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    G = similar(x0)
+    fg(x) = (R = SFH.fg3!(true,G,x,models,data,composite,logAge,metallicities); return R,G)
+    unique_logage = unique(logAge)
+    @assert length(x0) == length(unique_logage)+3
+    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
+    ub = fill(Inf,length(unique_logage)+3)
+    LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
+
+## HMC with MDF
+
+struct HMCModelMDF{T,S,V,W,X,Y}
+    models::T
+    composite::S
+    data::V
+    logAge::W
+    metallicities::X
+    G::Y
+end
+
+# This model will return loglikelihood and gradient
+LogDensityProblems.capabilities(::Type{<:HMCModelMDF}) = LogDensityProblems.LogDensityOrder{1}()
+LogDensityProblems.dimension(problem::HMCModelMDF) = length(problem.G)
+
+function LogDensityProblems.logdensity_and_gradient(problem::HMCModelMDF, xvec)
+    composite = problem.composite
+    models = problem.models
+    data = problem.data
+    dims = length(models)
+    logAge = problem.logAge
+    metallicities = problem.metallicities
+    G = problem.G
+    @assert axes(G) == axes(xvec)
+    # Transform the provided x
+    # α and β, which are xvec[end-2] and xvec[end-1], are the only variables that are not log-transformed
+    x = similar(xvec)
+    for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
+        x[i] = exp(xvec[i])
+    end
+    x[end-2] = xvec[end-2]  # α
+    x[end-1] = xvec[end-1]  # β
+    x[end] = exp(xvec[end]) # σ
+
+    # fg3! returns -logL and fills G with -∇logL so we need to negate the signs.
+    logL = -SFH.fg3!(true, G, x, models, data, composite, logAge, metallicities)
+    logL += sum(view(xvec,firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
+    ∇logL = -G
+    # Add the Jacobian correction for every element of ∇logL except α (x[end-2]) and β (x[end-1])
+    for i in eachindex(∇logL)[begin:end-3]
+        ∇logL[i] = ∇logL[i] * x[i] + 1
+    end
+    ∇logL[end] = ∇logL[end] * x[end] + 1
+    return logL, ∇logL
+end
+
+# Version with just one chain; no threading
+function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert length(logAge) == length(metallicities)
+    instance = HMCModelMDF( models, composite, data, logAge, metallicities,
+                            Vector{S}(undef, length(unique(logAge)) + 3) )
+    return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
 end
 
 # unique_logAge = range(6.6, 10.1; step=0.1)
@@ -507,60 +698,3 @@ end
 # G2 = similar(coeffs)
 # @benchmark SFH.fg!($true, $G2, $coeffs, $models, $data, $C) # 7.6 ms
 # @benchmark SFH.fg2!($true, $G, $variables, $models, $data, $C, $template_logAge, $template_MH, $0.2) # currently 8 ms
-
-###############################################################################
-# HMC utilities
-
-struct HMCModel{T,S,V}
-    models::T
-    composite::S
-    data::V
-end
-
-# This model will return loglikelihood and gradient
-LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
-LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
-
-function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
-    composite = problem.composite
-    models = problem.models
-    data = problem.data
-    dims = length(models)
-    # Transform the provided x
-    x = [ exp(i) for i in logx ]
-    # Update the composite model matrix
-    composite!( composite, x, models )
-    logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
-    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
-    return logL, ∇logL
-end
-
-# Version with just one chain; no threading
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    instance = HMCModel( models, composite, data )
-    return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
-end
-
-function extract_initialization(state)
-    (; Q, κ, ϵ) = state.final_warmup_state
-    (; q = Q.q, κ, ϵ)
-end
-
-# Version with multiple chains and multithreading
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    @assert nchains >= 1
-    instances = [ HMCModel( models, composite[i], data ) for i in 1:Threads.nthreads() ]
-    # Do the warmup
-    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
-                                         warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
-    final_init = extract_initialization(warmup)
-    # Do the MCMC
-    result_arr = []
-    Threads.@threads for i in 1:nchains
-        tid = Threads.threadid()
-        result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
-                                             initialization=final_init, kws...)
-        push!(result_arr, result) # Order doesn't matter so push when completed
-    end
-    return result_arr
-end
