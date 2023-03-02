@@ -387,16 +387,15 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
 # _dgaussdβ(-1.0,1e9,-1e-10,-0.4,0.2) = -2.74
 
 """
-    coeffs, norm_vals = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
+    coeffs  = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number} [, α::Number, β::Number, σ::Number])
 
-Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of `fit_template_mdf` and `hmc_sample_mdf`. The `variables` returned by these functions is of length `length(unique(logAge))+2`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final two elements are α and β defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * exp10(unique(logAge)[i]) / 1e10 + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. They are normalized such that the weights sum to one for all of the isochrones of a given unique `logAge`. Also returns `norm_vals`, a vector that gives the multiplicative prefactor that was used to normalize the Gaussian weights; this is needed for the gradient calculation but is otherwise not of use. 
+Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of `fit_template_mdf` and `hmc_sample_mdf`. The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. They are normalized such that the weights sum to one for all of the isochrones of a given unique `logAge`. 
 """
-function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
-    S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(σ))
+function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number)
+    S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(α), typeof(β), typeof(σ))
     # Compute the coefficients on each model template given the `variables` and the MDF
-    α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    @assert length(variables) == length(unique_logAge)+2
+    @assert length(variables) == length(unique_logAge)
     coeffs = Vector{S}(undef,length(logAge))
     norm_vals = Vector{S}(undef,length(unique_logAge))
     for i in eachindex(unique_logAge)
@@ -409,8 +408,12 @@ function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::Abstr
         # Make sure sum over tmp_coeffs equals 1 and write to coeffs
         coeffs[idxs] .= tmp_coeffs .* variables[i] ./ A
     end
-    return coeffs, norm_vals
+    return coeffs
 end
+calculate_coeffs_mdf(variables, logAge, metallicities) =
+    calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3),
+                         logAge, metallicities, variables[end-2], variables[end-1], variables[end])
+
 
 """
 variables[begin:end-2] are stellar mass coefficients
@@ -425,7 +428,7 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    coeffs, norm_vals = calculate_coeffs_mdf(variables, logAge, metallicities, σ)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, variables[end-1], variables[end], σ)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
@@ -439,7 +442,7 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
         G[end] = zero(eltype(G))
         for i in axes(G,1)[begin:end-2] 
             la = unique_logAge[i]
-            age = exp10(la) / 1e9 # the / 1e10 makes α the slope in MH/Gyr, improves convergence
+            age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
             μ = α * age + β # Find the mean metallicity of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
@@ -534,8 +537,8 @@ This version of mdf fg! also fits σ
     α, β, σ = variables[end-2], variables[end-1], variables[end]
     unique_logAge = unique(logAge)
     # Calculate the per-template coefficents and normalization values
-    coeffs, norm_vals = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-1),
-                                             logAge, metallicities, σ)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, α, β, σ)
+
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
@@ -550,7 +553,7 @@ This version of mdf fg! also fits σ
         G[end] = zero(eltype(G))
         for i in axes(G,1)[begin:end-3] 
             la = unique_logAge[i]
-            age = exp10(la) / 1e9 # the / 1e10 makes α the slope in MH/Gyr, improves convergence
+            age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
             μ = α * age + β # Find the mean metallicity of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
@@ -572,12 +575,6 @@ This version of mdf fg! also fits σ
             G[end] += dLdσ
         end
         return -loglikelihood(composite, data) # Return the negative loglikelihood
-    # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
-    #     @assert axes(G) == axes(models)
-    #     # Fill the gradient array
-    #     for i in axes(models,1)
-    #         @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-    #     end
     elseif F != nothing # Optim.optimize wants only objective
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
