@@ -484,30 +484,10 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     end
 end
 
-function fit_templates_mdf(models::AbstractVector{T},
-                           data::AbstractMatrix{<:Number},
-                           logAge::AbstractVector{<:Number},
-                           metallicities::AbstractVector{<:Number},
-                           σ::Number;
-                           composite=Matrix{S}(undef,size(data)),
-                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5]),
-                           factr::Number=1e-12,
-                           pgtol::Number=1e-5,
-                           iprint::Integer=0,
-                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    G = similar(x0)
-    fg(x) = (R = SFH.fg2!(true,G,x,models,data,composite,logAge,metallicities,σ); return R,G)
-    unique_logage = unique(logAge)
-    @assert length(x0) == length(unique_logage)+2
-    lb = vcat(zeros(length(unique_logage)), [-Inf, -Inf])
-    ub = fill(Inf,length(unique_logage)+2)
-    LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
-end
-
 """
 This version of mdf fg! also fits σ
 """
-@inline function fg3!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) where T <: AbstractMatrix{<:Number}
+@inline function fg_mdf!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) where T <: AbstractMatrix{<:Number}
     # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge
     @assert axes(data) == axes(composite)
@@ -566,24 +546,24 @@ This version of mdf fg! also fits σ
 end
 
 # This version fits σ and so doesn't take that as a final argument
-function fit_templates_mdf(models::AbstractVector{T},
-                           data::AbstractMatrix{<:Number},
-                           logAge::AbstractVector{<:Number},
-                           metallicities::AbstractVector{<:Number};
-                           composite=Matrix{S}(undef,size(data)),
-                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
-                           factr::Number=1e-12,
-                           pgtol::Number=1e-5,
-                           iprint::Integer=0,
-                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    G = similar(x0)
-    fg(x) = (R = SFH.fg3!(true,G,x,models,data,composite,logAge,metallicities); return R,G)
-    unique_logage = unique(logAge)
-    @assert length(x0) == length(unique_logage)+3
-    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
-    ub = fill(Inf,length(unique_logage)+3)
-    LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
-end
+# function fit_templates_mdf(models::AbstractVector{T},
+#                            data::AbstractMatrix{<:Number},
+#                            logAge::AbstractVector{<:Number},
+#                            metallicities::AbstractVector{<:Number};
+#                            composite=Matrix{S}(undef,size(data)),
+#                            x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+#                            factr::Number=1e-12,
+#                            pgtol::Number=1e-5,
+#                            iprint::Integer=0,
+#                            kws...) where {S <: Number, T <: AbstractMatrix{S}}
+#     G = similar(x0)
+#     fg(x) = (R = SFH.fg_mdf!(true,G,x,models,data,composite,logAge,metallicities); return R,G)
+#     unique_logage = unique(logAge)
+#     @assert length(x0) == length(unique_logage)+3
+#     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
+#     ub = fill(Inf,length(unique_logage)+3)
+#     LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+# end
 
 # This performs worse than log-transformed version and the inverse Hessian seems
 # to result in less accurate uncertainty estimates so not certain this is better in any way.
@@ -601,7 +581,7 @@ end
 #     @assert length(x0) == length(unique_logage)+3
 #     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
 #     ub = fill(Inf,length(unique_logage)+3)
-#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg3!(F,G,x,models,data,composite,logAge,metallicities) ),
+#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg_mdf!(F,G,x,models,data,composite,logAge,metallicities) ),
 #                           lb, ub, # Bounds constraints
 #                           x0,
 #                           Optim.Fminbox(Optim.BFGS()),
@@ -610,13 +590,13 @@ end
 #                                         store_trace=true,extended_trace=true,kws...))
 # end
 
-function fit_templates_mdf_optim(models::AbstractVector{T},
-                                 data::AbstractMatrix{<:Number},
-                                 logAge::AbstractVector{<:Number},
-                                 metallicities::AbstractVector{<:Number};
-                                 composite=Matrix{S}(undef,size(data)),
-                                 x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
-                                 kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function fit_templates_mdf(models::AbstractVector{T},
+                           data::AbstractMatrix{<:Number},
+                           logAge::AbstractVector{<:Number},
+                           metallicities::AbstractVector{<:Number};
+                           composite=Matrix{S}(undef,size(data)),
+                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
     # Perform logarithmic transformation on the provided x0 for all variables except α and β
@@ -631,7 +611,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
     # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
     # Jacobian corrections.
-    function fg3!_wrap(F, G, xvec)
+    function fg_mdf!_wrap(F, G, xvec)
         for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
@@ -639,7 +619,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
 
-        logL = SFH.fg3!(F, G, x, models, data, composite, logAge, metallicities)
+        logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
         logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # this is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-3]
@@ -649,7 +629,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
         return logL
     end
     # Calculate result
-    full_result = Optim.optimize(Optim.only_fg!( fg3!_wrap ), x0,
+    full_result = Optim.optimize(Optim.only_fg!( fg_mdf!_wrap ), x0,
                                  # Optim.BFGS(),
                                  # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
                                  # makes it less sensitive to initial x0.
@@ -661,7 +641,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     # Show the optimization result
     show(full_result)
     # Transform the resulting variables
-    result_vec = Optim.minimizer(full_result)
+    result_vec = deepcopy( Optim.minimizer(full_result) )
     for i in eachindex(result_vec)[begin:end-3]
         result_vec[i] = exp(result_vec[i])
     end
@@ -712,8 +692,8 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModelMDF, xvec)
     x[end-1] = xvec[end-1]  # β
     x[end] = exp(xvec[end]) # σ
 
-    # fg3! returns -logL and fills G with -∇logL so we need to negate the signs.
-    logL = -SFH.fg3!(true, G, x, models, data, composite, logAge, metallicities)
+    # fg_mdf! returns -logL and fills G with -∇logL so we need to negate the signs.
+    logL = -SFH.fg_mdf!(true, G, x, models, data, composite, logAge, metallicities)
     logL += sum(view(xvec,firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
     ∇logL = -G
     # Add the Jacobian correction for every element of ∇logL except α (x[end-2]) and β (x[end-1])
