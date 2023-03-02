@@ -499,45 +499,10 @@ function fit_templates_mdf(models::AbstractVector{T},
     fg(x) = (R = SFH.fg2!(true,G,x,models,data,composite,logAge,metallicities,σ); return R,G)
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+2
-    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
+    lb = vcat(zeros(length(unique_logage)), [-Inf, -Inf])
     ub = fill(Inf,length(unique_logage)+2)
     LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
-
-# function fit_templates_mdf_spg(models::AbstractVector{T},
-#                                data::AbstractMatrix{<:Number},
-#                                logAge::AbstractVector{<:Number},
-#                                metallicities::AbstractVector{<:Number},
-#                                σ::Number;
-#                                composite=Matrix{Float64}(undef,size(data)),
-#                                x0=ones(length(models)),
-#                                eps::Number=1e-5,
-#                                nfevalmax::Integer=1000,
-#                                nitmax::Integer=100,
-#                                m::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-#     unique_logage = unique(logAge)
-#     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
-#     ub = fill(Inf,length(unique_logage)+2)
-#     return SPGBox.spgbox((g,x)->SFH.fg2!(true,g,x,models,data,composite,logAge,metallicities,σ), x0; lower=lb, upper=ub, eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=m)
-# end
-
-# function hmc_sample_mdf()
-
-# function fg3!(variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
-#     unique_logAge = unique(logAge)
-#     α, β = variables[end-1], variables[end]
-#     coeffs = reduce(vcat, begin
-#                   la = unique_logAge[i]
-#                   μ = α * exp10(la) + β
-#                   idxs = findall( ==(la), logAge)
-#                   tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs]
-#                   A = sum(tmp_coeffs)
-#                   tmp_coeffs .* variables[i] ./ A 
-#                     end for i in eachindex(unique_logAge) )
-    
-#     composite = sum( coeffs .* models )
-#     return -loglikelihood(composite, data)
-# end
 
 """
 This version of mdf fg! also fits σ
@@ -654,7 +619,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
                                  kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
-    # Transform the provided x0 into logspace for all variables except α and β
+    # Perform logarithmic transformation on the provided x0 for all variables except α and β
     for i in eachindex(x0)[begin:end-3]
         x0[i] = log(x0[i])
     end
@@ -662,7 +627,11 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     # Make scratch array for assessing transformations
     x = similar(x0)
     # Define wrapper function to pass to Optim.only_fg!
-    function fg3!_wrap(F,G,xvec)
+    # It looks like you don't need the Jacobian correction to arrive at the maximum likelihood
+    # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
+    # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
+    # Jacobian corrections.
+    function fg3!_wrap(F, G, xvec)
         for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
@@ -671,7 +640,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
         x[end] = exp(xvec[end]) # σ
 
         logL = SFH.fg3!(F, G, x, models, data, composite, logAge, metallicities)
-        logL -= sum(view(xvec, firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
+        logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # this is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-3]
             G[i] = G[i] * x[i] - 1
@@ -682,9 +651,10 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     # Calculate result
     full_result = Optim.optimize(Optim.only_fg!( fg3!_wrap ), x0,
                                  # Optim.BFGS(),
-                                 # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and makes it less
-                                 # sensitive to initial x0.
-                                 Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true), linesearch=LineSearches.HagerZhang()),
+                                 # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+                                 # makes it less sensitive to initial x0.
+                                 Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                                            linesearch=LineSearches.HagerZhang()),
                                  # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
                                  # covariance matrix, which we can use to make parameter uncertainty estimates
                                  Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
@@ -707,6 +677,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     return result_vec, std_vec, full_result
 end
 
+######################################################################################
 ## HMC with MDF
 
 struct HMCModelMDF{T,S,V,W,X,Y}
