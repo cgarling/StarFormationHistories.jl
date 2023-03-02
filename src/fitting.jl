@@ -504,22 +504,22 @@ function fit_templates_mdf(models::AbstractVector{T},
     LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
-function fit_templates_mdf_spg(models::AbstractVector{T},
-                               data::AbstractMatrix{<:Number},
-                               logAge::AbstractVector{<:Number},
-                               metallicities::AbstractVector{<:Number},
-                               σ::Number;
-                               composite=Matrix{Float64}(undef,size(data)),
-                               x0=ones(length(models)),
-                               eps::Number=1e-5,
-                               nfevalmax::Integer=1000,
-                               nitmax::Integer=100,
-                               m::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-    unique_logage = unique(logAge)
-    lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
-    ub = fill(Inf,length(unique_logage)+2)
-    return SPGBox.spgbox((g,x)->SFH.fg2!(true,g,x,models,data,composite,logAge,metallicities,σ), x0; lower=lb, upper=ub, eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=m)
-end
+# function fit_templates_mdf_spg(models::AbstractVector{T},
+#                                data::AbstractMatrix{<:Number},
+#                                logAge::AbstractVector{<:Number},
+#                                metallicities::AbstractVector{<:Number},
+#                                σ::Number;
+#                                composite=Matrix{Float64}(undef,size(data)),
+#                                x0=ones(length(models)),
+#                                eps::Number=1e-5,
+#                                nfevalmax::Integer=1000,
+#                                nitmax::Integer=100,
+#                                m::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
+#     unique_logage = unique(logAge)
+#     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf])
+#     ub = fill(Inf,length(unique_logage)+2)
+#     return SPGBox.spgbox((g,x)->SFH.fg2!(true,g,x,models,data,composite,logAge,metallicities,σ), x0; lower=lb, upper=ub, eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=m)
+# end
 
 # function hmc_sample_mdf()
 
@@ -618,6 +618,84 @@ function fit_templates_mdf(models::AbstractVector{T},
     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
     ub = fill(Inf,length(unique_logage)+3)
     LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
+
+# function fit_templates_mdf_optim(models::AbstractVector{T},
+#                                  data::AbstractMatrix{<:Number},
+#                                  logAge::AbstractVector{<:Number},
+#                                  metallicities::AbstractVector{<:Number};
+#                                  composite=Matrix{S}(undef,size(data)),
+#                                  x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+#                                  f_tol::Number=1e-10,
+#                                  g_tol::Number=1e-5,
+#                                  x_tol::Number=1.0,
+#                                  kws...) where {S <: Number, T <: AbstractMatrix{S}}
+#     unique_logage = unique(logAge)
+#     @assert length(x0) == length(unique_logage)+3
+#     lb = vcat( zeros(length(unique_logage)), [-Inf, -Inf, 0.0])
+#     ub = fill(Inf,length(unique_logage)+3)
+#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg3!(F,G,x,models,data,composite,logAge,metallicities) ),
+#                           lb, ub, # Bounds constraints
+#                           x0,
+#                           Optim.Fminbox(Optim.BFGS()),
+#                           Optim.Options(; f_tol=f_tol,g_tol=g_tol,x_tol=x_tol,allow_f_increases=true,kws...))
+# end
+
+function fit_templates_mdf_optim(models::AbstractVector{T},
+                                 data::AbstractMatrix{<:Number},
+                                 logAge::AbstractVector{<:Number},
+                                 metallicities::AbstractVector{<:Number};
+                                 composite=Matrix{S}(undef,size(data)),
+                                 x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+                                 kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    unique_logage = unique(logAge)
+    @assert length(x0) == length(unique_logage)+3
+    # Transform the provided x0 into logspace for all variables except α and β
+    for i in eachindex(x0)[begin:end-3]
+        x0[i] = log(x0[i])
+    end
+    x0[end] = log(x0[end])
+    # Make scratch array for assessing transformations
+    x = similar(x0)
+    full_result = Optim.optimize(Optim.only_fg!( (F,G,xvec) -> begin
+                                             for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
+                                                 x[i] = exp(xvec[i])
+                                             end
+                                             x[end-2] = xvec[end-2]  # α
+                                             x[end-1] = xvec[end-1]  # β
+                                             x[end] = exp(xvec[end]) # σ
+
+                                             logL = SFH.fg3!(F, G, x, models, data, composite, logAge, metallicities)
+                                             logL -= sum(view(xvec,firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
+                                             # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
+                                             for i in eachindex(G)[begin:end-3]
+                                                 G[i] = G[i] * x[i] - 1
+                                             end
+                                             G[end] = G[end] * x[end] - 1
+                                             return logL
+                                          end ),
+                                 x0,
+                                 Optim.BFGS(),
+                                 # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+                                 # covariance matrix, which we can use to make parameter uncertainty estimates
+                                 Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
+    # Show the optimization result
+    show(full_result)
+    # Transform the resulting variables
+    result_vec = Optim.minimizer(full_result)
+    for i in eachindex(result_vec)[begin:end-3]
+        result_vec[i] = exp(result_vec[i])
+    end
+    result_vec[end] = exp(result_vec[end])
+
+    # Estimate parameter uncertainties from the inverse Hessian approximation
+    std_vec = sqrt.(diag( full_result.trace[end].metadata["~inv(H)"]))
+    # Need to account for the logarithmic transformation
+    for i in eachindex(std_vec)[begin:end-3]
+        std_vec[i] = result_vec[i] * std_vec[i]
+    end
+    std_vec[end] = result_vec[end] * std_vec[end]
+    return result_vec, std_vec, full_result
 end
 
 ## HMC with MDF

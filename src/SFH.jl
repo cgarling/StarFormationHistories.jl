@@ -1,7 +1,7 @@
 module SFH
 
 import StatsBase: fit, Histogram, Weights, sample, mean
-# import LinearAlgebra: det, inv # Gone
+import LinearAlgebra: diag # det, inv # Gone
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
@@ -11,7 +11,8 @@ import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, qua
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import LoopVectorization: @turbo
 import Optim  # Gone
-import SPGBox # Gone 
+# import LineSearches # Gone
+# import SPGBox # Gone 
 import LBFGSB
 import StaticArrays: SVector, SMatrix, sacollect
 import LogDensityProblems # For random uncertainties in SFH fits
