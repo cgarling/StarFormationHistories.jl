@@ -417,7 +417,7 @@ variables[begin:end-2] are stellar mass coefficients
 variables[end-1] is the slope of the age-MH relation in [MH] / [10Gyr; (lookback)], e.g. -1.0
 variables[end] is the intercept of the age-MH relation in MH at present-day, e.g. -0.4
 """
-@inline function fg2!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+@inline function fg_mdf_σ!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
     # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge
     @assert axes(data) == axes(composite)
@@ -425,19 +425,6 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    # @assert length(variables) == length(unique_logAge)+2
-    # coeffs = Vector{S}(undef,length(models))
-    # norm_vals = Vector{S}(undef,length(unique_logAge))
-    # for i in eachindex(unique_logAge)
-    #     la = unique_logAge[i]
-    #     μ = α * exp10(la) / 1e10 + β # Find the mean metallicity of this age bin
-    #     idxs = findall( ==(la), logAge) # Find all entries that match this logAge
-    #     tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
-    #     A = sum(tmp_coeffs)
-    #     norm_vals[i] = A
-    #     # Make sure sum over tmp_coeffs equals 1 and write to coeffs
-    #     coeffs[idxs] .= tmp_coeffs .* variables[i] ./ A 
-    # end
     coeffs, norm_vals = calculate_coeffs_mdf(variables, logAge, metallicities, σ)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
@@ -459,11 +446,6 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
             A = sum(tmp_coeffs)
             # This should be correct for any MDF model at fixed logAge
             @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
-            # @inbounds G[i] = -sum( fullG[idxs[j]] * tmp_coeffs[j] / A for j in eachindex(idxs) )
-            
-            # G[end] += -sum( fullG[idxs[j]] * variables[i] *
-            #     ( ((metallicities[idxs[j]]-μ) * exp( -((metallicities[idxs[j]]-μ)/σ)^2 / 2 ) * inv(σ)^3) / A -
-            #     tmp_coeffs[j] / A^2 * sum( ((metallicities[idxs[k]]-μ) * exp( -((metallicities[idxs[k]]-μ)/σ)^2 / 2 ) * inv(σ)^3) for k in eachindex(idxs) ) ) for j in eachindex(idxs))
             βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
             dLdβ = -sum( fullG[idxs[j]] * variables[i] *
                 ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
@@ -473,15 +455,71 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
             G[end] += dLdβ
         end
         return -loglikelihood(composite, data) # Return the negative loglikelihood
-    # elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
-    #     @assert axes(G) == axes(models)
-    #     # Fill the gradient array
-    #     for i in axes(models,1)
-    #         @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-    #     end
     elseif F != nothing # Optim.optimize wants only objective
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
+end
+
+function fit_templates_mdf(models::AbstractVector{T},
+                           data::AbstractMatrix{<:Number},
+                           logAge::AbstractVector{<:Number},
+                           metallicities::AbstractVector{<:Number},
+                           σ::Number;
+                           composite=Matrix{S}(undef,size(data)),
+                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5]),
+                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    unique_logage = unique(logAge)
+    @assert length(x0) == length(unique_logage)+2
+    # Perform logarithmic transformation on the provided x0 for all variables except α and β
+    for i in eachindex(x0)[begin:end-2]
+        x0[i] = log(x0[i])
+    end
+    # Make scratch array for assessing transformations
+    x = similar(x0)
+    # Define wrapper function to pass to Optim.only_fg!
+    # It looks like you don't need the Jacobian correction to arrive at the maximum likelihood
+    # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
+    # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
+    # Jacobian corrections.
+    function fg_mdf_σ!_wrap(F, G, xvec)
+        for i in eachindex(xvec)[begin:end-2] # These are the per-logage stellar mass coefficients
+            x[i] = exp(xvec[i])
+        end
+        x[end-1] = xvec[end-1]  # α
+        x[end] = xvec[end]      # β
+
+        logL = SFH.fg_mdf_σ!(F, G, x, models, data, composite, logAge, metallicities, σ)
+        logL -= sum( @view xvec[begin:end-2] ) # this is the Jacobian correction
+        # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
+        for i in eachindex(G)[begin:end-2]
+            G[i] = G[i] * x[i] - 1
+        end
+        return logL
+    end
+    # Calculate result
+    full_result = Optim.optimize(Optim.only_fg!( fg_mdf_σ!_wrap ), x0,
+                                 # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+                                 # makes it less sensitive to initial x0.
+                                 Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                                            linesearch=LineSearches.HagerZhang()),
+                                 # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+                                 # covariance matrix, which we can use to make parameter uncertainty estimates
+                                 Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
+    # Show the optimization result
+    show(full_result)
+    # Transform the resulting variables
+    result_vec = deepcopy( Optim.minimizer(full_result) )
+    for i in eachindex(result_vec)[begin:end-2]
+        result_vec[i] = exp(result_vec[i])
+    end
+
+    # Estimate parameter uncertainties from the inverse Hessian approximation
+    std_vec = sqrt.(diag(full_result.trace[end].metadata["~inv(H)"]))
+    # Need to account for the logarithmic transformation
+    for i in eachindex(std_vec)[begin:end-2]
+        std_vec[i] = result_vec[i] * std_vec[i]
+    end
+    return result_vec, std_vec, full_result
 end
 
 """
