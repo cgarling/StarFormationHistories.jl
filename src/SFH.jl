@@ -11,7 +11,7 @@ import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, qua
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import LoopVectorization: @turbo
 import Optim  # Gone
-# import LineSearches # Gone
+import LineSearches # Gone
 # import SPGBox # Gone 
 import LBFGSB
 import StaticArrays: SVector, SMatrix, sacollect

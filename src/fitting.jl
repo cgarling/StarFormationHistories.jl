@@ -620,6 +620,8 @@ function fit_templates_mdf(models::AbstractVector{T},
     LBFGSB.lbfgsb(fg, x0; lb=lb, ub=ub, factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
+# This performs worse than log-transformed version and the inverse Hessian seems
+# to result in less accurate uncertainty estimates so not certain this is better in any way.
 # function fit_templates_mdf_optim(models::AbstractVector{T},
 #                                  data::AbstractMatrix{<:Number},
 #                                  logAge::AbstractVector{<:Number},
@@ -638,7 +640,9 @@ end
 #                           lb, ub, # Bounds constraints
 #                           x0,
 #                           Optim.Fminbox(Optim.BFGS()),
-#                           Optim.Options(; f_tol=f_tol,g_tol=g_tol,x_tol=x_tol,allow_f_increases=true,kws...))
+#                           # Optim.Options(; f_tol=f_tol,g_tol=g_tol,x_tol=x_tol,allow_f_increases=true,kws...))
+#                           Optim.Options(; f_tol=f_tol,g_tol=g_tol,x_tol=x_tol,allow_f_increases=true,
+#                                         store_trace=true,extended_trace=true,kws...))
 # end
 
 function fit_templates_mdf_optim(models::AbstractVector{T},
@@ -657,25 +661,30 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     x0[end] = log(x0[end])
     # Make scratch array for assessing transformations
     x = similar(x0)
-    full_result = Optim.optimize(Optim.only_fg!( (F,G,xvec) -> begin
-                                             for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
-                                                 x[i] = exp(xvec[i])
-                                             end
-                                             x[end-2] = xvec[end-2]  # α
-                                             x[end-1] = xvec[end-1]  # β
-                                             x[end] = exp(xvec[end]) # σ
+    # Define wrapper function to pass to Optim.only_fg!
+    function fg3!_wrap(F,G,xvec)
+        for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
+            x[i] = exp(xvec[i])
+        end
+        x[end-2] = xvec[end-2]  # α
+        x[end-1] = xvec[end-1]  # β
+        x[end] = exp(xvec[end]) # σ
 
-                                             logL = SFH.fg3!(F, G, x, models, data, composite, logAge, metallicities)
-                                             logL -= sum(view(xvec,firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
-                                             # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
-                                             for i in eachindex(G)[begin:end-3]
-                                                 G[i] = G[i] * x[i] - 1
-                                             end
-                                             G[end] = G[end] * x[end] - 1
-                                             return logL
-                                          end ),
-                                 x0,
-                                 Optim.BFGS(),
+        logL = SFH.fg3!(F, G, x, models, data, composite, logAge, metallicities)
+        logL -= sum(view(xvec, firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
+        # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
+        for i in eachindex(G)[begin:end-3]
+            G[i] = G[i] * x[i] - 1
+        end
+        G[end] = G[end] * x[end] - 1
+        return logL
+    end
+    # Calculate result
+    full_result = Optim.optimize(Optim.only_fg!( fg3!_wrap ), x0,
+                                 # Optim.BFGS(),
+                                 # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and makes it less
+                                 # sensitive to initial x0.
+                                 Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true), linesearch=LineSearches.HagerZhang()),
                                  # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
                                  # covariance matrix, which we can use to make parameter uncertainty estimates
                                  Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
@@ -689,7 +698,7 @@ function fit_templates_mdf_optim(models::AbstractVector{T},
     result_vec[end] = exp(result_vec[end])
 
     # Estimate parameter uncertainties from the inverse Hessian approximation
-    std_vec = sqrt.(diag( full_result.trace[end].metadata["~inv(H)"]))
+    std_vec = sqrt.(diag(full_result.trace[end].metadata["~inv(H)"]))
     # Need to account for the logarithmic transformation
     for i in eachindex(std_vec)[begin:end-3]
         std_vec[i] = result_vec[i] * std_vec[i]
