@@ -156,7 +156,6 @@ Light wrapper for `SFH.fg` that computes loglikelihood and gradient simultaneous
     end
 end
 
-# Write a function here to take in logage array and return x0 (normalized total mass) such that the SFR is constant. Afterward, might want to write another method call that also takes metallicity and metallicity model and tweaks x0 according to some prior metallicity model.
 """
     x0::typeof(logage) = construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
 
@@ -428,7 +427,7 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, variables[end-1], variables[end], σ)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, α, β, σ)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
@@ -655,7 +654,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end] = exp(xvec[end]) # σ
 
         logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
-        logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # this is the Jacobian correction
+        logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # This is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-3]
             G[i] = G[i] * x[i] - 1
@@ -691,6 +690,12 @@ function fit_templates_mdf(models::AbstractVector{T},
     std_vec[end] = result_vec[end] * std_vec[end]
     return result_vec, std_vec, full_result
 end
+
+# We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
+# import Distributions: MvNormal
+# result1, std1, fr = fit_templates_mdf(mdf_templates, h.weights, mdf_template_logAge, mdf_template_MH; x0=vcat(construct_x0_mdf(mdf_template_logAge; normalize_value=1e4),[-0.1,-0.5,0.3]))
+# corner.corner(permutedims(rand(MvNormal(result1,LinearAlgebra.Hermitian(fr.trace[end].metadata["~inv(H)"])),10000)[end-2:end,:]))
+# Can we also use this inv(H) estimate as input to HMC? I think that's roughly the M matrix.
 
 ######################################################################################
 ## HMC with MDF

@@ -11,6 +11,8 @@ import MCMCDiagnosticTools: ess_rhat
 import Statistics
 import Distributions
 import LinearAlgebra: det, diag, transpose
+import LineSearches # For comparison to DynamicHMC
+import Optim        # For comparison to DynamicHMC
 import SFH: bin_cmd, bin_cmd_smooth, generate_stars_mag, generate_stars_mass, generate_stars_mass_composite, generate_stars_mag_composite, ingest_mags, model_cmd, sort_ingested, mass_limits, Binaries, NoBinaries, partial_cmd_smooth, fit_templates, construct_x0, composite!, loglikelihood, ∇loglikelihood
 
 # import PyCall: @pyimport
@@ -49,21 +51,60 @@ function LogDensityProblems.logdensity_and_gradient(problem::SFHModel, logx)
     ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
     return logL, ∇logL
 end
-
+# Similar but for Optim.jl; expects -logL returned
+function fg!(F,G,logx,models,data,composite) # This uses log-transform
+    # Transform the provided x
+    x = [exp(i) for i in logx]
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = -loglikelihood(composite, data) - sum(logx) # + sum(logx) is the log-Jacobian correction
+    for i in eachindex(G,logx)
+        G[i] = -∇loglikelihood(models[i], composite, data) * x[i] - 1
+    end
+    return logL
+end
+function fg2!(F,G,x,models,data,composite)
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = -loglikelihood(composite, data)
+    for i in eachindex(G,x)
+        G[i] = -∇loglikelihood(models[i], composite, data)
+    end
+    return logL
+end
 # Test code
 
-nmodels = 10
+nmodels = 100
 histsize = (99,99)
 
 models = [rand(histsize...) for i in 1:nmodels]
 composite = rand(histsize...)
-coeffs = rand(10) .* 5
-# data = sum(coeffs .* models) # This is easy
+coeffs = rand(nmodels) .* 5
+# data = sum(coeffs .* models) # This is easy; no error
 data = rand.( Distributions.Poisson.(sum(coeffs .* models)) ) # This is harder
 
 inst = SFHModel( models, composite, data )
 
-result = [DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 1000) for i in 1:5]
+result = [DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 1000;
+                                      reporter=DynamicHMC.ProgressMeterReport()) for i in 1:5]
+# Now compare with result from Optim.jl
+optim_result = Optim.optimize( Optim.only_fg!( (F,G,logx) -> fg!(F,G,logx,models,data,composite) ),
+                               rand(nmodels) .* 5,
+                               Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                                          linesearch=LineSearches.HagerZhang()),
+                               Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true) )
+# Now don't use the log-transform
+# This finds exact result when no error but actually performs worse on sampled data
+# than the log-transformed version above. The errors along the diagonal of the inv(H)
+# estimate are also non-sensical ... 
+# optim_result = Optim.optimize( Optim.only_fg!( (F,G,x) -> fg2!(F,G,x,models,data,composite) ),
+#                                rand(nmodels) .* 5,
+#                                Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+#                                           linesearch=LineSearches.HagerZhang()),
+#                                Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true) )
+
+
+
 # We can also change where the mcmc starts;
 # result = DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 1000; reporter = DynamicHMC.ProgressMeterReport(), initialization = ( q = max.(log.(coeffs),-2.0),) )
 # reporter=DynamicHMC.ProgressMeterReport()
@@ -72,19 +113,42 @@ result = [DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 1000) for i in
 # @time DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 100; reporter=DynamicHMC.NoProgressReport()) # 3.8s
 # @time DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 100; reporter=DynamicHMC.NoProgressReport(), initialization=(q=log.(coeffs),)) # not much change really
 
-
+# HMC diagnostics
 DynamicHMC.Diagnostics.summarize_tree_statistics(result[1].tree_statistics)
 # ess_rhat(DynamicHMC.stack_posterior_matrices(result))
 # ess_rhat(Statistics.mean, result.posterior_matrix)
 result2 = DynamicHMC.stack_posterior_matrices(result) # dim=3
-println("ess_rhat: ",ess_rhat(Statistics.mean, result2))
 result3 = exp.( DynamicHMC.pool_posterior_matrices(result) ) # dim=2
-println("MCMC Means: ",Statistics.mean.(eachrow(result3)))
-println("MCMC STDs: ", Statistics.std.(eachrow(result3)))
-println("Correct Coeffs: ", coeffs)
-println( abs.(Statistics.mean.(eachrow(result3)) .- coeffs) ./ Statistics.std.(eachrow(result3)) )
+hmc_coeffs = Statistics.median.(eachrow(result3))
+hmc_std = Statistics.std.(eachrow(result3))
 
+println(" HMC Diagnostics ")
+println("=================================")
+# println("ess_rhat: ",ess_rhat(Statistics.mean, result2))
+# println("HMC Means: ",Statistics.mean.(eachrow(result3)))
+# println("HMC STDs: ", Statistics.std.(eachrow(result3)))
+# println("Correct Coeffs: ", coeffs)
+std_errs = abs.(hmc_coeffs .- coeffs) ./ hmc_std)
+# println( "HMC Error in Standard Deviations: ", std_errs)
+println( "Average HMC Error in Standard Deviations: ",
+         Statistics.mean(std_errs)) 
+# If the uncertainties are realistic, the following should be 
+# ~0.32 as 32% of the time the estimated parameter should be more
+# than 1-σ away from the correct answer.
+# And it is ... even for large `nmodels` like 100. 
+println("Percent of HMC coefficients with errors greater than one STD: ",
+        count(std_errs .> 1) / length(std_errs))
 
+# Optim.jl diagnostics
+println(" Optim.jl Diagnostics ")
+println("=================================")
+optim_coeffs = exp.(Optim.minimizer(optim_result))
+optim_std = sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"])) .* optim_coeffs
+optim_std_errs = abs.(optim_coeffs.- coeffs) ./ optim_std
+println( "Average Optim.jl Error in Standard Deviations: ",
+         Statistics.mean(optim_std_errs)) 
+println("Percent of Optim.jl coefficients with errors greater than one STD: ",
+        count(optim_std_errs .> 1) / length(optim_std_errs))
 ###########################################################################################
 # Devise a test (maybe Gaussian distribution) to test the log transform that I'm using for SFH.jl. Make sure it's doing the right thing. Try to sample from a multivariate normal. 
 
@@ -187,4 +251,4 @@ plt.show(fig)
 @assert isapprox( LogDensityProblems.logdensity(P,[1.0,1.0]), LogDensityProblems.logdensity_and_gradient(dist3,[1.0,1.0])[1]; rtol=1e-3 )
 # Check that the gradients are the same
 @assert isapprox( ForwardDiff.gradient(x->LogDensityProblems.logdensity(P,x),[1.0,1.0]),
-                  SVector(LogDensityProblems.logdensity_and_gradient(dist3,[1.0,1.0])[2]); rtol=1e-3 )
+                  LogDensityProblems.logdensity_and_gradient(dist3,[1.0,1.0])[2]; rtol=1e-3 )
