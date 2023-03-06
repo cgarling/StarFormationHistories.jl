@@ -40,15 +40,17 @@ function LogDensityProblems.logdensity_and_gradient(problem::SFHModel, logx)
     composite = problem.composite
     models = problem.models
     data = problem.data
-    dims = length(models)
+    # dims = length(models)
     # Transform the provided x
-    x = SVector{dims}(exp(i) for i in logx)
+    # x = SVector{dims}(exp(i) for i in logx)
+    x = [ exp(i) for i in logx ]
     # Update the composite model matrix
     composite!( composite, x, models )
     # composite = sum( x .* models )
     logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the log-Jacobian correction
-    # ∇logL = SVector{dims}( ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ) # The `* x[i]` is the Jacobian correction
     ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
+    # logL = loglikelihood(composite, data) 
+    # ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ] 
     return logL, ∇logL
 end
 # Similar but for Optim.jl; expects -logL returned
@@ -63,6 +65,7 @@ function fg!(F,G,logx,models,data,composite) # This uses log-transform
     end
     return logL
 end
+# Without log-transform; this is worse
 function fg2!(F,G,x,models,data,composite)
     # Update the composite model matrix
     composite!( composite, x, models )
@@ -72,24 +75,44 @@ function fg2!(F,G,x,models,data,composite)
     end
     return logL
 end
+# With x^2 transform; this performs very similarly to fg! with original log-transform
+function fg3!(F,G,sqrtx,models,data,composite) 
+    # Transform the provided x
+    x = [i^2 for i in sqrtx]
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = -loglikelihood(composite, data) - 2*sum(sqrtx) # + sum(logx) is the log-Jacobian correction
+    for i in eachindex(G,sqrtx)
+        G[i] = -∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] - 2
+    end
+    return logL
+end
 # Test code
 
 nmodels = 100
 histsize = (99,99)
 
 models = [rand(histsize...) for i in 1:nmodels]
-composite = rand(histsize...)
 coeffs = rand(nmodels) .* 5
 # data = sum(coeffs .* models) # This is easy; no error
 data = rand.( Distributions.Poisson.(sum(coeffs .* models)) ) # This is harder
 
-inst = SFHModel( models, composite, data )
-
-result = [DynamicHMC.mcmc_with_warmup(Random.default_rng(), inst, 1000;
-                                      reporter=DynamicHMC.ProgressMeterReport()) for i in 1:5]
+# Multiplie composite scratch arrays for parallel sampling
+composite_arr = [ Matrix{Float64}(undef,histsize) for i in 1:Threads.nthreads() ]
+composite = first(composite_arr)
+# HMC Stuff
+instances = [ SFHModel( models, composite_arr[i], data ) for i in 1:Threads.nthreads() ]
+result = []
+Threads.@threads for i in 1:4
+    tid = Threads.threadid()
+    r = DynamicHMC.mcmc_with_warmup(Random.default_rng(), instances[tid], 1000;
+                                reporter=DynamicHMC.ProgressMeterReport())
+    push!(result, r)
+end
 # Now compare with result from Optim.jl
 optim_result = Optim.optimize( Optim.only_fg!( (F,G,logx) -> fg!(F,G,logx,models,data,composite) ),
-                               rand(nmodels) .* 5,
+                               # rand(nmodels) .* 5,
+                               log.(rand(nmodels) .* 5),
                                Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
                                           linesearch=LineSearches.HagerZhang()),
                                Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true) )
@@ -102,7 +125,16 @@ optim_result = Optim.optimize( Optim.only_fg!( (F,G,logx) -> fg!(F,G,logx,models
 #                                Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
 #                                           linesearch=LineSearches.HagerZhang()),
 #                                Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true) )
-
+# optim_coeffs = Optim.minimizer(optim_result)
+# optim_std = sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"]))
+# Now use the x^2 transform
+# optim_result = Optim.optimize( Optim.only_fg!( (F,G,sqrtx) -> fg3!(F,G,sqrtx,models,data,composite) ),
+#                                sqrt.(rand(nmodels) .* 5),
+#                                Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+#                                           linesearch=LineSearches.HagerZhang()),
+#                                Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true) )
+# optim_coeffs = Optim.minimizer(optim_result).^2
+# optim_std = 2 .* sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"]) .* optim_coeffs)
 
 
 # We can also change where the mcmc starts;
@@ -128,10 +160,10 @@ println("=================================")
 # println("HMC Means: ",Statistics.mean.(eachrow(result3)))
 # println("HMC STDs: ", Statistics.std.(eachrow(result3)))
 # println("Correct Coeffs: ", coeffs)
-std_errs = abs.(hmc_coeffs .- coeffs) ./ hmc_std)
+std_errs = abs.(hmc_coeffs .- coeffs) ./ hmc_std
 # println( "HMC Error in Standard Deviations: ", std_errs)
-println( "Average HMC Error in Standard Deviations: ",
-         Statistics.mean(std_errs)) 
+println( "Median HMC Error in Standard Deviations: ",
+         Statistics.median(std_errs)) 
 # If the uncertainties are realistic, the following should be 
 # ~0.32 as 32% of the time the estimated parameter should be more
 # than 1-σ away from the correct answer.
@@ -143,10 +175,11 @@ println("Percent of HMC coefficients with errors greater than one STD: ",
 println(" Optim.jl Diagnostics ")
 println("=================================")
 optim_coeffs = exp.(Optim.minimizer(optim_result))
-optim_std = sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"])) .* optim_coeffs
+# optim_std = sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"])) .* optim_coeffs # This is correct for log-transform
+optim_std = sqrt.(diag(optim_result.trace[end].metadata["~inv(H)"])) .* optim_coeffs # This is correct for log-transform
 optim_std_errs = abs.(optim_coeffs.- coeffs) ./ optim_std
-println( "Average Optim.jl Error in Standard Deviations: ",
-         Statistics.mean(optim_std_errs)) 
+println( "Median Optim.jl Error in Standard Deviations: ",
+         Statistics.median(optim_std_errs)) 
 println("Percent of Optim.jl coefficients with errors greater than one STD: ",
         count(optim_std_errs .> 1) / length(optim_std_errs))
 ###########################################################################################
