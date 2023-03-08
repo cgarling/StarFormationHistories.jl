@@ -130,7 +130,7 @@ function fg(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}
 end
 """
 
-Light wrapper for `SFH.fg` that computes loglikelihood and gradient simultaneously; this version is set up for use with Optim.jl. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
+Computes loglikelihood and gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
 """
 @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(coeffs) == axes(models)
@@ -200,8 +200,9 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     end
     unique_logAge = unique(logAge)
     dt = diff( vcat(0, exp10.(unique_logAge)) )
-    mstar_arr = similar(unique_logAge) # similar(coeffs)
-    mean_mh_arr = zeros(eltype(MH), length(unique_logAge))
+    # mstar_arr = similar(unique_logAge) # similar(coeffs)
+    mstar_arr = Vector{eltype(coeffs)}(undef, length(unique_logAge))
+    mean_mh_arr = zeros(promote_type(eltype(MH),eltype(coeffs)), length(unique_logAge))
     for i in eachindex(unique_logAge)
         Mstar_tmp = zero(eltype(mstar_arr))
         mh_tmp = Vector{eltype(MH)}(undef,0)
@@ -236,19 +237,6 @@ end
  - It can be helpful to normalize your `models` to contain realistic total stellar masses; then the fit coefficients can be low and have a tighter dynamic range which can help with the optimization.
  - We recommend that the initial coefficients vector `x0` be set for constant star formation rate. 
 """
-# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     # return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
-#     return Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,models,data,composite) ),
-#                           zeros(S,length(models)), fill(convert(S,Inf),length(models)), # Bounds constraints
-#                           x0, Optim.Fminbox(Optim.LBFGS()), # ; alphaguess=LineSearches.InitialStatic(1.0, false),
-#                                                          # linesearch=LineSearches.MoreThuente())), # ; alphamin=0.01,
-#                                                          # alphamax=Inf))))#,
-#                                                          # ; linesearch=LineSearches.HagerZhang())),
-#                           Optim.Options(f_tol=1e-5))
-# end
-# function fit_templates(models::Vector{T}, data::AbstractMatrix{<:Number}; composite=similar(first(models)), x0=ones(S,length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     return Optim.optimize(Optim.only_fg!( (F,G,x)->SFH.fg!(F,G,x,models,data,composite) ), x0, Optim.LBFGS())
-# end
 # function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
 #     return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
 # end
@@ -258,13 +246,60 @@ end
 #     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1e-12, bounds=[(0.0,Inf) for i in 1:length(x0)])
 #     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
 # end
-function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
     G = similar(x0)
     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
-# LBFGSB.lbfgsb is considerably more efficient than SPGBox, but doesn't work very nicely with Float32 and other numeric types. Majority of time is spent in calls to function evaluation (fg!), which is good. 
-# Efficiency scales pretty strongly with `m` parameter that sets the memory size for the hessian approximation.
+function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    # log-transform the initial guess vector
+    x0 = log.(x0)
+    # Make scratch array for assessing transformations
+    x = similar(x0)
+    function fg_prior!(F,G,logx)
+        @. x = exp(logx)
+        logL = SFH.fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the prior
+        if G != nothing
+            @. G = G * x - 1 # Add correction for the prior and log-transform to every element of G
+        end
+        return logL
+    end
+    function fg_final!(F,G,logx)
+        @. x = exp(logx)
+        logL = SFH.fg!(true,G,x,models,data,composite)
+        if G != nothing
+            @. G = G * x # Only correct for log-transform
+        end
+        return logL
+    end
+    # Setup for Optim.jl
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # makes it less sensitive to initial x0.
+    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                             linesearch=LineSearches.HagerZhang())
+    # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+    # covariance matrix, which we can use to make parameter uncertainty estimates
+    bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
+    # Calculate result
+    result_prior = Optim.optimize(Optim.only_fg!( fg_prior! ), x0, bfgs_struct, bfgs_options)
+    # Calculate final result without prior
+    result = Optim.optimize(Optim.only_fg!( fg_final! ), Optim.minimizer(result_prior), bfgs_struct, bfgs_options)
+    # result = Optim.optimize(Optim.only_fg!( fg_final! ), fill(-10.0,length(models)), fill(Inf,length(models)), Optim.minimizer(result_prior), Optim.Fminbox(bfgs_struct), Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, outer_iterations=1, kws...))
+    # NamedTuple of NamedTuples. "prior" contains the mean `μ`, standard error `σ`, 
+    # the estimate of the inverse Hessian `invH` from BFGS and full result struct `result`
+    # for the optimization with the included prior. "final" contains the same entries but for the final
+    # optimization with no prior. 
+    return  ( prior = ( μ = exp.(Optim.minimizer(result_prior)),
+                        # σ = sqrt.(diag(result_prior.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_prior)),
+                        σ = sqrt.(diag(Optim.trace(result_prior)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_prior)),
+                        invH = result_prior.trace[end].metadata["~inv(H)"],
+                        result = result_prior ),
+              final = ( μ = exp.(Optim.minimizer(result)),
+                        # σ = sqrt.(diag(result.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result)),
+                        σ = sqrt.(diag(Optim.trace(result)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result)),
+                        invH = result.trace[end].metadata["~inv(H)"],
+                        result = result) )
+end
 
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
@@ -508,7 +543,7 @@ function fit_templates_mdf(models::AbstractVector{T},
                                  # covariance matrix, which we can use to make parameter uncertainty estimates
                                  Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
     # Show the optimization result
-    show(full_result)
+    # show(full_result)
     # Transform the resulting variables
     result_vec = deepcopy( Optim.minimizer(full_result) )
     for i in eachindex(result_vec)[begin:end-2]
@@ -645,14 +680,13 @@ function fit_templates_mdf(models::AbstractVector{T},
     # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
     # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
     # Jacobian corrections.
-    function fg_mdf!_wrap(F, G, xvec)
+    function fg_mdf!_prior(F, G, xvec)
         for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
         x[end-2] = xvec[end-2]  # α
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
-
         logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
         logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # This is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
@@ -662,33 +696,54 @@ function fit_templates_mdf(models::AbstractVector{T},
         G[end] = G[end] * x[end] - 1
         return logL
     end
-    # Calculate result
-    full_result = Optim.optimize(Optim.only_fg!( fg_mdf!_wrap ), x0,
-                                 # Optim.BFGS(),
-                                 # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
-                                 # makes it less sensitive to initial x0.
-                                 Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
-                                            linesearch=LineSearches.HagerZhang()),
-                                 # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
-                                 # covariance matrix, which we can use to make parameter uncertainty estimates
-                                 Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
-    # Show the optimization result
-    show(full_result)
-    # Transform the resulting variables
-    result_vec = deepcopy( Optim.minimizer(full_result) )
-    for i in eachindex(result_vec)[begin:end-3]
-        result_vec[i] = exp(result_vec[i])
+    # same as fg_mdf!_prior but without the prior ... 
+    function fg_mdf!_final(F, G, xvec)
+        for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
+            x[i] = exp(xvec[i])
+        end
+        x[end-2] = xvec[end-2]  # α
+        x[end-1] = xvec[end-1]  # β
+        x[end] = exp(xvec[end]) # σ
+        logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
+        for i in eachindex(G)[begin:end-3]
+            G[i] = G[i] * x[i]
+        end
+        G[end] = G[end] * x[end]
+        return logL
     end
-    result_vec[end] = exp(result_vec[end])
+    # Set up options for the optimization
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # makes it less sensitive to initial x0.
+    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                             linesearch=LineSearches.HagerZhang())
+    # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+    # covariance matrix, which we can use to make parameter uncertainty estimates
+    bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
+    # Calculate result
+    result_prior = Optim.optimize(Optim.only_fg!( fg_mdf!_prior ), x0, bfgs_struct, bfgs_options)
+    result = Optim.optimize(Optim.only_fg!( fg_mdf!_final ), Optim.minimizer(result_prior), bfgs_struct, bfgs_options)
+    # Transform the resulting variables
+    μ_prior = deepcopy( Optim.minimizer(result_prior) )
+    μ_final = deepcopy( Optim.minimizer(result) )
+    for i in eachindex(μ_prior,μ_final)[begin:end-3]
+        μ_prior[i] = exp(μ_prior[i])
+        μ_final[i] = exp(μ_final[i])
+    end
+    μ_prior[end] = exp(μ_prior[end])
+    μ_final[end] = exp(μ_final[end])
 
     # Estimate parameter uncertainties from the inverse Hessian approximation
-    std_vec = sqrt.(diag(full_result.trace[end].metadata["~inv(H)"]))
+    σ_prior = sqrt.(diag(Optim.trace(result_prior)[end].metadata["~inv(H)"]))
+    σ_final = sqrt.(diag(Optim.trace(result)[end].metadata["~inv(H)"]))
     # Need to account for the logarithmic transformation
-    for i in eachindex(std_vec)[begin:end-3]
-        std_vec[i] = result_vec[i] * std_vec[i]
+    for i in eachindex(σ_prior,σ_final)[begin:end-3]
+        σ_prior[i] = μ_prior[i] * σ_prior[i]
+        σ_final[i] = μ_final[i] * σ_final[i]
     end
-    std_vec[end] = result_vec[end] * std_vec[end]
-    return result_vec, std_vec, full_result
+    σ_prior[end] = μ_prior[end] * σ_prior[end]
+    σ_final[end] = μ_final[end] * σ_final[end]
+    return (prior = (μ = μ_prior, σ = σ_prior, result = result_prior),
+            result = (μ = μ_final, σ = σ_final, result = result))
 end
 
 # We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
