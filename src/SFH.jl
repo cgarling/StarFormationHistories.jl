@@ -1,20 +1,20 @@
 module SFH
 
-# Import statements
 import StatsBase: fit, Histogram, Weights, sample, mean
-import LinearAlgebra: det, inv
+import LinearAlgebra: diag # det, inv # Gone
 import SpecialFunctions: erf
 # import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
 # so we'll use the older, less convenient construction method. 
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
-import Roots: find_zero
-import Distributions: UnivariateDistribution, Continuous, pdf, cdf, quantile, sampler
-import QuadGK: quadgk
+import Roots: find_zero # For mass_limits in simulate.jl
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, sampler # cdf
+import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import LoopVectorization: @turbo
 import Optim  # Gone
-import SPGBox # Gone 
+import LineSearches # Gone
+# import SPGBox # Gone 
 import LBFGSB
-import StaticArrays: SVector, SMatrix
+import StaticArrays: SVector, SMatrix, sacollect
 import LogDensityProblems # For random uncertainties in SFH fits
 import DynamicHMC         # For random uncertainties in SFH fits
 import Random: AbstractRNG, default_rng
@@ -23,8 +23,6 @@ import Random: AbstractRNG, default_rng
 include("simulate.jl")
 include("fitting.jl")
 
-# Code
-##################################
 ##################################
 # Isochrone utilities
 
@@ -45,112 +43,23 @@ julia> mags = [mags, mags] # Vector{Vector{<:Real}}
 julia> SFH.interpolate_mini(m_ini, mags, new_mini)
 ```
 """
-function interpolate_mini(m_ini, mags::Vector{<:Real}, new_mini)
+function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number},
+                          new_mini::AbstractVector{<:Number})
     m_ini, mags = sort_ingested(m_ini, mags) # from simulate.jl include'd above
     return interpolate((m_ini,), mags, Gridded(Linear()))(new_mini)
 end
-# interpolate_mini(m_ini, mags::Vector{<:Number}, new_mini) = interpolate((m_ini,), mags, Gridded(Linear()))(new_mini) # extrapolate(interpolate((m_ini,), mags, Gridded(Linear())), Throw())(new_mini)
 # I don't think these two methods are actually used by anything so not going to optimize,
 # although we could use these in partial_cmd_smooth if we wanted. 
-interpolate_mini(m_ini, mags::Vector{Vector{T}}, new_mini) where T <: Real =
+interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}},
+                 new_mini::AbstractVector{<:Number}) =
     [ interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags ] 
-interpolate_mini(m_ini, mags::AbstractMatrix, new_mini) =
+interpolate_mini(m_ini::AbstractVector{<:Number},
+                 mags::AbstractMatrix{<:Number},
+                 new_mini::AbstractVector{<:Number}) =
     reduce(hcat, interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in eachcol(mags))
 
-# """
-#     mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
-
-# Returns a new sampling of `npoints` stellar masses given the initial mass vector `m_ini` from an isochrone and an `imf(mass)` functional that returns the PDF of the IMF for a given `mass`. The sampling is roughly even but slightly weighted to lower masses according to the IMF.
-
-# !!! warning
-#     This method is inferior to the method that takes the IMF model as a `Distributions.UnivariateDistribution`; that method should always be used if you can express your IMF model as such a distribution with efficient methods for `cdf` and `quantile`.
-# """
-# function mini_spacing(m_ini, imf, npoints::Int=1000, ret_spacing::Bool=false)
-#     Δm = diff(m_ini)
-#     inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-#     point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-#     # The minimum value in point_intervals should be 2 for the later call to `range`,
-#     # so if it's 1 we add 1, if it's zero we add 2. 
-#     # point_intervals[point_intervals .== 1] .+= 1
-#     @inbounds for i in eachindex( point_intervals )
-#         if point_intervals[i] == 0
-#             point_intervals[i] += 2
-#         elseif point_intervals[i] == 1
-#             point_intervals[i] += 1
-#         end
-#     end
-#     # return point_intervals
-#     # After the `if` clause below we discuss having to chop off the ends of the ranges
-#     # so as not to duplicate masses, so we want to avoid double-counting here as well. 
-#     point_sum = sum(point_intervals) - length(point_intervals)
-#     if point_sum < npoints # Pad out the array so we get the correct length
-#         nsamp = npoints - point_sum
-#         randidx = sample(1:length(point_intervals), npoints - point_sum, replace=true)
-#         # point_intervals[randidx] .+= 1
-#         @inbounds @simd for i in randidx
-#             point_intervals[i] += 1
-#         end
-#     end
-#     # range(start, stop, length=n) includes both the beginning and the ending points, so we'll essentially
-#     # double up on masses if we include the final point, so we have to remove it.
-#     # This works fine but is fairly slow, if speed becomes a problem we can probably rewrite this
-#     # as a faster loop. 
-#     new_mini = reduce(vcat, range(m_ini[i], m_ini[i+1], length=point_intervals[i])[begin:end-1] for i in 1:length(m_ini)-1)
-
-#     # Try new implementation
-#     # Δm = diff(m_ini)
-#     # inv_imf_vals = inv.(imf.(m_ini[begin:end-1] .+ Δm ./ 2))
-#     # point_intervals = round.(Int, inv_imf_vals ./ sum(inv_imf_vals) * npoints)
-#     # point_sum = sum(point_intervals) 
-#     # if point_sum < npoints # Pad out the array so we get the correct length
-#     #     randidx = sample(1:length(point_intervals), npoints - point_sum, replace=false)
-#     #     point_intervals[randidx] .+= 1
-#     # end
-    
-#     # new_mini = Vector{eltype(m_ini)}(undef, sum(point_intervals))
-#     # current_num = 1
-#     # for i in 1:length(m_ini)-1
-#     #     Δx = (m_ini[i+1] - m_ini[i]) / point_intervals[i]
-#     #     for j in 0:point_intervals[i]-1
-#     #         new_mini[current_num] = m_ini[i] + Δx * j
-#     #         current_num += 1 
-#     #     end
-#     # end
-    
-#     if !ret_spacing
-#         return new_mini
-#     else
-#         new_spacing = diff(new_mini)
-#         return new_mini, new_spacing
-#     end
-# end
-# """
-#     mini_spacing(m_ini, imf::Distributions.UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-
-# Interpolate initial mass vector `m_ini` at `npoints` points such that the change in the CDF of the IMF distribution `imf` is equal between each grid point. If `ret_spacing` is `true`, then both the interpolated initial masses and their spacing will be returned.
-
-# Actually this doesn't work that well -- it doesn't sample enough high-mass points, where the change in magnitude is high. Probably need to do something more intelligent with dual weighting. Don't care at the moment. 
-
-# # Notes
-#  - Requires `cdf(imf,m)` and `quantile(imf,x)` methods to be defined, and ideally optimized. 
-# """
-# function mini_spacing(m_ini, imf::UnivariateDistribution, npoints::Int=1000, ret_spacing::Bool=false)
-#     # Generate an equally-spaced range of CDF values from the minimum isochrone mass `minimum(m_ini)`
-#     # to the maximum isochrone mass `maximum(m_ini)`. If `imf` was constructed correctly,
-#     # `cdf(imf, maximum(m_ini))` should be ≈ 0, since `minimum(imf) ≈ minium(m_ini)`.
-#     max_cdf = cdf(imf, maximum(m_ini))
-#     cdf_vals = range(cdf(imf, minimum(m_ini)) + eps(),  max_cdf - eps(), length=1000)
-#     # Use the quantile (inverse function of CDF) to get initial masses where the CDF .== cdf_vals.
-#     new_mini = quantile.(imf,cdf_vals)
-#     if !ret_spacing
-#         return new_mini
-#     else
-#         new_spacing = diff(new_mini)
-#         return new_mini, new_spacing
-#     end
-# end
 """
-    mini_spacing(m_ini::AbstractVector{<:Real}, mags::AbstractVector{<:Real}, Δmag, ret_spacing::Bool=false)
+    mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag, ret_spacing::Bool=false)
 
 Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
@@ -158,7 +67,8 @@ Returns a new sampling of stellar masses given the initial mass vector `m_ini` f
 julia> SFH.mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16], [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
 ```
 """
-function mini_spacing(m_ini::AbstractVector{<:Real}, mags::AbstractVector{<:Real}, Δmag, ret_spacing::Bool=false)
+function mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag,
+                      ret_spacing::Bool=false)
     @assert axes(m_ini) == axes(mags)
     new_mini = Vector{Float64}(undef,1)
     new_mini[1] = first(m_ini)
@@ -191,26 +101,27 @@ end
 
 """
     dispatch_imf(imf, m) = imf(m)
-    dispatch_imf(imf::Distributions.UnivariateDistribution, m) = Distributions.pdf(imf, m)
+    dispatch_imf(imf::Distributions.ContinuousUnivariateDistribution, m) = Distributions.pdf(imf, m)
 
-Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.UnivariateDistribution`, this will convert the function call into the correct `pdf` call.
+Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@ref). If you provide a generic functional that takes one argument (mass) and returns the PDF, then it uses the first definition. If you provide a `Distributions.ContinuousUnivariateDistribution`, this will convert the function call into the correct `pdf` call.
 """
 dispatch_imf(imf, m) = imf(m)
-dispatch_imf(imf::UnivariateDistribution{Continuous}, m) = pdf(imf, m)
+dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 
 """
-    mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
-Calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk`. This is a generic fallback; generally better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
+    mean(imf::Distributions.ContinuousUnivariateDistribution; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+
+Simple one-liner that calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk` with the passed keyword arguments `kws...`. This is a generic fallback; better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined. 
 """
-mean(imf::UnivariateDistribution{Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+mean(imf::Distribution{Univariate, Continuous}; kws...) = quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
 
 ##################################
 # KDE models
 
 """
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real)
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real)
-    GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
+    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
 
 Type representing the 2D asymmetric Gaussian PSF without rotation (no θ).
 
@@ -222,7 +133,7 @@ Type representing the 2D asymmetric Gaussian PSF without rotation (no θ).
  - `A`, and additional multiplicative constant in front of the normalized Gaussian
  - `B`, a constant additive background across the PSF
 """
-struct GaussianPSFAsymmetric{T <: Real} # <: AnalyticPSFModel
+struct GaussianPSFAsymmetric{T <: Real} 
     x0::T
     y0::T
     σx::T
@@ -264,7 +175,7 @@ evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) =
 ##################################
 
 """
-    Gaussian2D(x0::Real,y0::Real,Σ::AbstractMatrix{<:Real})
+    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
 
@@ -308,7 +219,7 @@ centroid(model::Gaussian2D) = (model.x0, model.y0)
 """
     gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
 
-Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`.  
+Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`SFH.gauss2d_integral_halfpix`](@ref). 
 """
 @inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
@@ -319,20 +230,14 @@ Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`
     exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
     return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
 end
-# Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5] or just half of the regular gauss-legendre intervals.
+# Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5]
+# which is half of the regular Gauss-Legendre intervals.
 # Suffers from numerical undersampling when σx=sqrt(Σ[1]) and σy=sqrt(σ[y]) are much less than 1 pixel.
 # About 1% accuracy for Σ=[0.1 0.0; 0.0 0.1]
 const legendre_x_halfpix = SVector{3,Float64}(-0.3872983346207417, 0.0, 0.3872983346207417) 
 const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444444,0.2777777777777778)
 # const legendre_x_halfpix = SVector{5,Float64}(-0.453089922969332, -0.2692346550528415, 0.0, 0.2692346550528415, 0.453089922969332) 
 # const legendre_w_halfpix = SVector{5,Float64}(0.11846344252809454, 0.23931433524968324, 0.28444444444444444, 0.23931433524968324, 0.11846344252809454)
-# @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-#     result = 0.0
-#     for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
-#         @inbounds result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * gauss2D(x + legendre_x_halfpix[i], y + legendre_x_halfpix[j], x0, y0, Σ, A, B)
-#     end
-#     return result
-# end
 @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
     @assert size(Σ) == (2,2)
     result = 0.0
@@ -384,10 +289,9 @@ Function to calculate the bin edges for 2D histograms.
  - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
 function calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
-# function calculate_edges(; edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing)
     if edges !== nothing
         return edges
-    else # if edges === nothing
+    else 
         xlim, ylim = sort(xlim), sort(ylim)
         # Calculate nbins if it hasn't been provided. 
         if nbins === nothing
@@ -441,36 +345,36 @@ end
 
 """
     result::StatsBase.Histogram =
-    bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
+    bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
 
-Returns a `StatsBase.Histogram` type containing the unnormalized, 2D binned CMD (i.e., Hess diagram) from the provided x-axis photometric `colors` and y-axis photometric `mags`. These should be equal in size. You can either specify the bin edges directly via the `edges` keyword, or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
 # Keyword Arguments
- - `weights` is a array of size equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`.
+ - `weights::AbstractVector{<:Number}` is a array of length equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`.
 The following keyword arguments are passed to `SFH.calculate_edges` to determine the bin edges of the histogram.
- - `edges` is a tuple of vectors-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
- - `xlim`; a length-2 indexable object (e.g., a Vector{Float64} or NTuple{2,Float64)) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
- - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25, 20]`. This is only used if `edges` is not provided.
+ - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
+ - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
+ - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
  - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
  - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
  - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
-function bin_cmd( colors, mags; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
-    @assert size(colors) == size(mags)
+function bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), length(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    @assert length(colors) == length(mags) == length(weights)
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     return fit(Histogram, (colors, mags), Weights(weights), edges; closed=:left)
 end
+
 """
     result::StatsBase.Histogram =
     bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
-Returns a `StatsBase.Histogram` type containing the unnormalized, 2D CMD (i.e., Hess diagram) where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These should be equal in size. This is akin to a KDE where each point is broadened by its own PRF. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower"...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
 function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
-    nstars = size(colors)
-    @assert nstars == size(mags) == size(color_err) == size(mag_err) == size(weights)
+    @assert axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Construct matrix to hold the 2D histogram
@@ -478,6 +382,12 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     # Get the pixel width in each dimension; this currently only works if edges[1] and [2] are AbstractRange. 
     xwidth, ywidth = step(edges[1]), step(edges[2])
     for i in eachindex(colors)
+        # Skip stars that are 3σ away from the histogram region in either x or y. 
+        # if (((colors[i] - 3*color_err[i]) > maximum(edges[1])) | ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
+        #     |
+        #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) < minimum(edges[2])) )
+        #     continue
+        # end
         # Convert colors, mags, color_err, and mag_err from magnitude-space to pixel-space in `mat`
         x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(mags[i], edges[2]) - 0.5,
         color_err[i] / xwidth, mag_err[i] / ywidth
@@ -490,7 +400,13 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
     return Histogram(edges, mat, :left, false)
 end
 
-function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+"""
+    result::StatsBase.Histogram =
+    partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+
+Creates an error-free Hess diagram for stars from an isochrone with x-axis photometric `colors`, y-axis photometric magnitudes `mags`, and initial masses `m_ini`. Because this is not smoothed by photometric errors, it is not generally useful but is provided for comparative checks. Most arguments are as in [`bin_cmd`](@ref). The only unique keyword arguments are `normalize_value::Number` which is a multiplicative factor giving the effective stellar mass you want in the Hess diagram, and `mean_mass::Number` which is the mean stellar mass implied by the provided initial mass function `imf`. 
+"""
+function partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     new_mini, new_spacing = mini_spacing(m_ini, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
@@ -498,19 +414,43 @@ function partial_cmd( m_ini, colors, mags, imf; dmod=0.0, normalize_value=1.0, m
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin.
     # This is ~equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
-    # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
+    # i.e., if imf is a Distributions.ContinuousUnivariateDistribution,
+    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
         weights[i] *= normalize_value / mean_mass # Correct normalization
     end
-    # Previously we were dividing by sum(weights) here but I think that is wrong. 
-    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd( new_iso_colors[begin:end-1], new_iso_mags[begin:end-1]; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
-# This needs some optimization. 
-function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod=0.0, normalize_value=1.0, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+"""
+    result::StatsBase.Histogram =
+    partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+
+Main function for generating template Hess diagrams from a single stellar population of stars from an isochrone, including photometric error and completeness.
+
+# Arguments
+ - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars.
+ - `mags::AbstractVector{<:AbstractVector{<:Number}}` is a vector of vectors. Each constituent vector with index `i` should have `length(mags[i]) == length(m_ini)`, representing the magnitudes of the stars in each of the magnitudes considered. In most cases, mags should contain 2 (if y-axis mag is also involved in the x-axis color) or 3 vectors.
+ - `mag_err_funcs` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the 1σ photometric errors in the filters provided in `mags`. Each callable must take a single argument and return a `Number`. The length `mag_err_funcs` must be equal to the length of `mags`.
+ - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you could set yindex=1. 
+ - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then color indices could be `[1,2]` or `(1,2)` or similar.
+ - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model.
+ - `completeness_functions` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the single-filter completeness fractions as a function of magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
+
+# Keyword Arguments
+ - `dmod::Number=0` distance modulus in magnitudes to apply to the input `mags`.
+ - `normalize_value::Number=1` gives the total stellar mass of population you wish to model.
+ - `mean_mass::Number` gives the expectation value for a random star drawn from your provided `imf`. This will be computed for you if your provided `imf` is a valid continuous, univariate `Distributions.Distribution` object.
+ - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it overrides the following keyword arguments that offer other ways to specify the extent of the Hess diagram.
+ - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
+ - `ylim`; as `xlim` but for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
+ - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
+ - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
+ - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
+"""
+function partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
     # Resample the isochrone magnitudes to a denser m_ini array
     # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
     new_mini, new_spacing = mini_spacing(m_ini, mags[y_index], 0.01, true)
@@ -522,7 +462,8 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin. 
     # This is equivalent to the difference in the CDF across the bin as long as imf is a properly normalized pdf
-    # i.e., if imf is a Distributions.UnivariateDistribution, weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
+    # i.e., if imf is a Distributions.ContinuousUnivariateDistribution,
+    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
     weights = Vector{Float64}(undef, length(new_mini) - 1)
     @inbounds @simd for i in eachindex(weights)
         weights[i] = new_spacing[i] * (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
@@ -533,8 +474,6 @@ function partial_cmd_smooth( m_ini, mags, mag_err_funcs, y_index, color_indices,
     end
     # sum(weights) is now the full integral over the imf pdf from minimum(m_ini) -> maximum(m_ini).
     # This is equivalent to cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
-    # Previously we were dividing by sum(weights) here but I think that is wrong. 
-    # weights .= weights .* normalize_value ./ mean_mass # ./ sum(weights)
     return bin_cmd_smooth( colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
                            color_err[begin:end-1], mag_err[y_index][begin:end-1]; weights=weights,
                            edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )

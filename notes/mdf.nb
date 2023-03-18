@@ -1,0 +1,188 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 11.0' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      4825,        178]
+NotebookOptionsPosition[      4264,        153]
+NotebookOutlinePosition[      4634,        169]
+CellTagsIndexPosition[      4591,        166]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell[BoxData[
+ RowBox[{"D", "[", 
+  RowBox[{
+   RowBox[{
+    FractionBox["1", "\[Sigma]"], 
+    RowBox[{"Exp", "[", 
+     RowBox[{
+      RowBox[{"-", 
+       SuperscriptBox[
+        RowBox[{"(", 
+         FractionBox[
+          RowBox[{"x", "-", 
+           RowBox[{"(", 
+            RowBox[{
+             RowBox[{"\[Alpha]", "*", "a"}], "+", "\[Beta]"}], ")"}]}], 
+          "\[Sigma]"], ")"}], "2"]}], "/", "2"}], "]"}]}], ",", "\[Alpha]"}], 
+  "]"}]], "Input",
+ CellChangeTimes->{{3.8856543349684734`*^9, 3.8856543791213245`*^9}}],
+
+Cell[BoxData[
+ FractionBox[
+  RowBox[{"a", " ", 
+   SuperscriptBox["\[ExponentialE]", 
+    RowBox[{"-", 
+     FractionBox[
+      SuperscriptBox[
+       RowBox[{"(", 
+        RowBox[{"x", "-", 
+         RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}], "2"], 
+      RowBox[{"2", " ", 
+       SuperscriptBox["\[Sigma]", "2"]}]]}]], " ", 
+   RowBox[{"(", 
+    RowBox[{"x", "-", 
+     RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}]}], 
+  SuperscriptBox["\[Sigma]", "3"]]], "Output",
+ CellChangeTimes->{3.8856543801084204`*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"D", "[", 
+  RowBox[{
+   RowBox[{
+    FractionBox["1", "\[Sigma]"], 
+    RowBox[{"Exp", "[", 
+     RowBox[{
+      RowBox[{"-", 
+       SuperscriptBox[
+        RowBox[{"(", 
+         FractionBox[
+          RowBox[{"x", "-", 
+           RowBox[{"(", 
+            RowBox[{
+             RowBox[{"\[Alpha]", "*", "a"}], "+", "\[Beta]"}], ")"}]}], 
+          "\[Sigma]"], ")"}], "2"]}], "/", "2"}], "]"}]}], ",", "\[Beta]"}], 
+  "]"}]], "Input",
+ CellChangeTimes->{{3.885654384153711*^9, 3.885654385373413*^9}}],
+
+Cell[BoxData[
+ FractionBox[
+  RowBox[{
+   SuperscriptBox["\[ExponentialE]", 
+    RowBox[{"-", 
+     FractionBox[
+      SuperscriptBox[
+       RowBox[{"(", 
+        RowBox[{"x", "-", 
+         RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}], "2"], 
+      RowBox[{"2", " ", 
+       SuperscriptBox["\[Sigma]", "2"]}]]}]], " ", 
+   RowBox[{"(", 
+    RowBox[{"x", "-", 
+     RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}]}], 
+  SuperscriptBox["\[Sigma]", "3"]]], "Output",
+ CellChangeTimes->{3.885654386145585*^9}]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{"D", "[", 
+  RowBox[{
+   RowBox[{
+    FractionBox["1", "\[Sigma]"], 
+    RowBox[{"Exp", "[", 
+     RowBox[{
+      RowBox[{"-", 
+       SuperscriptBox[
+        RowBox[{"(", 
+         FractionBox[
+          RowBox[{"x", "-", 
+           RowBox[{"(", 
+            RowBox[{
+             RowBox[{"\[Alpha]", "*", "a"}], "+", "\[Beta]"}], ")"}]}], 
+          "\[Sigma]"], ")"}], "2"]}], "/", "2"}], "]"}]}], ",", "\[Sigma]"}], 
+  "]"}]], "Input",
+ CellChangeTimes->{{3.885654388971885*^9, 3.8856543900254927`*^9}}],
+
+Cell[BoxData[
+ RowBox[{
+  FractionBox[
+   RowBox[{
+    SuperscriptBox["\[ExponentialE]", 
+     RowBox[{"-", 
+      FractionBox[
+       SuperscriptBox[
+        RowBox[{"(", 
+         RowBox[{"x", "-", 
+          RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}], "2"], 
+       RowBox[{"2", " ", 
+        SuperscriptBox["\[Sigma]", "2"]}]]}]], " ", 
+    SuperscriptBox[
+     RowBox[{"(", 
+      RowBox[{"x", "-", 
+       RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}], "2"]}], 
+   SuperscriptBox["\[Sigma]", "4"]], "-", 
+  FractionBox[
+   SuperscriptBox["\[ExponentialE]", 
+    RowBox[{"-", 
+     FractionBox[
+      SuperscriptBox[
+       RowBox[{"(", 
+        RowBox[{"x", "-", 
+         RowBox[{"a", " ", "\[Alpha]"}], "-", "\[Beta]"}], ")"}], "2"], 
+      RowBox[{"2", " ", 
+       SuperscriptBox["\[Sigma]", "2"]}]]}]], 
+   SuperscriptBox["\[Sigma]", "2"]]}]], "Output",
+ CellChangeTimes->{3.885654390895426*^9}]
+}, Open  ]]
+},
+WindowSize->{759, 833},
+WindowMargins->{{Automatic, 892}, {236, Automatic}},
+Magnification->1.25,
+FrontEndVersion->"11.0 for Microsoft Windows (64-bit) (September 21, 2016)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[580, 22, 533, 17, 60, "Input"],
+Cell[1116, 41, 538, 16, 76, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[1691, 62, 528, 17, 60, "Input"],
+Cell[2222, 81, 526, 16, 76, "Output"]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[2785, 102, 531, 17, 60, "Input"],
+Cell[3319, 121, 929, 29, 109, "Output"]
+}, Open  ]]
+}
+]
+*)
+
+(* End of internal cache information *)
+

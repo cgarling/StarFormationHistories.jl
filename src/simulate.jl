@@ -67,53 +67,59 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 
 ################################################
 #### Interpret arguments for generate_mock_stars
+"""
+    new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
+    new_mags = ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
 
-function ingest_mags(mini_vec::Vector{<:Real}, mags::Matrix{<:Real})
-    ndims(mags) != 2 && throw(ArgumentError("`generate_stars...` received a `mags` argument that is a Matrix{<:Real} with `ndims(mags) != 2`; when providing a `mags::Matrix{<:Real}`, it must always be 2-dimensional."))
+Reinterprets provided `mags` to be in the correct format for input to `Interpolations.interpolate`.
+
+# Returns
+ - `new_mags::Base.ReinterpretArray{StaticArrays.SVector}`: a `length(mini_vec)` vector of StaticArrays.SVectors containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
+"""
+function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
+    if ndims(mags) != 2 # Check dimensionality of mags argument
+        throw(ArgumentError("`generate_stars...` received a `mags::AbstractMatrix{<:Real}` with `ndims(mags) != 2`; when providing a `mags::AbstractMatrix{<:Real}`, it must always be 2-dimensional."))
+    end
+    nstars = length(mini_vec)
     shape = size(mags)
-    if shape[1] == length(mini_vec)
-        return collect(eachrow(mags)) # eachrow returns views which are fast but annoying.
-        # copy(reinterpret(SVector{shape[2],Float64}, vec(transpose(mags))))
-        # return [mags[i,:] for i in 1:length(mini_vec)]
-    elseif shape[2] == length(mini_vec)
-        return collect(eachcol(mags)) # eachrow returns views which are fast but annoying.
-        # copy(reinterpret(SVector{shape[1],Float64}, vec(mags)))
-        # return [mags[:,i] for i in 1:length(mini_vec)]
+    if shape[1] == nstars
+        return reinterpret(SVector{shape[2],S}, vec(permutedims(mags)))
+    elseif shape[2] == nstars
+        return reinterpret(SVector{shape[1],S}, vec(mags))
     else
-        throw(ArgumentError("generate_stars received a misshapen `mags` argument. When providing a Matrix{<:Real}, then it should be 2-dimensional and have size of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
+        throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractMatrix{<:Real}`, then it should be 2-dimensional and have size of (N,M) or (M,N), where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
     end
 end
-# Should improve the shape checks on `mags` for this method.
-function ingest_mags(mini_vec::Vector{<:Real}, mags::Vector{T}) where T <: Vector{<:Real}
-    # Commonly `mini_vec` will be a vector of length `N`, but `mags` will be a length `M` vector of length `N` vectors. E.g., if length(mini_vec) == 100, and we have two filters, then `mags` will be a vector of 2 vectors, each with length 100. The interpolation routine requires `mags` to be a vector of 100 vectors, each with length 2.
+function ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
     if length(mags) != length(mini_vec)
-        if length(mags[1]) != length(mini_vec) # If the above is false, then this should be true; otherwise error. 
-            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a Vector{Vector{<:Real}}, then it should either have a shape of NxM or MxN, where N is the number of elements in `mini_vec`, and M is the number of filters represented in the `mags` argument."))
+        nstars = length(first(mags))
+        if ~mapreduce(x->isequal(nstars,length(x)), &, mags)
+            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractVector{AbstractVector{<:Real}}` with `length(mags)!=length(mini_vec)`, then each element of `mags` should have length equal to `length(mini_vec)`."))
         else
-            return collect(eachrow(hcat(mags...))) # eachrow returns views which are fast but annoying. 
-            # mat = hcat(mags...)
-            # return [mat[i,:] for i in 1:length(mini_vec)]
-            # mags = [[mags[i][j]] for j=eachindex(mags[i]),i=eachindex(mags)]
-            # new_mags = [ Vector{T}(undef,length(mags)) for i in 1:length(mini_vec) ]
-            # @inbounds for i in eachindex(mags)
-            #     @inbounds for j in eachindex(mags[i])
-            #         new_mags[j][i] = mags[i][j]
-            #     end
-            # end
-            # mags = new_mags
+            nfilters = length(mags)
+            return reinterpret(SVector{nfilters,S}, vec(permutedims(hcat(mags...))))
         end
     else
-        return mags
+        # Check that every vector in mags has equal length.
+        nfilters = length(first(mags))
+        if eltype(mags) <: SVector
+            return mags
+        elseif ~mapreduce(x->isequal(nfilters,length(x)), &, mags)
+            throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractVector{AbstractVector{<:Real}}` with `length(mags)==length(mini_vec)`, each element of `mags` must have equal length, representing the number of filters being used."))
+        else
+            return reinterpret(SVector{nfilters,S}, vec(hcat(mags...)))
+        end
     end
 end
 ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized.
 
 """
-    (new_mini_vec, new_mags) = sort_ingested(mini_vec::Vector{<:Real}, mags::Vector)
-Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` to ensure there are no repeat entries. `mags` can be a Vector{Vector}, such as is returned by [`SFH.ingest_mags`](@ref), or just a Vector{<:Real}; in either case, you must ensure that `length(mini_vec) == length(mags)`. 
+    (new_mini_vec, new_mags) = sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+
+Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on `mini_vec` to ensure there are no repeat entries. Arguments must satisfy `length(mini_vec) == length(mags)`. 
 """
-function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector) # mags::Vector{T}) where T <: Vector{<:Real}
-    @assert length(mini_vec) == length(mags)
+function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+    @assert axes(mini_vec) == axes(mags)
     idx = sortperm(mini_vec)
     if idx != eachindex(mini_vec)
         mini_vec = mini_vec[idx]
@@ -123,12 +129,42 @@ function sort_ingested(mini_vec::Vector{<:Real}, mags::Vector) # mags::Vector{T}
     return mini_vec, mags
 end
 
-function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
-                     mag_names::Vector{String}, mag_lim::Real,
-                     mag_lim_name::String) where T <: Vector{<:Real}
-    mmin, mmax = extrema(mini_vec) 
+"""
+    (mmin, mmax) = mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
+                     mag_names::AbstractVector{String}, mag_lim::Number,
+                     mag_lim_name::String) where T <: AbstractVector{<:Number}
+
+Calculates initial mass limits that reflect a given faint-end magnitude limit.
+
+# Arguments
+ - `mini_vec::AbstractVector{<:Number}`: a length `nstars` vector containing initial stellar masses.
+ - `mags::AbstractVector{<:AbstractVector{<:Number}}`: a length `nstars` vector, with each element being a length `nfilters` vector giving the magnitudes of each star in the filters `mag_names`.
+ - `mag_names::AbstractVector{String}`: a vector giving the names of each filter as strings.
+ - `mag_lim::Number`: the faint-end magnitude limit you wish to use.
+ - `mag_lim_name::String`: the name of the filter in which `mag_lim` is to be applied. Must be contained in `mag_names`.
+
+# Returns
+ - `mmin::eltype(mini_vec)`: the initial mass corresponding to your requested `mag_lim` in the filter `mag_lim_name`. If all stars provided are brighter than your requested `mag_lim`, then this will be equal to `minimum(mini_vec)`.
+ - `mmax::eltype(mini_vec)`: the maximum valid mass in `mini_vec`; simply `maximum(mini_vec)`.
+
+# Examples
+```julia
+julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0],[3.0],[2.0],[1.0]], ["F090W"], 2.5, "F090W")
+(0.15, 0.3)
+
+julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]], ["F090W","F150W"], 2.5, "F090W")
+(0.15, 0.3)
+```
+"""
+function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
+                     mag_names::AbstractVector{String}, mag_lim::Number,
+                     mag_lim_name::String) where T <: AbstractVector{<:Number}
+    @assert axes(mini_vec) == axes(mags) 
+    mmin, mmax = extrema(mini_vec)
     # Update mmin respecing `mag_lim`, if provided.
-    if isfinite(mag_lim)
+    if !isfinite(mag_lim)
+        return mmin, mmax
+    else
         idxmag = findfirst(x->x==mag_lim_name, mag_names) # Find the index into mag_lim_names where == mag_lim_name.
         idxmag == nothing && throw(ArgumentError("Provided `mag_lim_name` is not contained in provided `mag_names` array."))
         if mag_lim < mags[findfirst(x->x==mmin, mini_vec)][idxmag]
@@ -136,13 +172,15 @@ function mass_limits(mini_vec::Vector{<:Real}, mags::Vector{T},
             mag_lim < minimum(tmp_mags) && throw(DomainError(mag_lim, "The provided `mag_lim` is brighter than all the stars in the input `mags` array assuming the input distance modulus `dist_mod`. Revise your arguments."))
             # Solve for stellar initial mass where mag == mag_lim by constructing interpolator and root-finding.
             itp = interpolate((mini_vec,), tmp_mags, Gridded(Linear()))
-            mmin = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
+            mmin2 = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
+            return mmin2, mmax
+        else
+            return mmin, mmax
         end
     end
-    return mmin, mmax
 end
 
-###############################################
+##############################################################
 #### Types and methods for non-interacting binary calculations
 """ `SFH.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the SFH package. All concrete subtypes must implement the [`SFH.sample_binary!`](@ref) method. """
 abstract type AbstractBinaryModel end
@@ -155,51 +193,60 @@ struct Binaries{T <: Real} <: AbstractBinaryModel
 end
 
 """
-    binary_mass = sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::T) where T <: SFH.AbstractBinaryModel
+    binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::SFH.AbstractBinaryModel)
 
-Mutates input `mags` array that represents a single star's per-filter magnitudes by adding luminosity from unresolved binaries (if any) and returns the sampled mass of the binary star(s). Returns `zero(mass)` if no binary is sampled, but will return a non-zero mass even if a binary is outside the valid initial mass range `(mmin, mmax)`. Other details may vary based on the input `binarymodel`. 
+Simulates the effects of unresolved binaries on stellar photometry without mutation. Implementation depends on the choice of `binarymodel`.
+
+# Arguments
+ - `mass`; the initial mass of the single star
+ - `mmin`; minimum mass to consider for stellar companions
+ - `mmax`; maximum mass to consider for stellar companions
+ - `mags`; a vector-like object giving the magnitudes of the single star in each filter
+ - `imf`; an object implementing `rand(imf)` to draw a random single-star mass
+ - `itp`; a callable object that returns the magnitudes of a star with mass `m` when called as `itp(m)`
+ - `rng::AbstractRNG`; the random number generator to use when sampling stars
+ - `binarymodel::SFH.AbstractBinaryModel`; an instance of a binary model that determines which implementation will be used. 
+
+# Returns
+ - `binary_mass`; the total mass of the additional stellar companions
+ - `new_mags`; the effective magnitude of the multiple stellar system 
 """
-@inline sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass)
-@inline function sample_binary!(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
+@inline sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass), mags
+@inline function sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
     frac = binarymodel.fraction
     r = rand(rng) # Random uniform number
     if r <= frac  # Generate a binary star
         mass_new = rand(rng, imf)
         if (mass_new < mmin) | (mass_new > mmax) # Sampled mass is outside of valid range
-            return mass_new 
+            return mass_new, mags 
         end
         mags_new = itp(mass_new)
-        for i in eachindex(mags)
-            L = L_from_MV(mags[i])
-            L += L_from_MV(mags_new[i])
-            mags[i] = MV_from_L(L) # Mutate the existing mags array
-        end
-        return mass_new
+        result = MV_from_L.( L_from_MV.(mags) .+ L_from_MV.(mags_new) )
+        return mass_new, result
     else
-        return zero(mass)
+        return zero(mass), mags
     end
 end
 
-
-###############################################
+#########################################################
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::Distributions.UnivariateDistribution{Distributions.Continuous}; dist_mod::Real=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
+    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
 
 # Arguments
- - `mini_vec::Vector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone.
+ - `mini_vec::AbstractVector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec).
  - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`SFH.ingest_mags`](@ref). Valid inputs are:
-    - `mags::Vector{Vector{<:Real}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
-    - `mags::Matrix{<:Real}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
- - `mag_names::Vector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned.
- - `limit::Real` gives the total birth stellar mass of the population you want to sample. See the "Notes" section on population masses for more information.
- - `imf::Distributions.UnivariateDistribution{Distributions.Continuous}` is a continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
+    - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
+    - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
+ - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned.
+ - `limit::Number` gives the total birth stellar mass of the population you want to sample. See the "Notes" section on population masses for more information.
+ - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
- - `dist_mod::Real=0` is the distance modulus (see [`SFH.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
+ - `dist_mod::Number=0` is the distance modulus (see [`SFH.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
  - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
- - `mag_lim::Real=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
+ - `mag_lim::Number=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
  - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite.
  - `binary_model::SFH.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
 
@@ -212,54 +259,49 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
 \\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
 ```
 """
-function generate_stars_mass(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, limit::Real, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
-    # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
-    mags = ingest_mags(mini_vec, mags)
+generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
+    generate_stars_mass(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
+function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, limit::Number, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=zero(T), rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3)) where {N, T<:Number}
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
-    # Construct the sampler object for the provided imf; for some distributions, this will return a
-    # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
+    # Construct the sampler object for the provided imf; for some distributions, this will return a Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
     imf_sampler = sampler(imf) 
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
     mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
-    # We might be able to gain some efficiency by creating a new truncated IMF with lower bound mmin,
-    # when mag_lim is not infinite. Looks like a factor of 2 improvement but without renormalizing `limit`,
-    # it will not sample the correct amount of stellar mass. 
-    # mmin1 > minimum(mini_vec) && (imf = truncated(imf; lower=mmin1))
-    # Setup for iteration. 
+    
     total = zero(eltype(imf))
     mass_vec = Vector{eltype(imf)}(undef,0)
-    mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
+    mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         mass_sample = rand(rng, imf_sampler) # Just sample one star.
-        total += mass_sample         # Add mass to total.
+        total += mass_sample # Add mass to total.
         # Continue loop if sampled mass is outside of isochrone range.
         if (mass_sample < mmin2) | (mass_sample > mmax)
             continue
         end
-        mag_sample = itp(mass_sample) # Roughly 70 ns for 2 filters on 12600k. No speedup for bulk queries.
-        # See if we sample any binary stars
-        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
+        mag_sample = itp(mass_sample) 
+        # See if we sample any unresolved binary stars.
+        binary_mass, mag_sample = sample_binary(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         total += binary_mass
-        push!(mass_vec, mass_sample + binary_mass) # scipy.interpolate.interp1d is ~74 ns per evaluation for batched 10k queries.
+        push!(mass_vec, mass_sample + binary_mass)
         push!(mag_vec, mag_sample)
     end
     return mass_vec, mag_vec
 end
 
 """
-    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
+    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, absmag::Real, absmag_name::String, imf::Distributions.Sampleable{Distributions.Univariate,Distributions.Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
 
-Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::Vector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
+Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::AbstractVector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
 
 # Notes
 ## Population Magnitudes
 Unlike when sampling a population to a fixed initial birth mass, as is implemented in [`generate_stars_mag`](@ref), when generating a population up to a fixed absolute magnitude, only stars that survive to present-day contribute to the flux of the population. If you choose to limit the apparent magnitude of stars returned by passing the `mag_lim` and `mag_lim_name` keyword arguments, stars fainter than your chosen limit will still be sampled and will still contribute their luminosity to the total population, but they will not be contained in the returned output. 
 """
-function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{String}, absmag::Real, absmag_name::String, imf::UnivariateDistribution{Continuous}; dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3))
-    # Interpret and reshape the `mags` argument into a (length(mini_vec), nfilters) vector of vectors.
-    mags = ingest_mags(mini_vec, mags)
+generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
+    generate_stars_mag(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
+function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=Binaries(0.3)) where {N, T<:Number}
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     idxlim = findfirst(x->x==absmag_name, mag_names) # Get the index into `mags` and `mag_names` that equals `limit_name`.
@@ -272,9 +314,9 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
     mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
     
-    total = zero(eltype(imf))
+    total = zero(T)
     mass_vec = Vector{eltype(imf)}(undef,0)
-    mag_vec = Vector{Vector{eltype(imf)}}(undef,0)
+    mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         mass_sample = rand(rng, imf_sampler)  # Just sample one star.
         # Continue loop if sampled mass is outside of isochrone range.
@@ -282,8 +324,8 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
             continue
         end
         mag_sample = itp(mass_sample) # Interpolate the sampled mass.
-        # See if we sample any binary stars
-        binary_mass = sample_binary!(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
+        # See if we sample any binary stars.
+        binary_mass, mag_sample = sample_binary(mass_sample, mmin1, mmax, mag_sample, imf_sampler, itp, rng, binary_model)
         mass_sample += binary_mass
         total += L_from_MV(mag_sample[idxlim] - dist_mod) # Add luminosity to total, subtracting the distance modulus.
         # Only push to the output vectors if the sampled mass is in the valid range. 
@@ -296,16 +338,18 @@ function generate_stars_mag(mini_vec::Vector{<:Real}, mags, mag_names::Vector{St
     return mass_vec, mag_vec
 end
 
-###############################################
+############################################################################
 #### Functions to generate composite mock galaxy catalogs from multiple SSPs
 
-function generate_stars_mass_composite(mini_vec::Vector{T}, mags::Vector, mag_names::Vector{String}, limit::Real, massfrac::Vector{<:Real}, imf::UnivariateDistribution{Continuous}; kws...) where T<:Vector{<:Real} # dist_mod::Real=0, rng::AbstractRNG=default_rng(), mag_lim::Real=Inf, mag_lim_name::String="V") 
-    !(length(mini_vec) == length(mags) == length(massfrac)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all be vectors of equal length."))
+function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; kws...) where T <: AbstractVector{<:Number} 
+    !(axes(mini_vec,1) == axes(mags,1) == axes(massfrac,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
-    massfrac ./= sum(massfrac) # Renormalize massfrac to sum to 1.
+    massfrac = massfrac ./ sum(massfrac) # Ensure massfrac is normalized to sum to 1.
     # Allocate output vectors.
     massvec = [ Vector{eltype(imf)}(undef,0) for i in 1:ncomposite ]
-    mag_vec = [ Vector{Vector{eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
+    mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
+    mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
     # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
     Threads.@threads for i in eachindex(mini_vec, mags, massfrac)
         result = generate_stars_mass(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf; kws...)
@@ -316,15 +360,14 @@ function generate_stars_mass_composite(mini_vec::Vector{T}, mags::Vector, mag_na
 end
 
 # For generate_stars_mags_composite we probably want to support both luminosity and initial mass fractions.
-function generate_stars_mag_composite(mini_vec::Vector{T}, mags::Vector, mag_names::Vector{String}, absmag::Real, absmag_name::String, fracs::Vector{<:Real}, imf::UnivariateDistribution{Continuous}; frac_type::String="lum", kws...) where T<:Vector{<:Real}
-    !(length(mini_vec) == length(mags) == length(fracs)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all be vectors of equal length."))
+function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", kws...) where T <: AbstractVector{<:Number}
+    !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
-    fracs ./= sum(fracs) # Renormalize fracs to sum to 1.
+    fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
     # Interpret whether user requests `fracs` represent luminosity or mass fractions.
     if frac_type == "lum"
         limit = L_from_MV(absmag)   # Convert the provided `limit` from magnitudes into luminosity.
-        fracs = fracs .* limit      # Portion the total luminosity across the different input models.
-        @. fracs = MV_from_L(fracs) # Convert back to magnitudes.
+        fracs = MV_from_L.( fracs .* limit )
     elseif frac_type == "mass"
         throw(ArgumentError("`frac_type == mass` not yet implemented."))
     else
@@ -332,7 +375,9 @@ function generate_stars_mag_composite(mini_vec::Vector{T}, mags::Vector, mag_nam
     end
     # Allocate output vectors.
     massvec = [ Vector{eltype(imf)}(undef,0) for i in 1:ncomposite ]
-    mag_vec = [ Vector{Vector{eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
+    mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
+    mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
     # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
     Threads.@threads for i in eachindex(mini_vec, mags, fracs)
         result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf; kws...)
@@ -345,33 +390,55 @@ end
 ###############################################
 #### Functions for modelling observational effects
 
-function model_cmd(mags::Vector{T}, errfuncs::Vector, completefuncs::Vector; rng::AbstractRNG=default_rng()) where T<:Vector{<:Real}
+function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
-    !(nfilters == length(errfuncs) == length(completefuncs)) && throw(ArgumentError("The `errfuncs` and `completefuncs` arguments to `model_cmd` must have length equal to the elements of `mags` representing the number of filters that you are providing magnitudes for."))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
     randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
-    # magmat = hcat(mags...)
-    # completeness = hcat([ completefuncs[i].(view(magmat,i,:)) for i in 1:nfilters ]...)
-    # completeness = map(x->reduce(*,x), eachrow(completeness))
-    # return completeness
-    completeness = ones(nstars) # Vector{eltype(mags[1])}(undef, nstars)
-    cvals = Vector{eltype(completeness)}(undef, nfilters)
+    completeness = ones(axes(mags,1))
     # Estimate the overall completeness as the product of the single-band completeness values.
     for i in eachindex(mags)
-        cvals .= mags[i]
         for j in eachindex(completefuncs)
-            completeness[i] *= completefuncs[j](cvals[j])
+            completeness[i] *= completefuncs[j](mags[i][j])
         end
     end
     # Pick out the entries where the random number is less than the product of the single-band completeness values 
     good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
     ret_mags = mags[good] # Get the good mags to be returned.
     for i in eachindex(ret_mags)
-        cvals .= ret_mags[i]
         for j in eachindex(errfuncs)
-            ret_mags[i][j] += ( randn(rng) * errfuncs[j](cvals[j]) ) # Add error. 
+            ret_mags[i][j] += ( randn(rng) * errfuncs[j](ret_mags[i][j]) ) # Add error. 
         end
     end
     return ret_mags
 end
-# model_cmd(mags::Matrix, args...; kws...) = model_cmd(
+# This is slower than the above implementation but I don't care to optimize it at the moment.
+function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where {N, T <: Number}
+    nstars = length(mags)
+    nfilters = length(first(mags))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
+    randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
+    completeness = ones(axes(mags,1))
+    # Estimate the overall completeness as the product of the single-band completeness values.
+    for i in eachindex(mags)
+        for j in eachindex(completefuncs)
+            completeness[i] *= completefuncs[j](mags[i][j])
+        end
+    end
+    # Pick out the entries where the random number is less than the product of the single-band completeness values 
+    good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
+    good_mags = mags[good] # Get the good mags to be returned.
+    ret_mags = similar(good_mags) 
+    for i in eachindex(good_mags)
+        err_scale = sacollect(SVector{N,T}, errfuncs[j](good_mags[i][j]) for j in eachindex(errfuncs))
+        ret_mags[i] = good_mags[i] .+ ( randn(rng,SVector{N,T}) .* err_scale)
+    end
+    return ret_mags
+end
+# In Julia 1.9 we should just be able to do stack(v). 
+# eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)
+# eltorows(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), :, dim)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = mapreduce(eltocols, hcat, v)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols(i) for i in v)
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols.(v))
+# eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = hcat(eltocols.(v)...)
