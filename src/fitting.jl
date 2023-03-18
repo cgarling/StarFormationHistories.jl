@@ -10,7 +10,7 @@ Updates the `composite` matrix in place with the linear combination of `sum( coe
 julia> C = zeros(5,5);
 julia> models = [rand(size(C)...) for i in 1:5];
 julia> coeffs = rand(length(models));
-julia> SFH.composite!(C, coeffs, models);
+julia> composite!(C, coeffs, models);
 julia> C ≈ sum( coeffs .* models)
 true
 ```
@@ -70,7 +70,7 @@ end
 
 """
 
-Gradient of [`SFH.loglikelihood`](@ref) with respect to the coefficient; Equation 21 in Dolphin 2002.
+Gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to the coefficient; Equation 21 in Dolphin 2002.
 
 # Performance Notes
  - ~4.1 μs for model, composite, data all being Matrix{Float64}(undef,99,99).
@@ -163,7 +163,7 @@ Generates a vector of initial stellar mass normalizations for input to `fit_temp
 
 # Examples
 ```julia
-julia> x0 = SFH.construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
+julia> x0 = construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
 9-element Vector{Float64}: ...
 
 julia> sum(x0)
@@ -239,7 +239,7 @@ end
 """
 function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
     G = similar(x0)
-    fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
+    fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
@@ -249,7 +249,7 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     x = similar(x0)
     function fg_prior!(F,G,logx)
         @. x = exp(logx)
-        logL = SFH.fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the prior
+        logL = fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the prior
         if G != nothing
             @. G = G * x - 1 # Add correction for the prior and log-transform to every element of G
         end
@@ -257,7 +257,7 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     end
     function fg_final!(F,G,logx)
         @. x = exp(logx)
-        logL = SFH.fg!(true,G,x,models,data,composite)
+        logL = fg!(true,G,x,models,data,composite)
         if G != nothing
             @. G = G * x # Only correct for log-transform
         end
@@ -367,25 +367,25 @@ end
 
 Generates a vector of initial stellar mass normalizations for input to `fit_templates_mdf` or `hmc_sample_mdf` with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logage` vector that contains the `log10(age [yr])` of each isochrone that you are going to input as models.
 
-The difference between this function and [`SFH.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logage`) while [`SFH.construct_x0`](@ref) returns an `x0` vector that is of length `length(logage)`; that is, a normalization factor for every entry in `logage`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logage)[i]`. 
+The difference between this function and [`StarFormationHistories.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logage`) while [`StarFormationHistories.construct_x0`](@ref) returns an `x0` vector that is of length `length(logage)`; that is, a normalization factor for every entry in `logage`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logage)[i]`. 
 
 # Notes
 
 # Examples
 ```julia
-julia> SFH.construct_x0_mdf([9.0,8.0,7.0]; normalize_value=5.0)
+julia> construct_x0_mdf([9.0,8.0,7.0]; normalize_value=5.0)
 3-element Vector{Float64}:
  4.545454545454545
  0.45454545454545453
  0.050505045454545455
 
-julia> SFH.construct_x0_mdf(repeat([9.0,8.0,7.0,8.0];inner=3); normalize_value=5.0)
+julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0];inner=3); normalize_value=5.0)
 3-element Vector{Float64}:
  4.545454545454545
  0.45454545454545453
  0.050505045454545455
 
-julia> SFH.construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3); normalize_value=5.0) ≈ SFH.construct_x0([9.0,8.0,7.0]; normalize_value=5.0)
+julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3); normalize_value=5.0) ≈ construct_x0([9.0,8.0,7.0]; normalize_value=5.0)
 true
 ```
 """
@@ -516,7 +516,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end-1] = xvec[end-1]  # α
         x[end] = xvec[end]      # β
 
-        logL = SFH.fg_mdf_σ!(F, G, x, models, data, composite, logAge, metallicities, σ)
+        logL = fg_mdf_σ!(F, G, x, models, data, composite, logAge, metallicities, σ)
         logL -= sum( @view xvec[begin:end-2] ) # this is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-2]
@@ -633,7 +633,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end-2] = xvec[end-2]  # α
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
-        logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
+        logL = fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
         logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # This is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-3]
@@ -650,7 +650,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end-2] = xvec[end-2]  # α
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
-        logL = SFH.fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
+        logL = fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
         for i in eachindex(G)[begin:end-3]
             G[i] = G[i] * x[i]
         end
@@ -734,7 +734,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModelMDF, xvec)
     x[end] = exp(xvec[end]) # σ
 
     # fg_mdf! returns -logL and fills G with -∇logL so we need to negate the signs.
-    logL = -SFH.fg_mdf!(true, G, x, models, data, composite, logAge, metallicities)
+    logL = -fg_mdf!(true, G, x, models, data, composite, logAge, metallicities)
     logL += sum(view(xvec,firstindex(xvec):lastindex(xvec)-3)) + xvec[end] # this is the Jacobian correction
     ∇logL = -G
     # Add the Jacobian correction for every element of ∇logL except α (x[end-2]) and β (x[end-1])

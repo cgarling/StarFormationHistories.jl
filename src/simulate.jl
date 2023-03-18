@@ -53,12 +53,12 @@ Calculates the helium mass fraction (Y) for a star given its metal mass fraction
 Y_from_Z(Z) = 0.2485 + 1.78Z
 """
     X_from_Z(Z)
-Calculates the hydrogen mass fraction (X) for a star given its metal mass fraction (Z) via `X = 1 - (Z + Y)`, with the helium mass fraction `Y` approximated via [`SFH.Y_from_Z`](@ref). 
+Calculates the hydrogen mass fraction (X) for a star given its metal mass fraction (Z) via `X = 1 - (Z + Y)`, with the helium mass fraction `Y` approximated via [`StarFormationHistories.Y_from_Z`](@ref). 
 """
 X_from_Z(Z) = 1 - (Y_from_Z(Z) + Z)
 """
     MH_from_Z(Z, solZ=0.0152)
-Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`SFH.X_from_Z`](@ref). This is based on an approximation and may not be suitable for precision calculations.
+Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`StarFormationHistories.X_from_Z`](@ref). This is based on an approximation and may not be suitable for precision calculations.
 """
 MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ))
 # PARSEC says that the solar Z is 0.0152 and Z/X = 0.0207, but they don't quite agree
@@ -149,10 +149,10 @@ Calculates initial mass limits that reflect a given faint-end magnitude limit.
 
 # Examples
 ```julia
-julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0],[3.0],[2.0],[1.0]], ["F090W"], 2.5, "F090W")
+julia> mass_limits([0.05,0.1,0.2,0.3], [[4.0],[3.0],[2.0],[1.0]], ["F090W"], 2.5, "F090W")
 (0.15, 0.3)
 
-julia> SFH.mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]], ["F090W","F150W"], 2.5, "F090W")
+julia> mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]], ["F090W","F150W"], 2.5, "F090W")
 (0.15, 0.3)
 ```
 """
@@ -182,7 +182,7 @@ end
 
 ##############################################################
 #### Types and methods for non-interacting binary calculations
-""" `SFH.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the SFH package. All concrete subtypes must implement the [`SFH.sample_binary!`](@ref) method. """
+""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_binary!`](@ref) method. """
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """ The `NoBinaries` type indicates that no binaries of any kind should be created. """
@@ -193,7 +193,7 @@ struct Binaries{T <: Real} <: AbstractBinaryModel
 end
 
 """
-    binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::SFH.AbstractBinaryModel)
+    binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
 
 Simulates the effects of unresolved binaries on stellar photometry without mutation. Implementation depends on the choice of `binarymodel`.
 
@@ -205,7 +205,7 @@ Simulates the effects of unresolved binaries on stellar photometry without mutat
  - `imf`; an object implementing `rand(imf)` to draw a random single-star mass
  - `itp`; a callable object that returns the magnitudes of a star with mass `m` when called as `itp(m)`
  - `rng::AbstractRNG`; the random number generator to use when sampling stars
- - `binarymodel::SFH.AbstractBinaryModel`; an instance of a binary model that determines which implementation will be used. 
+ - `binarymodel::StarFormationHistories.AbstractBinaryModel`; an instance of a binary model that determines which implementation will be used. 
 
 # Returns
  - `binary_mass`; the total mass of the additional stellar companions
@@ -232,11 +232,11 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
+    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3))
 
 # Arguments
  - `mini_vec::AbstractVector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec).
- - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`SFH.ingest_mags`](@ref). Valid inputs are:
+ - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). Valid inputs are:
     - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
     - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
  - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned.
@@ -244,11 +244,11 @@ end
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
- - `dist_mod::Number=0` is the distance modulus (see [`SFH.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
+ - `dist_mod::Number=0` is the distance modulus (see [`StarFormationHistories.distance_modulus`](@ref)) you wish to have added to the returned magnitudes to simulate a population at a particular distance.
  - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
  - `mag_lim::Number=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
  - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite.
- - `binary_model::SFH.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
+ - `binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
 
 # Notes
 ## Population Masses
@@ -291,7 +291,7 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
 end
 
 """
-    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, absmag::Real, absmag_name::String, imf::Distributions.Sampleable{Distributions.Univariate,Distributions.Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::SFH.AbstractBinaryModel=Binaries(0.3))
+    (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, absmag::Real, absmag_name::String, imf::Distributions.Sampleable{Distributions.Univariate,Distributions.Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3))
 
 Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::AbstractVector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
 
@@ -393,7 +393,7 @@ end
 function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
-    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
     randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
     completeness = ones(axes(mags,1))
     # Estimate the overall completeness as the product of the single-band completeness values.
@@ -416,7 +416,7 @@ end
 function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where {N, T <: Number}
     nstars = length(mags)
     nfilters = length(first(mags))
-    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `SFH.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
+    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
     randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
     completeness = ones(axes(mags,1))
     # Estimate the overall completeness as the product of the single-band completeness values.

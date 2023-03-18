@@ -1,23 +1,20 @@
-module SFH
+module StarFormationHistories
 
-import StatsBase: fit, Histogram, Weights, sample, mean
-import LinearAlgebra: diag # det, inv # Gone
-import SpecialFunctions: erf
-# import Interpolations: linear_interpolation # This works but is a new addition to Interpolations.jl
-# so we'll use the older, less convenient construction method. 
-import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
-import Roots: find_zero # For mass_limits in simulate.jl
 import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, sampler # cdf
-import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
+import DynamicHMC  # For random uncertainties in SFH fits
+import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
+import LBFGSB # Used for one method in fitting.jl
+import LineSearches # For configuration of Optim.jl
+import LinearAlgebra: diag # det, inv 
+import LogDensityProblems # For interfacing with DynamicHMC
 import LoopVectorization: @turbo
-import Optim  # Gone
-import LineSearches # Gone
-# import SPGBox # Gone 
-import LBFGSB
-import StaticArrays: SVector, SMatrix, sacollect
-import LogDensityProblems # For random uncertainties in SFH fits
-import DynamicHMC         # For random uncertainties in SFH fits
+import Optim
+import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import Random: AbstractRNG, default_rng
+import Roots: find_zero # For mass_limits in simulate.jl
+import SpecialFunctions: erf
+import StaticArrays: SVector, SMatrix, sacollect
+import StatsBase: fit, Histogram, Weights, sample, mean
 
 # Code inclusion
 include("simulate.jl")
@@ -38,9 +35,9 @@ Function to interpolate `mags` as a function of initial mass vector `m_ini` onto
 julia> m_ini = [0.08, 0.10, 0.12, 0.14, 0.16]
 julia> mags = [13.545, 12.899, 12.355, 11.459, 10.947]
 julia> new_mini = 0.08:0.01:0.16
-julia> SFH.interpolate_mini(m_ini, mags, new_mini)
+julia> interpolate_mini(m_ini, mags, new_mini)
 julia> mags = [mags, mags] # Vector{Vector{<:Real}}
-julia> SFH.interpolate_mini(m_ini, mags, new_mini)
+julia> interpolate_mini(m_ini, mags, new_mini)
 ```
 """
 function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number},
@@ -64,7 +61,7 @@ interpolate_mini(m_ini::AbstractVector{<:Number},
 Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
 ```julia
-julia> SFH.mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16], [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
+julia> mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16], [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
 ```
 """
 function mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag,
@@ -219,7 +216,7 @@ centroid(model::Gaussian2D) = (model.x0, model.y0)
 """
     gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
 
-Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`SFH.gauss2d_integral_halfpix`](@ref). 
+Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`StarFormationHistories.gauss2d_integral_halfpix`](@ref). 
 """
 @inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
@@ -316,19 +313,19 @@ Returns the fractional index (i.e., pixel position) of value `x` given the left-
 
 # Examples
 ```jldoctest
-julia> SFH.histogram_pix(0.5,0.0:0.1:1.0) ≈ 6
+julia> StarFormationHistories.histogram_pix(0.5,0.0:0.1:1.0) ≈ 6
 true
 
 julia> (0.0:0.1:1.0)[6] == 0.5
 true
 
-julia> SFH.histogram_pix(0.55,0.0:0.1:1.0) ≈ 6.5
+julia> StarFormationHistories.histogram_pix(0.55,0.0:0.1:1.0) ≈ 6.5
 true
 
-julia> SFH.histogram_pix(0.5,1.0:-0.1:0.0) ≈ 6
+julia> StarFormationHistories.histogram_pix(0.5,1.0:-0.1:0.0) ≈ 6
 true
 
-julia> SFH.histogram_pix(0.5,collect(0.0:0.1:1.0)) ≈ 6
+julia> StarFormationHistories.histogram_pix(0.5,collect(0.0:0.1:1.0)) ≈ 6
 true
 ```
 """
@@ -351,7 +348,7 @@ Returns a `StatsBase.Histogram` type containing the Hess diagram from the provid
 
 # Keyword Arguments
  - `weights::AbstractVector{<:Number}` is a array of length equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`.
-The following keyword arguments are passed to `SFH.calculate_edges` to determine the bin edges of the histogram.
+The following keyword arguments are passed to [`StarFormationHistories.calculate_edges`](@ref) to determine the bin edges of the histogram.
  - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
  - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
  - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
@@ -369,7 +366,7 @@ end
     result::StatsBase.Histogram =
     bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
-Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`SFH.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`StarFormationHistories.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
