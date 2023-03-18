@@ -237,15 +237,6 @@ end
  - It can be helpful to normalize your `models` to contain realistic total stellar masses; then the fit coefficients can be low and have a tighter dynamic range which can help with the optimization.
  - We recommend that the initial coefficients vector `x0` be set for constant star formation rate. 
 """
-# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models)), eps=1e-5, nfevalmax::Integer=1000, nitmax::Integer=100) where {S <: Number, T <: AbstractMatrix{S}}
-#     return SPGBox.spgbox((g,x)->fg!(true,g,x,models,data,composite), x0; lower=zeros(length(models)), upper=fill(Inf,length(models)), eps=eps, nfevalmax=nfevalmax, nitmax=nitmax, m=100)
-# end
-# function fit_templates2(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{Float64}(undef,size(data)), x0=ones(length(models))) where {S <: Number, T <: AbstractMatrix{S}}
-#     G = similar(x0)
-#     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
-#     scipy_opt.fmin_l_bfgs_b(fg, x0; factr=1e-12, bounds=[(0.0,Inf) for i in 1:length(x0)])
-#     # scipy_opt.fmin_l_bfgs_b(x->SFH.fg!(true,G,x,models,data,composite), x0; approx_grad=true, factr=1, bounds=[(0.0,Inf) for i in 1:length(x0)], maxfun=20000)
-# end
 function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
     G = similar(x0)
     fg(x) = (R = SFH.fg!(true,G,x,models,data,composite); return R,G)
