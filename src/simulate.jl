@@ -1,22 +1,38 @@
 #### Distance Utilities
 """
     distance_modulus(distance)
-Finds distance modulus for distance in parsecs. 
+Finds distance modulus for distance in parsecs.
+
+```math
+μ = 5 \\times \\log_{10}(d) - 5
+```
 """
-distance_modulus(distance) =  5 * log10(distance/10)
+distance_modulus(distance) = 5 * log10(distance) - 5 
 """
     distance_modulus_to_distance(dist_mod)
 Converts distance modulus to distance in parsecs.
+
+```math
+d = 10^{μ/5 + 1}
+```
 """
 distance_modulus_to_distance(dist_mod) = exp10(dist_mod/5 + 1)
 """
-    arcsec_to_pc(arcsec,dist_mod)
+    arcsec_to_pc(arcsec, dist_mod)
 Converts angle in arcseconds to physical separation based on distance modulus; near-field only.
+
+```math
+r ≈ 10^{μ/5 + 1} \\times \\text{atan}(θ/3600)
+```
 """
 arcsec_to_pc(arcsec, dist_mod) = exp10(dist_mod/5 + 1) * atan( deg2rad(arcsec/3600) )
 """
     pc_to_arcsec(pc, dist_mod)
-Inverse of `arcsec_to_pc`.
+Inverse of [`StarFormationHistories.arcsec_to_pc`](@ref).
+
+```math
+θ ≈ \\text{tan}\\left( r / 10^{μ/5 + 1} \\right) \\times 3600
+```
 """
 pc_to_arcsec(pc, dist_mod) = rad2deg( tan( pc / exp10(dist_mod/5 + 1) ) ) * 3600
 """
@@ -74,7 +90,7 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 Reinterprets provided `mags` to be in the correct format for input to `Interpolations.interpolate`.
 
 # Returns
- - `new_mags::Base.ReinterpretArray{StaticArrays.SVector}`: a `length(mini_vec)` vector of StaticArrays.SVectors containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
+ - `new_mags::Base.ReinterpretArray{StaticArrays.SVector}`: a `length(mini_vec)` vector of `StaticArrays.SVectors` containing the same data as `mags` but formatted for input to `Interpolations.interpolate`.
 """
 function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S <: Number
     if ndims(mags) != 2 # Check dimensionality of mags argument
@@ -182,12 +198,12 @@ end
 
 ##############################################################
 #### Types and methods for non-interacting binary calculations
-""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_binary!`](@ref) method. """
+""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to evaluate multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_binary`](@ref) method. """
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """ The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
-""" The `Binaries` type takes one argument `fraction` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction). This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed reduction relative to `NoBinaries`. """
+""" The `Binaries` type takes one argument `fraction` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction). This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
 struct Binaries{T <: Real} <: AbstractBinaryModel
     fraction::T
 end
@@ -195,21 +211,21 @@ end
 """
     binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
 
-Simulates the effects of unresolved binaries on stellar photometry without mutation. Implementation depends on the choice of `binarymodel`.
+Simulates the effects of unresolved binaries on stellar photometry. Implementation depends on the choice of `binarymodel`.
 
 # Arguments
- - `mass`; the initial mass of the single star
- - `mmin`; minimum mass to consider for stellar companions
- - `mmax`; maximum mass to consider for stellar companions
- - `mags`; a vector-like object giving the magnitudes of the single star in each filter
- - `imf`; an object implementing `rand(imf)` to draw a random single-star mass
- - `itp`; a callable object that returns the magnitudes of a star with mass `m` when called as `itp(m)`
- - `rng::AbstractRNG`; the random number generator to use when sampling stars
- - `binarymodel::StarFormationHistories.AbstractBinaryModel`; an instance of a binary model that determines which implementation will be used. 
+ - `mass`: the initial mass of the single star
+ - `mmin`: minimum mass to consider for stellar companions
+ - `mmax`: maximum mass to consider for stellar companions
+ - `mags`: a vector-like object giving the magnitudes of the single star in each filter
+ - `imf`: an object implementing `rand(imf)` to draw a random single-star mass
+ - `itp`: a callable object that returns the magnitudes of a star with mass `m` when called as `itp(m)`
+ - `rng::AbstractRNG`: the random number generator to use when sampling stars
+ - `binarymodel::StarFormationHistories.AbstractBinaryModel`: an instance of a binary model that determines which implementation will be used; currently provided options are [`NoBinaries`](@ref) and [`Binaries`](@ref)
 
 # Returns
- - `binary_mass`; the total mass of the additional stellar companions
- - `new_mags`; the effective magnitude of the multiple stellar system 
+ - `binary_mass`: the total mass of the additional stellar companions
+ - `new_mags`: the effective magnitude of the multi-star system
 """
 @inline sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::NoBinaries) = zero(mass), mags
 @inline function sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::Binaries)
@@ -235,7 +251,7 @@ end
     (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3))
 
 # Arguments
- - `mini_vec::AbstractVector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec).
+ - `mini_vec::AbstractVector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec)`.
  - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). Valid inputs are:
     - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
     - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
@@ -248,7 +264,7 @@ end
  - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
  - `mag_lim::Number=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
  - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite.
- - `binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
+ - `binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; currently provided options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
 
 # Notes
 ## Population Masses
@@ -256,7 +272,7 @@ Given a particular isochrone with an initial mass vector `mini_vec`, it will nev
  1. Set the upper limit for masses that can be sampled from the `imf` distribution to a physical value for the maximum birth mass of stars (e.g., 100 solar masses). In this case, these stars will be sampled from `imf`, and will contribute their masses to the system, but they will not be returned if their birth mass is greater than `maximum(mini_vec)`. This is typically easiest for the user and only results in ∼15% loss of efficiency for 10 Gyr isochrones.
  2. Set the upper limit for masses that can be sampled from the `imf` distribution to `maximum(mini_vec)` and adjust `limit` to respect the amount of initial stellar mass lost by not sampling higher mass stars. This can be calculated as `new_limit = limit * ( QuadGK.quadgk(x->x*pdf(imf,x), minimum(mini_vec), maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), minimum(imf), maximum(imf))[1] )`, with the multiplicative factor being the fraction of the population stellar mass contained in stars with initial masses between `minimum(mini_vec)` and `maximum(mini_vec)`; this factor is the ratio
 ```math
-\\frac{\\int_a^b \\ m \\times \\frac{dN}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN}{dm} \\ dm}
+\\frac{\\int_a^b \\ m \\times \\frac{dN(m)}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN(m)}{dm} \\ dm}
 ```
 """
 generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =

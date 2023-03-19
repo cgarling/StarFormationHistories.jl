@@ -341,8 +341,7 @@ function histogram_pix(x, edges)
 end
 
 """
-    result::StatsBase.Histogram =
-    bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
+    result::StatsBase.Histogram = bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
 
 Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
@@ -363,8 +362,7 @@ function bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Numbe
 end
 
 """
-    result::StatsBase.Histogram =
-    bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram = bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
 Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`StarFormationHistories.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
@@ -398,8 +396,7 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
 end
 
 """
-    result::StatsBase.Histogram =
-    partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram = partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
 
 Creates an error-free Hess diagram for stars from an isochrone with x-axis photometric `colors`, y-axis photometric magnitudes `mags`, and initial masses `m_ini`. Because this is not smoothed by photometric errors, it is not generally useful but is provided for comparative checks. Most arguments are as in [`bin_cmd`](@ref). The only unique keyword arguments are `normalize_value::Number` which is a multiplicative factor giving the effective stellar mass you want in the Hess diagram, and `mean_mass::Number` which is the mean stellar mass implied by the provided initial mass function `imf`. 
 """
@@ -422,8 +419,7 @@ function partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:
 end
 
 """
-    result::StatsBase.Histogram =
-    partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram = partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
 
 Main function for generating template Hess diagrams from a single stellar population of stars from an isochrone, including photometric error and completeness.
 
@@ -431,9 +427,9 @@ Main function for generating template Hess diagrams from a single stellar popula
  - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars.
  - `mags::AbstractVector{<:AbstractVector{<:Number}}` is a vector of vectors. Each constituent vector with index `i` should have `length(mags[i]) == length(m_ini)`, representing the magnitudes of the stars in each of the magnitudes considered. In most cases, mags should contain 2 (if y-axis mag is also involved in the x-axis color) or 3 vectors.
  - `mag_err_funcs` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the 1σ photometric errors in the filters provided in `mags`. Each callable must take a single argument and return a `Number`. The length `mag_err_funcs` must be equal to the length of `mags`.
- - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you could set yindex=1. 
- - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then color indices could be `[1,2]` or `(1,2)` or similar.
- - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model.
+ - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you would set `y_index` as `2`. 
+ - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then `color_indices` should be `[1,2]` or `(1,2)` or similar.
+ - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model. All the models from [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl) are valid for `imf`.
  - `completeness_functions` must be an indexable object (e.g., a vector or tuple) that contains callables (e.g., a Function) to compute the single-filter completeness fractions as a function of magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
 
 # Keyword Arguments

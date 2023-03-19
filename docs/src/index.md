@@ -1,0 +1,3 @@
+# [Overview](@id overview)
+
+This package enables many different kinds of analysis related to astrophysical star formation histories (SFHs). Core among these functionalities are [generation of mock color-magnitude diagrams](@ref simulate) (CMDs) from input SFHs and [fitting of SFHs](@ref fitting) from observed CMDs. The methods of this package have been designed to be simple to use but easy to extend. It is recommended that you use this package in conjunction with [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl) which provides implementations of the most popular stellar initial mass functions as new types which are natively supported by this package's methods.
