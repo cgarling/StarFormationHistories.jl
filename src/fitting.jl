@@ -37,10 +37,10 @@ end
 Log(likelihood) given by Equation 10 in Dolphin 2002.
 
 # Performance Notes
- - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)' and `data=similar(composite)`.
- - ~20 μs for `composite=Matrix{Float64}(undef,99,99)' and `data=Matrix{Int64}(undef,99,99)`.
- - ~9.3 μs for `composite=Matrix{Float32}(undef,99,99)' and `data=similar(composite)`.
- - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)' and `data=Matrix{Int64}(undef,99,99)`.
+ - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=similar(composite)`.
+ - ~20 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
+ - ~9.3 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=similar(composite)`.
+ - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
 """
 @inline function loglikelihood(composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
     T = promote_type(eltype(composite), eltype(data))
@@ -70,11 +70,11 @@ end
 
 """
 
-Gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to the coefficient; Equation 21 in Dolphin 2002.
+Gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to the coefficients; Equation 21 in Dolphin 2002.
 
 # Performance Notes
- - ~4.1 μs for model, composite, data all being Matrix{Float64}(undef,99,99).
- - ~1.3 μs for model, composite, data all being Matrix{Float32}(undef,99,99). 
+ - ~4.1 μs for model, composite, data all being `Matrix{Float64}(undef,99,99)`.
+ - ~1.3 μs for model, composite, data all being `Matrix{Float32}(undef,99,99)`. 
 """
 @inline function ∇loglikelihood(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
     T = promote_type(eltype(model), eltype(composite), eltype(data))
@@ -167,7 +167,8 @@ julia> x0 = construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
 9-element Vector{Float64}: ...
 
 julia> sum(x0)
-5.05... # Close to `normalize_value`. 
+5.05... # Close to `normalize_value`.
+```
 """
 function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
     minlog, maxlog = extrema(logage)
@@ -232,16 +233,36 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
 end
 
 """
+    (-logL, coeffs) = fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+
+Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (Equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the composite Hess diagram model `sum(models .* coeffs)` given the provided templates `models` and the observed Hess diagram `data` using the box-constrained LBFGS method provided by [LBFGSB.jl](https://github.com/Gnimuc/LBFGSB.jl). 
+
+# Arguments
+ - `models::AbstractVector{AbstractMatrix{<:Number}}`: the list of template Hess diagrams for the simple stellar populations (SSPs) being considered; all must have the same size.
+ - `data::AbstractMatrix{<:Number}`: the observed Hess diagram; must match the size of the templates contained in `models`.
+
+# Keyword Arguments
+ - `composite`: The working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
+ - `x0`: The vector of initial guesses for the stellar mass coefficients. You should basically always be calculating and passing this keyword argument; we provide [`StarFormationHistories.construct_x0`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess.
+ - `factr::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the objective function.
+ - `pgtol::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the projected gradient of the objective.
+ - `iprint::Integer`: Keyword argument passed to `LBFGSB.lbfgsb` controlling how much information is printed to the terminal; setting to `1` can sometimes be helpful to diagnose convergence issues.
+Other `kws...` are passed to `LBFGSB.lbfgsb`.
+
+# Returns
+ - `-logL::Number`: the minimum negative log-likelihood found by the optimizer.
+ - `coeffs::Vector{<:Number}`: the maximum likelihood estimate for the coefficient vector. 
 
 # Notes
- - It can be helpful to normalize your `models` to contain realistic total stellar masses; then the fit coefficients can be low and have a tighter dynamic range which can help with the optimization.
- - We recommend that the initial coefficients vector `x0` be set for constant star formation rate. 
+ - It can be helpful to normalize your `models` to contain realistic total stellar masses to aid convergence stability; for example, if the total stellar mass of your population is 10^7 solar masses, then you might normalize your templates to contain 10^3 solar masses. If you are using [`partial_cmd_smooth`](@ref) to construct the templates, you can specify this normalization via the `normalize_value` keyword. 
 """
 function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
     G = similar(x0)
     fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
+
+
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     # log-transform the initial guess vector
     x0 = log.(x0)
@@ -412,7 +433,7 @@ _gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Ga
 # _dgaussdβ(-1.0,1e9,-1e-10,-0.4,0.2) = -2.74
 
 """
-    coeffs  = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number} [, α::Number, β::Number, σ::Number])
+    coeffs = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number} [, α::Number, β::Number, σ::Number])
 
 Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of `fit_template_mdf` and `hmc_sample_mdf`. The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. They are normalized such that the weights sum to one for all of the isochrones of a given unique `logAge`. 
 """

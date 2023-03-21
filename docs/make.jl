@@ -11,7 +11,7 @@ makedocs(
     modules = [StarFormationHistories],
     format = Documenter.HTML(;prettyurls = get(ENV, "CI", nothing) == "true"),
     authors = "Chris Garling",
-    pages = ["index.md","simulate.md","fitting.md","binaries.md","helpers.md"],
+    pages = ["index.md","simulate.md","fitting.md","binaries.md","helpers.md","doc_index.md"],
     doctest=true
 )
 

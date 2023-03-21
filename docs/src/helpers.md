@@ -12,10 +12,3 @@ StarFormationHistories.distance_modulus_to_distance
 ## Magnitudes and Luminosities
 
 ## Metallicities
-
-## Other Internals
-```@docs
-StarFormationHistories.ingest_mags
-StarFormationHistories.sort_ingested
-StarFormationHistories.mass_limits
-```

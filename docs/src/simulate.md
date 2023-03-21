@@ -6,8 +6,6 @@ The simplest methods only sample stars from a single stellar population. We prov
 
 We also offer methods for sampling populations with complex star formation histories; these are implicitly multi-threaded across the separate populations if you start Julia with multiple threads (e.g., with `julia -t 4` or similar). We provide [`generate_stars_mass_composite`](@ref) for sampling such populations up to a provided stellar mass and [`generate_stars_mag_composite`](@ref) for sampling such populations up to a provided absolute magnitude. These are documented under the second subsection below.
 
-The output produced from the above methods are "pure" in the sense that they do not include any observational effects like photometric error or incompleteness. These effects should be implemented in a post-processing step. We provide a simple method [`model_cmd`](@ref) that accepts user-defined photometric error and completeness functions and applies them to the pure catalog, returning a Monte Carlo realization of a possible observed catalog.
-
 ## Simple Stellar Populations
 ```@docs
 generate_stars_mass
@@ -21,6 +19,16 @@ generate_stars_mag_composite
 ```
 
 ## Observational Effects
+
+The output produced from the above methods are clean in the sense that they do not include any observational effects like photometric error or incompleteness. These effects should be implemented in a post-processing step. We provide a simple method [`model_cmd`](@ref) that accepts user-defined photometric error and completeness functions and applies them to the initial catalog, returning a Monte Carlo realization of a possible observed catalog. This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter -- these assumptions are not generally safe to make, but the source code for the method is exceedingly simple (~20 lines) and should provide an example for how you could write a similar method that more accurately reflects your data.
+
 ```@docs
 model_cmd
+```
+
+## Developer Internals
+```@docs
+StarFormationHistories.ingest_mags
+StarFormationHistories.sort_ingested
+StarFormationHistories.mass_limits
 ```

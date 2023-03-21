@@ -209,7 +209,7 @@ struct Binaries{T <: Real} <: AbstractBinaryModel
 end
 
 """
-    binary_mass, new_mags = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
+    (binary_mass, new_mags) = sample_binary(mass, mmin, mmax, mags, imf, itp, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
 
 Simulates the effects of unresolved binaries on stellar photometry. Implementation depends on the choice of `binarymodel`.
 
@@ -248,10 +248,12 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3))
+    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=Random.default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.Binaries(0.3))
+
+Generates a random sample of stars from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names` with total population birth stellar mass `limit` (e.g., 1e5 solar masses). Initial stellar masses are sampled from the provided `imf`. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:Real}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec)`.
+ - `mini_vec::AbstractVector{<:Number}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec)`.
  - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). Valid inputs are:
     - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
     - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
@@ -264,7 +266,11 @@ end
  - `rng::Random.AbstractRNG=Random.default_rng()` is the rng instance that will be used to sample the stellar initial masses from `imf`.
  - `mag_lim::Number=Inf` gives the faintest apparent magnitude for stars you want to be returned in the output. Stars fainter than this magnitude will still be sampled and contribute properly to the total mass of the population, but they will not be returned.
  - `mag_lim_name::String="V"` gives the filter name (as contained in `mag_names`) to use when considering if a star is fainter than `mag_lim`. This is unused if `mag_lim` is infinite.
- - `binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3)` is an instance of a model for treating binaries; currently provided options are [`NoBinaries`](@ref) and [`Binaries`](@ref). 
+ - `binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.Binaries(0.3)` is an instance of a model for treating binaries; currently provided options are [`NoBinaries`](@ref) and [`Binaries`](@ref).
+
+# Returns
+ - `sampled_masses::Vector{<:Number}`: a vector containing the initial stellar masses of the sampled stars. If you specified a `binary_model` that samples binary or multi-star systems, then these entries are the sum of the initial masses of all the stellar companions. 
+ - `sampled_mags::Vector{SVector{N,<:Number}}`: a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you would do `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
 
 # Notes
 ## Population Masses
@@ -309,7 +315,7 @@ end
 """
     (sampled_masses, sampled_mags) =  generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, absmag::Real, absmag_name::String, imf::Distributions.Sampleable{Distributions.Univariate,Distributions.Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=Binaries(0.3))
 
-Generates a mock stellar population with absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::AbstractVector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
+Generates a mock stellar population from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names`. The population is sampled to a total absolute magnitude `absmag::Real` (e.g., -7 or -12) in the filter `absmag_name::String` (e.g., "V" or "F606W") which is contained in the provided `mag_names::AbstractVector{String}`. Other arguments are shared with [`generate_stars_mass`](@ref), which contains the main documentation.
 
 # Notes
 ## Population Magnitudes
@@ -356,7 +362,28 @@ end
 
 ############################################################################
 #### Functions to generate composite mock galaxy catalogs from multiple SSPs
+"""
+    (sampled_masses, sampled_mags) = generate_stars_mass_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; kws...)
 
+Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mass`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total birth stellar mass of the sampled population is given by `limit`. The proportion of this mass allotted to each of the individual isochrones is given by the entries of the `massfrac` vector. This basically just proportions `limit` according to `massfrac` and calls [`generate_stars_mass`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
+
+# Arguments
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone; the internal vectors must be mutable as we will call `Interpolations.deduplicate_knots!` on each. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
+    - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
+    - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
+ - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned. These are assumed to be the same for all isochrones.
+ - `limit::Number` gives the total birth stellar mass of the population you want to sample. 
+ - `massfrac::AbstractVector{<:Number}` is vector giving the relative fraction of mass allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
+ - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
+
+# Keyword Arguments
+All keyword arguments `kws...` are passed to [`generate_stars_mass`](@ref); you should refer to that method's documentation for more information. 
+
+# Returns
+ - `sampled_masses::Vector{Vector{<:Number}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. If you specified a `binary_model` that samples binary or multi-star systems, then these entries are the sum of the initial masses of all the stellar companions. 
+ - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
+"""
 function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; kws...) where T <: AbstractVector{<:Number} 
     !(axes(mini_vec,1) == axes(mags,1) == axes(massfrac,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
@@ -375,7 +402,29 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
     return massvec, mag_vec
 end
 
-# For generate_stars_mags_composite we probably want to support both luminosity and initial mass fractions.
+"""
+    (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", kws...)
+
+Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mag`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total absolute magnitude of the sampled population is given by `absmag`. The proportion of the luminosity allotted to each of the individual isochrones is given by the entries of the `frac` vector. This basically just proportions the luminosity according to `frac` and calls [`generate_stars_mass`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
+
+# Arguments
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone; the internal vectors must be mutable as we will call `Interpolations.deduplicate_knots!` on each. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
+    - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
+    - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
+ - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned. These are assumed to be the same for all isochrones.
+ - `absmag::Number` gives the total absolute magnitude of the complex population to be sampled. 
+ - `fracs::AbstractVector{<:Number}` is a vector giving the relative fraction of luminosity or mass (determined by the "frac_type" keyword argument) allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
+ - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
+
+# Keyword Arguments
+ - `frac_type::String` either "lum", in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or "mass", in which case it is assumed that `fracs` contains mass fractions ("mass" is not yet implemented). 
+All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information. 
+
+# Returns
+ - `sampled_masses::Vector{Vector{<:Number}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. If you specified a `binary_model` that samples binary or multi-star systems, then these entries are the sum of the initial masses of all the stellar companions. 
+ - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
+"""
 function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", kws...) where T <: AbstractVector{<:Number}
     !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
@@ -405,7 +454,25 @@ end
 
 ###############################################
 #### Functions for modelling observational effects
+"""
+    new_mags = model_cmd(mags::AbstractVector{<:AbstractVector{<:Number}}, errfuncs, completefuncs; rng::Random.AbstractRNG=Random.default_rng())
 
+Simple method for modelling photometric error and incompleteness to "mock observe" a pure catalog of stellar photometry, such as those produced by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref). This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter. 
+
+# Arguments
+ - `mags::AbstractVector{<:AbstractVector{<:Number}}`: a vector of vectors giving the magnitudes of each star to be modelled. The first index is the per-star index and the second index is the per-filter index (so `mags[10][2]` would give the magnitude of the tenth star in the second filter). This is the same format as the magnitudes returned by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref); to use output from the composite versions, you must first `reduce(vcat,mags)` before passing to this function.
+ - `errfuncs`: an iterable (typically a vector or tuple) of callables (typically functions or interpolators) with length equal to the number of filters contained in the elements of `mags`. This iterable must contain callables that, when called with the associated magnitudes from `mags`, will return the expected 1-σ photometric error at that magnitude. The organization is such that the photometric error for star `i` in band `j` is `σ_ij = errfuncs[j](mags[i][j])`. 
+ - `completefuncs`: an iterable (typically a vector or tuple) of callables (typically functions or interpolators) with length equal to the number of filters contained in the elements of `mags`. This iterable must contain callables that, when called with the associated magnitudes from `mags`, will return the probability that a star with that magnitude in that band will be found in your color-magnitude diagram (this should include the original detection probability and any post-detection quality, morphology, or other cuts). The organization is such that the detection probability for star `i` in band `j` is `c_ij = completefuncs[j](mags[i][j])`.
+
+# Keyword Arguments
+ - `rng::AbstractRNG=Random.default_rng()`: The object to use for random number generation.
+
+# Returns
+ - `new_mags`: an object similar to `mags` (i.e., a `Vector{Vector{<:Number}}`, `Vector{SVector{N,<:Number}}`, etc.) containing the magnitudes of the mock-observed stars. This will be shorter than the provided `mags` vector as we are modelling photometric incompleteness, and the magnitudes will also have random photometric errors added to them. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,new_mags)`. 
+
+# Notes
+ - This is a simple implementation that seeks to show a simple example of how one can post-process catalogs of "pure" stars from methods like [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref) to include observational effects. This method assumes Gaussian photometric errors, which may not, in general, be accurate. It also assumes that the total detection probability can be modelled as the product of the single-filter detection probabilities as computed by `completefuncs` (i.e., that the completeness functions are separable across filters). This can be a reasonable assumption when you have separate photometric catalogs derived for each filter and you only collate them afterwards, but it is generally not a good assumption for detection algorithms that operate on simultaneously on multi-band photometry -- the completeness functions for these types of algorithms are generally not separable.
+"""
 function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
