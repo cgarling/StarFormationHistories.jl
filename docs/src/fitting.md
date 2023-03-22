@@ -144,7 +144,7 @@ p(\boldsymbol{\theta} | D) &= \frac{1}{Z} \; \prod_j r_j \; p(D | r_j) \; p(r_j)
 
 The choice of a logarithmic transformation means that the negative logarithm of the posterior (which is what HMC uses for its objective function) has this very simple form which allows for simple analytic gradients as well. Once samples of ``\theta`` have been obtained from this distribution via HMC or any other sampling method, they can be transformed back to the standard coefficients ``r_j = \text{exp}(\theta_j)`` without any additional fussery.
 
-The [`hmc_sample`](@ref) approach for sampling the ``r_j`` coefficients; these samples can then be used to estimate random uncertainties on the derived star formation history.
+The method [`hmc_sample`](@ref) implements this approach for sampling the ``\theta_j`` coefficients; these samples can then be used to estimate random uncertainties on the derived star formation history.
 
 ```@docs
 StarFormationHistories.hmc_sample
