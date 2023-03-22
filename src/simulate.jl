@@ -19,7 +19,7 @@ d = 10^{μ/5 + 1}
 distance_modulus_to_distance(dist_mod) = exp10(dist_mod/5 + 1)
 """
     arcsec_to_pc(arcsec, dist_mod)
-Converts angle in arcseconds to physical separation based on distance modulus; near-field only.
+Converts on-sky angle in arcseconds to physical separation based on distance modulus under the small-angle approximation.
 
 ```math
 r ≈ 10^{μ/5 + 1} \\times \\text{atan}(θ/3600)
@@ -80,6 +80,33 @@ MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ)
 # PARSEC says that the solar Z is 0.0152 and Z/X = 0.0207, but they don't quite agree
 # when assuming their provided Y=0.2485+1.78Z. We'll adopt their solZ here, but this
 # should probably not be used for precision calculations.
+
+#### Error and Completeness Utilities
+"""
+    η(m) = Martin2016_complete(m, A, m50, ρ)
+
+Completeness model of [Martin et al. 2016](https://ui.adsabs.harvard.edu/abs/2016ApJ...833..167M/abstract) implemented as their Equation 7:
+
+```math
+\\eta(m) = \\frac{A}{1 + \\text{exp} \\left( \\frac{m - m_{50}}{\\rho} \\right)}
+```
+
+`m` is the magnitude of interest, `A` is the maximum completeness, `m50` is the magnitude at which the data are 50% complete, and `ρ` is an effective slope modifier.
+"""
+Martin2016_complete(m,A,m50,ρ) = A / (1 + exp((m-m50) / ρ))
+
+"""
+    exp_photerr(m, a, b, c, d)
+
+Exponential model for photometric errors of the form
+
+```math
+\\sigma(m) = a^{b \\times \\left( m-c \\right)} + d
+```
+
+Reported values for some HST data were `a=1.05, b=10.0, c=32.0, d=0.01`. 
+"""
+exp_photerr(m, a, b, c, d) = a^(b * (m-c)) + d
 
 ################################################
 #### Interpret arguments for generate_mock_stars
@@ -414,7 +441,7 @@ Generates a random sample of stars with a complex star formation history using m
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
  - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned. These are assumed to be the same for all isochrones.
  - `absmag::Number` gives the total absolute magnitude of the complex population to be sampled. 
- - `fracs::AbstractVector{<:Number}` is a vector giving the relative fraction of luminosity or mass (determined by the "frac_type" keyword argument) allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
+ - `fracs::AbstractVector{<:Number}` is a vector giving the relative fraction of luminosity or mass (determined by the `frac_type` keyword argument) allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments

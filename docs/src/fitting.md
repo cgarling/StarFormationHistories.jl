@@ -6,7 +6,7 @@ In the classic formulation of star formation history fitting from resolved-star 
 
 ![Comparison of CMD and a Hess diagram generated from the same observational data.](figures/cmd_hess.png)
 
-The representation of the observations as a Hess diagram allows one to apply Poisson statistics, specifically the Poisson likelihood ratio (Equations 7--10 in Dolphin 2002), to model the observations. As the CMD of a complex stellar population is simply the sum of the CMDs of its sub-populations, one need only prepare a number of **templates** for each simple stellar population (SSP) which may make up the complex population in question and model the observed Hess diagram as a linear combination of these templates. Keeping the same notation as Dolphin 2002, the complex model Hess diagram is simply
+The representation of the observations as a Hess diagram allows one to apply Poisson statistics, specifically the Poisson likelihood ratio (Equations 7--10 in Dolphin 2002), to model the observations. As the CMD of a complex stellar population is simply the sum of the CMDs of its sub-populations, one need only prepare a number of **templates** for each simple stellar population (SSP) which may make up the complex population in question and model the observed Hess diagram as a linear combination of these templates. Keeping the same notation as Dolphin 2002 (Equation 1), the complex model Hess diagram is simply
 
 ```math
 m_i = \sum_j \, r_j \, c_{i,j}
@@ -61,6 +61,99 @@ When it comes to performing the optimization, the simplest method we offer is [`
 StarFormationHistories.fit_templates_lbfgsb
 ```
 
+This method simply minimizes the negative logarithm of the Poisson likelihood ratio (Equation 10 in Dolphin 2002),
+
+```math
+- \text{ln} \, \mathscr{L} = \sum_i m_i - n_i \times \left( 1 - \text{ln} \, \left( \frac{n_i}{m_i} \right) \right)
+```
+
+where ``m_i`` is bin ``i`` of the complex model and ``n_i`` is bin ``i`` of the observed Hess diagram; this can therefore be thought of as computing the maximum likelihood estimate.
+
+
+### Uncertainties and Change of Variables
+
+[Dolphin 2013](https://ui.adsabs.harvard.edu/abs/2013ApJ...775...76D/abstract) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of Dolphin 2002) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
+
+While maximum likelihood estimates are invariant under variable transformations, sampling methods like HMC are not, as formally the posterior being sampled from is a *distribution* and therefore must be integrable over the sampling coefficients. We can write the posterior from which we wish to sample as
+
+```math
+\begin{aligned}
+p(r_j | D) &= \frac{p(D | r_j) \; p(r_j)}{Z} \\
+p(\boldsymbol{r} | D) &= \frac{1}{Z} \; \prod_j p(D | r_j) \; p(r_j) \\
+-\text{ln} \; p(\boldsymbol{r} | D) &= \text{ln} \, Z - \sum_j \, \text{ln} \, p(D | r_j) + \text{ln} \, p(r_j) \\
+&= \text{ln} \, Z - \text{ln} \, \mathscr{L} + \sum_j \text{ln} \, p(r_j)
+\end{aligned}
+```
+
+where ``Z`` is the Bayesian evidence (a constant that can be neglected for sampling methods), ``p \left( r_j \right)`` is the prior on the star formation history, and ``\mathscr{L}`` is the Poisson likelihood ratio discussed above. An uninformative (and unnormalized) prior on the coefficients ``r_j`` could take the form of
+
+```math
+p(r_j) = \begin{cases}
+1; & r_j \geq 0\\
+0; & r_j < 0
+\end{cases}
+```
+
+such that, if the coefficients ``r_j`` are guaranteed to be positive, the final term becomes zero (since ``\text{ln}(1)=0``) and
+
+```math
+-\text{ln} \; p(\boldsymbol{r} | D) = \text{ln} \, Z - \text{ln} \, \mathscr{L}
+```
+
+When sampling with methods like HMC, constants like ``\text{ln} \, Z`` can be neglected and ``-\text{ln} \; p(\boldsymbol{r} | D) \propto - \text{ln} \, \mathscr{L}`` such that the posterior is approximated by the likelihood surface.
+
+Let us consider now what happens when we wish to do a variable transformation from ``r_j`` to ``\theta_j = \text{ln} (r_j)``. From above we can write the posterior as
+
+```math
+p(r_j | D) = \frac{p(D | r_j) \; p(r_j)}{Z} \\
+```
+
+Under the change of variables formula we can write
+
+```math
+p(\theta_j | D) = p(r_j | D) \left| \frac{d \theta_j}{d r_j} \right|^{-1} \\
+```
+
+where ``\left| \frac{d \theta_j}{d r_j} \right|^{-1}`` is often called the Jacobian correction. We choose ``\theta_j`` such that
+
+```math
+\begin{aligned}
+\theta_j &= \text{ln} ( r_j ) \\
+\left| \frac{d \theta_j}{d r_j} \right| &= \frac{1}{r_j} \\
+r_j &= \text{exp} (\theta_j) \\
+\end{aligned}
+```
+
+which leads to a posterior of
+
+```math
+p(\theta_j | D) = \text{exp} (\theta_j) \times p(\text{exp} (\theta_j) | D) = r_j \times p(r_j | D) \\
+```
+
+We can then write the product over the ``\theta_j`` as
+
+```math
+\begin{aligned}
+p(\boldsymbol{\theta} | D) &= \frac{1}{Z} \; \prod_j r_j \; p(D | r_j) \; p(r_j) \\
+-\text{ln} \, p(\boldsymbol{\theta} | D) &= \text{ln} \, Z - \sum_j \text{ln} \, (r_j) + \text{ln} \, p(D | r_j) + \text{ln} \, p(r_j) \\
+&= \text{ln} \, Z - \sum_j \text{ln} \, p(D | r_j) + \text{ln} \, p(r_j) - \sum_j \theta_j \\
+&= -\text{ln} \, p(\boldsymbol{r} | D) - \sum_j \theta_j \\
+&= -\text{ln} \, p(\boldsymbol{r} | D) - \sum_j \text{ln} \, (r_j)
+\end{aligned}
+```
+
+The choice of a logarithmic transformation means that the negative logarithm of the posterior (which is what HMC uses for its objective function) has this very simple form which allows for simple analytic gradients as well. Once samples of ``\theta`` have been obtained from this distribution via HMC or any other sampling method, they can be transformed back to the standard coefficients ``r_j = \text{exp}(\theta_j)`` without any additional fussery.
+
+The [`hmc_sample`](@ref) approach for sampling the ``r_j`` coefficients; these samples can then be used to estimate random uncertainties on the derived star formation history.
+
+```@docs
+StarFormationHistories.hmc_sample
+```
+
+See the [DynamicHMC.jl](https://github.com/tpapp/DynamicHMC.jl) documentation for more information on how to use the chains that are output by this method.
+
+
+
 We more generally recommend using the exported [`fit_templates`](@ref) method, which ...
 ```@docs
 StarFormationHistories.fit_templates
@@ -74,7 +167,7 @@ StarFormationHistories.calculate_cum_sfr
 
 ## Constrained Metallicity Evolution
 
-## Low-Level Building Blocks
+## Developer Internals
 
 ```@docs
 StarFormationHistories.composite!
