@@ -336,17 +336,17 @@ end
 LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
 LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
 
-function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
+function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, sqrtx)
     composite = problem.composite
     models = problem.models
     data = problem.data
     dims = length(models)
     # Transform the provided x
-    x = [ exp(i) for i in logx ]
+    x = [ i^2 for i in sqrtx ]
     # Update the composite model matrix
     composite!( composite, x, models )
-    logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
-    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
+    logL = loglikelihood(composite, data) + sum(log(abs(2i)) for i in sqrtx) # + sum(logx) is the Jacobian correction
+    ∇logL = [ ∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] + 1/sqrtx[i] for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
     return logL, ∇logL
 end
 
