@@ -111,7 +111,10 @@ p(r_j | D) = \frac{p(D | r_j) \; p(r_j)}{Z} \\
 Under the change of variables formula we can write
 
 ```math
-p(\theta_j | D) = p(r_j | D) \left| \frac{d \theta_j}{d r_j} \right|^{-1} \\
+\begin{aligned}
+p(\theta_j | D) &= p(r_j | D) \left| \frac{d r_j}{d \theta_j} \right| \\
+&= p(r_j | D) \left| \frac{d \theta_j}{d r_j} \right|^{-1}
+\end{aligned}
 ```
 
 where ``\left| \frac{d \theta_j}{d r_j} \right|^{-1}`` is often called the Jacobian correction. We choose ``\theta_j`` such that
