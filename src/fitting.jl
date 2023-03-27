@@ -336,6 +336,9 @@ end
 LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
 LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
 
+# If using this parameterization without the Jacobian correction,
+# need to reweight the samples post-sampling ∝ sqrt(sfr) as, for example,
+# plt.hist(samples, weights = sqrt.(samples))
 function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, sqrtx)
     composite = problem.composite
     models = problem.models
@@ -345,8 +348,12 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, sqrtx)
     x = [ i^2 for i in sqrtx ]
     # Update the composite model matrix
     composite!( composite, x, models )
-    logL = loglikelihood(composite, data) + sum(log(abs(2i)) for i in sqrtx) # + sum(logx) is the Jacobian correction
-    ∇logL = [ ∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] + 1/sqrtx[i] for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
+    # composite = sum( models .* x )
+    # logL = loglikelihood(composite, data) + sum(log(abs(2i)) for i in sqrtx) 
+    # ∇logL = [ ∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] + 1/sqrtx[i] for i in eachindex(models,x) ]
+    logL = loglikelihood(composite, data) 
+    # return logL
+    ∇logL = [ ∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] for i in eachindex(models,x) ] 
     return logL, ∇logL
 end
 
@@ -414,22 +421,35 @@ function extract_initialization(state)
 end
 
 # Version with multiple chains and multithreading
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), sharewarmup::Bool=true, initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     @assert nchains >= 1
     instances = [ HMCModel( models, composite[i], data ) for i in 1:Threads.nthreads() ]
-    # Do the warmup
-    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
-                                         warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
-    final_init = extract_initialization(warmup)
-    # Do the MCMC
-    result_arr = []
-    Threads.@threads for i in 1:nchains
-        tid = Threads.threadid()
-        result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
-                                             initialization=final_init, kws...)
-        push!(result_arr, result) # Order doesn't matter so push when completed
+    if sharewarmup
+        # Do the warmup
+        warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
+                                             warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
+        final_init = extract_initialization(warmup)
+        # Do the MCMC
+        result_arr = []
+        Threads.@threads for i in 1:nchains
+            tid = Threads.threadid()
+            result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
+                                                 initialization=final_init, kws...)
+            push!(result_arr, result) # Order doesn't matter so push when completed
+        end
+        return result_arr
+    else
+        result_arr = []
+        Threads.@threads for i in 1:nchains
+            tid = Threads.threadid()
+            result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps;
+                                                 initialization=initialization,
+                                                 # warmup_stages=DynamicHMC.default_warmup_stages(; stepsize_search=DynamicHMC.InitialStepsizeSearch(; a_min=0.25, a_max=0.75, ϵ₀=1.0, C=100.0, maxiter_crossing=400, maxiter_bisect=400)),
+                                                 kws...)
+            push!(result_arr, result) # Order doesn't matter so push when completed
+        end
+        return result_arr
     end
-    return result_arr
 end
 
 ######################################################################################
