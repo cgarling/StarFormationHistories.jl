@@ -201,7 +201,6 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     end
     unique_logAge = unique(logAge)
     dt = diff( vcat(0, exp10.(unique_logAge)) )
-    # mstar_arr = similar(unique_logAge) # similar(coeffs)
     mstar_arr = Vector{eltype(coeffs)}(undef, length(unique_logAge))
     mean_mh_arr = zeros(promote_type(eltype(MH),eltype(coeffs)), length(unique_logAge))
     for i in eachindex(unique_logAge)
@@ -235,7 +234,7 @@ end
 """
     (-logL, coeffs) = fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
-Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (Equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the composite Hess diagram model `sum(models .* coeffs)` given the provided templates `models` and the observed Hess diagram `data` using the box-constrained LBFGS method provided by [LBFGSB.jl](https://github.com/Gnimuc/LBFGSB.jl). 
+Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the composite Hess diagram model `sum(models .* coeffs)` given the provided templates `models` and the observed Hess diagram `data` using the box-constrained LBFGS method provided by [LBFGSB.jl](https://github.com/Gnimuc/LBFGSB.jl). 
 
 # Arguments
  - `models::AbstractVector{AbstractMatrix{<:Number}}`: the list of template Hess diagrams for the simple stellar populations (SSPs) being considered; all must have the same size.
@@ -257,22 +256,47 @@ Other `kws...` are passed to `LBFGSB.lbfgsb`.
  - It can be helpful to normalize your `models` to contain realistic total stellar masses to aid convergence stability; for example, if the total stellar mass of your population is 10^7 solar masses, then you might normalize your templates to contain 10^3 solar masses. If you are using [`partial_cmd_smooth`](@ref) to construct the templates, you can specify this normalization via the `normalize_value` keyword. 
 """
 function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
     G = similar(x0)
     fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
+
 """
     result = fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
+Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (MAP) for the coefficients `coeffs` such that the composite Hess diagram model is `sum(models .* coeffs)` using the provided templates `models` and the observed Hess diagram `data`. Utilizes the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the likelihood of the data given the model. See the examples in the documentation for comparisons of the results of this method and [`hmc_sample`](@ref). 
 
+# Arguments
+ - `models::AbstractVector{AbstractMatrix{<:Number}}`: the list of template Hess diagrams for the simple stellar populations (SSPs) being considered; all must have the same size.
+ - `data::AbstractMatrix{<:Number}`: the observed Hess diagram; must match the size of the templates contained in `models`.
+
+# Keyword Arguments
+ - `composite`: The working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
+ - `x0`: The vector of initial guesses for the stellar mass coefficients. You should basically always be calculating and passing this keyword argument; we provide [`StarFormationHistories.construct_x0`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess.
+Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization. 
+
+# Returns
+`result` is a `NamedTuple` containing two `NamedTuple`s, each of which has identical structure. The two components of `result` are `result.map=result[1]`, which contains the results of the MAP optimization, and `result.mle=result[2]`, which contains the results of the MLE optimization. Each of these `NamedTuple`s contain the following fields, accessible as, e.g., `result.map.μ`, `result.map.result`, etc.:
+ - `μ::Vector{<:Number}` are the optimized `coeffs` at the maximum.
+ - `σ::Vector{<:Number}` are the standard errors on the coeffs `μ` calculated from an estimate of the inverse Hessian matrix evaluated at `μ`. The inverse of the Hessian matrix at the maximum of the likelihood (or posterior) is a estimator for the variance-covariance matrix of the parameters, but is only accurate when the second-order expansion given by the Hessian at the maximum is a good approximation to the function being optimized (i.e., when the optimized function is approximately quadratic around the maximum; see [Dovi et al. 1991](https://doi.org/10.1016/0893-9659(91)90129-J) for more information). We find this is often the case for the MAP estimate, but the errors found for coefficients that are ≈0 in the MLE are typically unrealistically small. For coefficients significantly greater than 0, the `σ` values from the MAP and MLE are typically consistent to 5--10%.
+ - `invH::Matrix{<:Number}` is the estimate of the inverse Hessian matrix at `μ` that was used to derive `σ`. The optimization is done under a logarithmic transform, such that `θ[j] = log(coeffs[j])` are the actual parameters optimized, so the entries in the Hessian are actually
+```math
+H^{(j,k)} ( \\boldsymbol{\\hat \\theta} ) = \\left. \\frac{\\partial^2 \\, J(\\boldsymbol{\\theta})}{\\partial \\theta_j \\, \\partial \\theta_k} \\right\\vert_{\\boldsymbol{\\theta}=\\boldsymbol{\\hat \\theta}}
+```
+ - `result` is the full object returned by the optimization from `Optim.jl`; this is of type `Optim.MultivariateOptimizationResults`. Remember that the optimization is done with parameters `θ[j] = log(coeffs[j])` when dealing with this raw output. This means that, for example, we calculate `result.map.μ` as `exp.(Optim.minimizer(result.map.result))`.
+
+# Notes
+ - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred). 
 """
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
     # log-transform the initial guess vector
     x0 = log.(x0)
     # Make scratch array for assessing transformations
     x = similar(x0)
-    function fg_posterior!(F,G,logx)
+    function fg_map!(F,G,logx)
         @. x = exp(logx)
         logL = fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the Jacobian correction
         if G != nothing
@@ -297,24 +321,22 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_posterior = Optim.optimize(Optim.only_fg!( fg_posterior! ), x0, bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
     # Calculate final result without prior
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_posterior), bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     # result = Optim.optimize(Optim.only_fg!( fg_final! ), fill(-10.0,length(models)), fill(Inf,length(models)), Optim.minimizer(result_prior), Optim.Fminbox(bfgs_struct), Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, outer_iterations=1, kws...))
-    # NamedTuple of NamedTuples. "posterior" contains the mean `μ`, standard error `σ`, 
+    # NamedTuple of NamedTuples. "map" contains the mean `μ`, standard error `σ`, 
     # the estimate of the inverse Hessian `invH` from BFGS and full result struct `result`
-    # for the optimization of the posterior. "mle" contains the same entries but for the maximum
+    # for the maximum a posteriori estimate. "mle" contains the same entries but for the maximum
     # likelihood estimate. 
-    return  ( posterior = ( μ = exp.(Optim.minimizer(result_posterior)),
-                        # σ = sqrt.(diag(result_posterior.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_posterior)),
-                        σ = sqrt.(diag(Optim.trace(result_posterior)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_posterior)),
-                        invH = result_posterior.trace[end].metadata["~inv(H)"],
-                        result = result_posterior ),
+    return  ( map = ( μ = exp.(Optim.minimizer(result_map)),
+                            σ = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_map)),
+                            invH = result_map.trace[end].metadata["~inv(H)"],
+                            result = result_map ),
               mle = ( μ = exp.(Optim.minimizer(result_mle)),
-                        # σ = sqrt.(diag(result.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result)),
-                        σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_mle)),
-                        invH = result_mle.trace[end].metadata["~inv(H)"],
-                        result = result_mle) )
+                      σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_mle)),
+                      invH = result_mle.trace[end].metadata["~inv(H)"],
+                      result = result_mle) )
 end
 
 # M1 = rand(120,100)
