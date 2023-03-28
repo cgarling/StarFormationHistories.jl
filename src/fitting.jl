@@ -262,21 +262,25 @@ function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
+"""
+    result = fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
+
+"""
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     # log-transform the initial guess vector
     x0 = log.(x0)
     # Make scratch array for assessing transformations
     x = similar(x0)
-    function fg_prior!(F,G,logx)
+    function fg_posterior!(F,G,logx)
         @. x = exp(logx)
-        logL = fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the prior
+        logL = fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the Jacobian correction
         if G != nothing
-            @. G = G * x - 1 # Add correction for the prior and log-transform to every element of G
+            @. G = G * x - 1 # Add Jacobian correction and log-transform to every element of G
         end
         return logL
     end
-    function fg_final!(F,G,logx)
+    function fg_mle!(F,G,logx)
         @. x = exp(logx)
         logL = fg!(true,G,x,models,data,composite)
         if G != nothing
@@ -293,24 +297,24 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_prior = Optim.optimize(Optim.only_fg!( fg_prior! ), x0, bfgs_struct, bfgs_options)
+    result_posterior = Optim.optimize(Optim.only_fg!( fg_posterior! ), x0, bfgs_struct, bfgs_options)
     # Calculate final result without prior
-    result = Optim.optimize(Optim.only_fg!( fg_final! ), Optim.minimizer(result_prior), bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_posterior), bfgs_struct, bfgs_options)
     # result = Optim.optimize(Optim.only_fg!( fg_final! ), fill(-10.0,length(models)), fill(Inf,length(models)), Optim.minimizer(result_prior), Optim.Fminbox(bfgs_struct), Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, outer_iterations=1, kws...))
-    # NamedTuple of NamedTuples. "prior" contains the mean `μ`, standard error `σ`, 
+    # NamedTuple of NamedTuples. "posterior" contains the mean `μ`, standard error `σ`, 
     # the estimate of the inverse Hessian `invH` from BFGS and full result struct `result`
-    # for the optimization with the included prior. "final" contains the same entries but for the final
-    # optimization with no prior. 
-    return  ( prior = ( μ = exp.(Optim.minimizer(result_prior)),
-                        # σ = sqrt.(diag(result_prior.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_prior)),
-                        σ = sqrt.(diag(Optim.trace(result_prior)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_prior)),
-                        invH = result_prior.trace[end].metadata["~inv(H)"],
-                        result = result_prior ),
-              final = ( μ = exp.(Optim.minimizer(result)),
+    # for the optimization of the posterior. "mle" contains the same entries but for the maximum
+    # likelihood estimate. 
+    return  ( posterior = ( μ = exp.(Optim.minimizer(result_posterior)),
+                        # σ = sqrt.(diag(result_posterior.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_posterior)),
+                        σ = sqrt.(diag(Optim.trace(result_posterior)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_posterior)),
+                        invH = result_posterior.trace[end].metadata["~inv(H)"],
+                        result = result_posterior ),
+              mle = ( μ = exp.(Optim.minimizer(result_mle)),
                         # σ = sqrt.(diag(result.trace[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result)),
-                        σ = sqrt.(diag(Optim.trace(result)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result)),
-                        invH = result.trace[end].metadata["~inv(H)"],
-                        result = result) )
+                        σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_mle)),
+                        invH = result_mle.trace[end].metadata["~inv(H)"],
+                        result = result_mle) )
 end
 
 # M1 = rand(120,100)
