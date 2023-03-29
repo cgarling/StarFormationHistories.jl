@@ -188,6 +188,26 @@ function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T))
     return result
 end
 
+"""
+    (unique_logAge, cum_sfh, sfr, mean_MH) = calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
+
+Calculates cumulative star formation history, star formation rates, and mean metallicity evolution as functions of `logAge = log10(age [yr])`.
+
+# Arguments
+ - `coeffs::AbstractVector` is a vector of stellar mass coefficients such as those returned by [`fit_templates`](@ref), for example. Actual stellar mass in stellar population `j` is `coeffs[j] * normalize_value`.
+ - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations corresponding to the provided `coeffs`.
+ - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations corresponding to the provided `coeffs`.
+
+# Keyword Arguments
+ - `normalize_value` is a multiplicative prefactor to apply to all the `coeffs`; same as the keyword in [`partial_cmd_smooth`](@ref).
+ - `sorted::Bool` is either `true` or `false` and signifies whether to assume `logAge` is sorted.
+
+# Returns
+ - `unique_logAge::Vector` is essentially `unique(sort(logAge))` and provides the x-values you would plot the other returned vectors against.
+ - `cum_sfh::Vector` is the normalized cumulative SFH implied by the provided `coeffs`. This is ~1 at the most recent time in `logAge` and decreases as `logAge` increases.
+ - `sfr::Vector` gives the star formation rate across each bin in `unique_logAge`. If `coeffs .* normalize_value` are in units of solar masses, then `sfr` is in units of solar masses per year.
+ - `mean_MH::Vector` gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique_logAge`. 
+"""
 function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
     @assert axes(coeffs) == axes(logAge) == axes(MH)
     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses

@@ -176,13 +176,45 @@ We implement this optimization scheme in [`fit_templates`](@ref), which is our r
 StarFormationHistories.fit_templates
 ```
 
-Once you have obtained stellar mass coefficients from the above methods, you can convert them into star formation rates and compute per-age mean metallicities with [`StarFormationHistories.calculate_cum_sfr`](@ref),
+Once you have obtained stellar mass coefficients from the above methods, you can convert them into star formation rates and compute per-age mean metallicities with [`StarFormationHistories.calculate_cum_sfr`](@ref).
 
 ```@docs
 StarFormationHistories.calculate_cum_sfr
 ```
 
 ## Constrained Metallicity Evolution
+
+While the above methods work well for optimizing the per-template ``r_j`` as a means for fitting SFHs, these methods can produce metallicity evolutions that could be considered unphysical, with large changes in the mean metallicity over small changes in time. An example of this type of behavior is shown in the SFH fit below.
+
+![Example of a SFH fit with variations in the metallicity evolution.](figures/mean_mh.png)
+
+While some metallicity variation in the star-forming gas is to be expected, these variations in the SFH fit can end up being quite large depending on the data and isochrone grid adopted. A solution is to construct a more physically-motivated model.
+
+We can do this using a hierarchical model with a parameterized metallicity distribution function (MDF) where the the ``r_j`` are not the parameters directly optimized. Rather, we can optimize one stellar mass (or star formation rate) parameter per age bin, and then a number of MDF parameters that determine how that stellar mass is split between models with different metallicities at fixed age. An example for one such MDF model is a linear mean metallicity relation ``\langle [\text{M}/\text{H}] \rangle (t) = \alpha \, t + \beta`` with a Gaussian distribution in metallicity at fixed age. If the per-age-bin stellar mass coefficients are ``R_j``, the age of the stellar population ``j`` is ``t_j``, and the metallicity of population ``k`` is ``[\text{M}/\text{H}]_k``, then we can write the per-model ``r_{j,k}`` (where we are now using separate indices for age and metallicity) as
+
+```math
+\begin{aligned}
+\mu_j &= \alpha \, t_j + \beta \\
+r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}
+\end{aligned}
+```
+
+where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}/\text{H}]_k`` and the denominator is a normalizing coefficient that ensures ``\sum_k r_{j,k} = R_j``. In this notation, bin ``i`` of the complex model Hess diagram (equation 1 of Dolphin 2002) is
+
+```math
+m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
+```
+
+While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. Equation 21 in Dolphin 2001 gives the gradient of our objective function,
+
+```math
+\begin{aligned}
+F \equiv - \text{ln} \, \mathscr{L} &= \sum_i m_i - n_i \times \left( 1 - \text{ln} \, \left( \frac{n_i}{m_i} \right) \right) \\
+\frac{\partial \, F}{\partial \, r_{j,k}} &= \sum_i c_{i,j,k} \left( 1 - \frac{n_i}{m_i} \right)
+\end{aligned}
+```
+
+where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is bin ``i`` of the observed Hess diagram.
 
 ## Developer Internals
 
