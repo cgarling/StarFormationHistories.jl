@@ -105,10 +105,11 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVect
     composite!(composite, coeffs, models) # Fill the composite array
     return ∇loglikelihood(models, composite, data) # Call to above function.
 end
+
 """
      ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
 
-Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient; will overwrite `composite` with the result of `data ./ composite` so it shouldn't be reused after being passed to this function. 
+Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient. This will overwrite `composite` with the result of `data ./ composite` so it shouldn't be reused after being passed to this function. 
 
 # Arguments
  - `G::AbstractVector` is the vector containing the gradient which will be mutated in-place with the updated values.
