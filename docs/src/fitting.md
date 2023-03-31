@@ -205,7 +205,9 @@ where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}
 m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
 ```
 
-While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. Equation 21 in Dolphin 2001 gives the gradient of our objective function,
+While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. We will show that the gradient of this hierarchical model is analytic, allowing us to design an efficient optimization scheme.
+
+Equation 21 in Dolphin 2001 gives the gradient of our objective function with respect to the underlying coefficients
 
 ```math
 \begin{aligned}
@@ -214,7 +216,7 @@ F \equiv - \text{ln} \, \mathscr{L} &= \sum_i m_i - n_i \times \left( 1 - \text{
 \end{aligned}
 ```
 
-where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is bin ``i`` of the observed Hess diagram.
+where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is bin ``i`` of the observed Hess diagram. These partial derivatives are easy to obtain. 
 
 ## Developer Internals
 
