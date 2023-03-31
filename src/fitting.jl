@@ -3,7 +3,7 @@
 """
      composite!(composite::AbstractMatrix{<:Number}, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}) where T <: AbstractMatrix{<:Number}
 
-Updates the `composite` matrix in place with the linear combination of `sum( coeffs .* models )`.
+Updates the `composite` matrix in place with the linear combination of `sum( coeffs .* models )`; this is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
 
 # Examples
 ```julia
@@ -33,8 +33,15 @@ end
 
 
 """
+    loglikelihood(composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
 
-Log(likelihood) given by Equation 10 in Dolphin 2002.
+Returns the logarithm of the Poisson likelihood ratio given by equation 10 in Dolphin 2002,
+
+```math
+\\text{ln} \\, \\mathscr{L} = \\sum_i -m_i + n_i \\times \\left( 1 - \\text{ln} \\, \\left( \\frac{n_i}{m_i} \\right) \\right)
+```
+
+with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormationHistories.composite!`](@ref)) and `data` being the observed Hess diagram ``n_i``.
 
 # Performance Notes
  - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=similar(composite)`.
@@ -47,8 +54,8 @@ Log(likelihood) given by Equation 10 in Dolphin 2002.
     @assert axes(composite) == axes(data) 
     @assert ndims(composite) == 2
     result = zero(T) 
-    @turbo for j in axes(composite, 2)  # LoopVectorization.@turbo gives 4x speedup here
-        for i in axes(composite, 1)       
+    @turbo for j in axes(composite,2)  # LoopVectorization.@turbo gives 4x speedup here
+        for i in axes(composite,1)       
             # Setting eps() as minimum of composite greatly improves stability of convergence
             @inbounds ci = max( composite[i,j], eps(T) ) 
             @inbounds ni = data[i,j]
@@ -60,6 +67,11 @@ Log(likelihood) given by Equation 10 in Dolphin 2002.
     # Penalizing result==0 here improves stability of convergence
     result != zero(T) ? (return result) : (return -typemax(T))
 end
+"""
+    loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+
+Returns the logarithm of the Poisson likelihood ratio, but constructs the complex Hess diagram model as `sum(coeffs .* models)` rather than taking `composite` directly as an argument. 
+"""
 function loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(coeffs) == axes(models)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
@@ -69,8 +81,15 @@ function loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{
 end
 
 """
+    ∇loglikelihood(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
 
-Gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to the coefficients; Equation 21 in Dolphin 2002.
+Returns the partial derivative of the logarithm of the Poisson likelihood ratio ([`StarFormationHistories.loglikelihood`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in Dolphin 2002,
+
+```math
+\\frac{\\partial \\, \\text{log} \\, \\mathscr{L}}{\\partial \\, r_j} = \\sum_i c_{i,j} \\left( \\frac{n_i}{m_i} - 1 \\right)
+```
+
+where ``n_i`` is bin ``i`` of the observed Hess diagram `data`. 
 
 # Performance Notes
  - ~4.1 μs for model, composite, data all being `Matrix{Float64}(undef,99,99)`.
@@ -94,6 +113,11 @@ Gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to the c
     end
     return result
 end
+"""
+    ∇loglikelihood(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+
+Computes the gradient of the logarithm of the Poisson likelihood ratio with respect to the coefficients by calling the single-model `∇loglikelihood` for every model in `models`. 
+"""
 function ∇loglikelihood(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(composite) == axes(data)
     return [ ∇loglikelihood(i, composite, data) for i in models ]
@@ -107,50 +131,63 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVect
 end
 
 """
+     ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
 
-Function to simultaneously compute the loglikelihood and its gradient for one input `model`; see also fg! below, which calculates gradients with respect to multiple models.
+Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient. This will overwrite `composite` with the result of `1 .- (data ./ composite)` so it shouldn't be reused after being passed to this function. 
+
+# Arguments
+ - `G::AbstractVector` is the vector that  will be mutated in-place with the computed gradient values.
+ - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is the vector of matrices giving the model Hess diagrams.
+ - `composite::AbstractMatrix{<:Number}` is a matrix that contains the composite model `sum(coeffs .* models)`.
+ - `data::AbstractMatrix{<:Number}` contains the observed Hess diagram that is being fit.
 """
-function fg(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
-    T = promote_type(eltype(model), eltype(composite), eltype(data))
-    @assert axes(model) == axes(data) == axes(composite)
-    @assert ndims(model) == 2
-    logL = zero(T) 
-    ∇logL = zero(T) 
-    @turbo for j in axes(model, 2)   # ~3x speedup from LoopVectorization.@turbo
-        for i in axes(model, 1)
-            @inbounds ci = composite[i,j]
-            @inbounds mi = model[i,j]
+function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
+    T = eltype(G) 
+    @assert axes(composite) == axes(data) 
+    @assert axes(G,1) == axes(models,1)
+    # Build the (1 .- data ./ composite) matrix which is all we need for this method
+    for j in axes(composite,2)  
+        @turbo for i in axes(composite,1)
+            # Setting eps() as minimum of composite greatly improves stability of convergence.
+            @inbounds ci = max( composite[i,j], eps(T) )
             @inbounds ni = data[i,j]
-            cond1 = ci > zero(T)
-            logL += (cond1 & (ni > zero(T))) ? ni - ci - ni * log(ni / ci) : zero(T)
-            ∇logL += cond1 ? -mi * (one(T) - ni/ci) : zero(T)
+            composite[i,j] = one(T) - ni/ci
         end
     end
-    return logL, ∇logL
+    # Calculate the per-model derivatives
+    for k in eachindex(G)
+        model = models[k]
+        @assert axes(model) == axes(data) == axes(composite)
+        result = zero(T)
+        for j in axes(model,2)
+            @turbo for i in axes(model,1)
+                @inbounds mi = model[i,j]
+                @inbounds ni = data[i,j]
+                @inbounds nici = composite[i,j]
+                result += ifelse( ni > zero(T), -mi * nici, zero(T) )
+            end
+        end
+        G[k] = result
+    end
 end
+
 """
 
 Computes loglikelihood and gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
 """
 @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    @assert axes(coeffs) == axes(models)
-    @assert axes(data) == axes(composite)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(eltype(data)), eltype(composite))
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     composite!(composite, coeffs, models) 
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
-        @assert axes(G) == axes(models)
-        # Fill the gradient array
-        for i in axes(models,1) # Threads.@threads only helps here if single computation is > 10 ms
-            @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-        end
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        # Calculate logL before ∇loglikelihood! which will overwrite composite
+        logL = loglikelihood(composite, data)
+        ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
+        G .*= -1 # We want the gradient of the negative log likelihood
+        return -logL # Return the negative loglikelihood
     elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
-        @assert axes(G) == axes(models)
-        # Fill the gradient array
-        for i in axes(models,1)
-            @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-        end
+        ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
+        G .*= -1 # We want the gradient of the negative log likelihood
     elseif F != nothing # Optim.optimize wants only objective
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
@@ -308,7 +345,8 @@ H^{(j,k)} ( \\boldsymbol{\\hat \\theta} ) = \\left. \\frac{\\partial^2 \\, J(\\b
  - `result` is the full object returned by the optimization from `Optim.jl`; this is of type `Optim.MultivariateOptimizationResults`. Remember that the optimization is done with parameters `θ[j] = log(coeffs[j])` when dealing with this raw output. This means that, for example, we calculate `result.map.μ` as `exp.(Optim.minimizer(result.map.result))`.
 
 # Notes
- - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred). 
+ - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred).
+ - The BFGS implementation we use from Optim.jl uses BLAS operations during its iteration. The OpenBLAS that Julia ships with will often default to running on multiple threads even if Julia itself is started with only a single thread. You can check the current number of BLAS threads with `import LinearAlgebra: BLAS; BLAS.get_num_threads()`. For the problem sizes typical of this function we actually see performance regression with larger numbers of BLAS threads. For this reason you may wish to use BLAS in single-threaded mode; you can set this as `import LinearAlgebra: BLAS; BLAS.set_num_threads(1)`.
 """
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)

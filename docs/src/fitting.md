@@ -224,5 +224,6 @@ where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is
 StarFormationHistories.composite!
 StarFormationHistories.loglikelihood
 StarFormationHistories.∇loglikelihood
+StarFormationHistories.∇loglikelihood!
 StarFormationHistories.fg!
 ```
