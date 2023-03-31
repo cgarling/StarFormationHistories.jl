@@ -149,28 +149,6 @@ end
 
 """
 
-Function to simultaneously compute the loglikelihood and its gradient for one input `model`; see also fg! below, which calculates gradients with respect to multiple models.
-"""
-function fg(model::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number})
-    T = promote_type(eltype(model), eltype(composite), eltype(data))
-    @assert axes(model) == axes(data) == axes(composite)
-    @assert ndims(model) == 2
-    logL = zero(T) 
-    ∇logL = zero(T) 
-    @turbo for j in axes(model, 2)   # ~3x speedup from LoopVectorization.@turbo
-        for i in axes(model, 1)
-            @inbounds ci = composite[i,j]
-            @inbounds mi = model[i,j]
-            @inbounds ni = data[i,j]
-            cond1 = ci > zero(T)
-            logL += (cond1 & (ni > zero(T))) ? ni - ci - ni * log(ni / ci) : zero(T)
-            ∇logL += cond1 ? -mi * (one(T) - ni/ci) : zero(T)
-        end
-    end
-    return logL, ∇logL
-end
-"""
-
 Computes loglikelihood and gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
 """
 @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
