@@ -105,6 +105,47 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVect
     composite!(composite, coeffs, models) # Fill the composite array
     return ∇loglikelihood(models, composite, data) # Call to above function.
 end
+"""
+     ∇loglikelihood!(G::AbstractVector, workmat::AbstractMatrix{<:Number}, models::AbstractVector{S}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
+
+Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient, using `workmat` as a working matrix. 
+
+# Arguments
+ - `G::AbstractVector` is the vector containing the gradient which will be mutated in-place with the updated values.
+ - `workmat::AbstractMatrix{<:Number}` is a working matrix that will be updated with `data ./ composite`.
+ - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is the vector of matrices giving the model Hess diagrams.
+ - `composite::AbstractMatrix{<:Number}` is a matrix that contains the composite model `sum(coeffs .* models)`.
+ - `data::AbstractMatrix{<:Number}` contains the observed Hess diagram that is being fit.
+"""
+function ∇loglikelihood!(G::AbstractVector, workmat::AbstractMatrix{<:Number}, models::AbstractVector{S}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}; ret_logL::Bool=false) where S <: AbstractMatrix{<:Number}
+    T = eltype(G) 
+    @assert axes(workmat) == axes(composite) == axes(data) 
+    @assert axes(G,1) == axes(models,1)
+    # Build the data ./ composite matrix which is all we need for this method
+    for j in axes(composite,2)  
+        @turbo for i in axes(composite,1)
+            # Setting eps() as minimum of composite greatly improves stability of convergence.
+            @inbounds ci = max( composite[i,j], eps(T) )
+            @inbounds ni = data[i,j]
+            workmat[i,j] = ni/ci
+        end
+    end
+    # Calculate the per-model derivatives
+    for k in eachindex(G)
+        model = models[k]
+        @assert axes(model) == axes(data) == axes(workmat)
+        result = zero(T)
+        for j in axes(model,2)
+            @turbo for i in axes(model,1)
+                @inbounds mi = model[i,j]
+                @inbounds ni = data[i,j]
+                @inbounds nici = workmat[i,j]
+                result += ifelse( ni > zero(T), -mi * (one(T) - nici), zero(T) )
+            end
+        end
+        G[k] = result
+    end
+end
 
 """
 
