@@ -106,20 +106,19 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVect
     return ∇loglikelihood(models, composite, data) # Call to above function.
 end
 """
-     ∇loglikelihood!(G::AbstractVector, workmat::AbstractMatrix{<:Number}, models::AbstractVector{S}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
+     ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
 
-Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient, using `workmat` as a working matrix. 
+Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient; will overwrite `composite` with the result of `data ./ composite` so it shouldn't be reused after being passed to this function. 
 
 # Arguments
  - `G::AbstractVector` is the vector containing the gradient which will be mutated in-place with the updated values.
- - `workmat::AbstractMatrix{<:Number}` is a working matrix that will be updated with `data ./ composite`.
  - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is the vector of matrices giving the model Hess diagrams.
  - `composite::AbstractMatrix{<:Number}` is a matrix that contains the composite model `sum(coeffs .* models)`.
  - `data::AbstractMatrix{<:Number}` contains the observed Hess diagram that is being fit.
 """
-function ∇loglikelihood!(G::AbstractVector, workmat::AbstractMatrix{<:Number}, models::AbstractVector{S}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}; ret_logL::Bool=false) where S <: AbstractMatrix{<:Number}
+function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}; ret_logL::Bool=false) where S <: AbstractMatrix{<:Number}
     T = eltype(G) 
-    @assert axes(workmat) == axes(composite) == axes(data) 
+    @assert axes(composite) == axes(data) 
     @assert axes(G,1) == axes(models,1)
     # Build the data ./ composite matrix which is all we need for this method
     for j in axes(composite,2)  
@@ -127,19 +126,19 @@ function ∇loglikelihood!(G::AbstractVector, workmat::AbstractMatrix{<:Number},
             # Setting eps() as minimum of composite greatly improves stability of convergence.
             @inbounds ci = max( composite[i,j], eps(T) )
             @inbounds ni = data[i,j]
-            workmat[i,j] = ni/ci
+            composite[i,j] = ni/ci
         end
     end
     # Calculate the per-model derivatives
     for k in eachindex(G)
         model = models[k]
-        @assert axes(model) == axes(data) == axes(workmat)
+        @assert axes(model) == axes(data) == axes(composite)
         result = zero(T)
         for j in axes(model,2)
             @turbo for i in axes(model,1)
                 @inbounds mi = model[i,j]
                 @inbounds ni = data[i,j]
-                @inbounds nici = workmat[i,j]
+                @inbounds nici = composite[i,j]
                 result += ifelse( ni > zero(T), -mi * (one(T) - nici), zero(T) )
             end
         end
@@ -174,24 +173,22 @@ end
 Computes loglikelihood and gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
 """
 @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    @assert axes(coeffs) == axes(models)
-    @assert axes(data) == axes(composite)
+    # @assert axes(coeffs) == axes(models)
+    # @assert axes(data) == axes(composite)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(eltype(data)), eltype(composite))
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     composite!(composite, coeffs, models) 
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
-        @assert axes(G) == axes(models)
+        # Calculate logL before ∇loglikelihood! which will overwrite composite
+        logL = loglikelihood(composite, data)
         # Fill the gradient array
-        for i in axes(models,1) # Threads.@threads only helps here if single computation is > 10 ms
-            @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-        end
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        ∇loglikelihood!(G, composite, models, data)
+        G .*= -1 # We want the gradient of the negative log likelihood
+        return -logL # Return the negative loglikelihood
     elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
-        @assert axes(G) == axes(models)
         # Fill the gradient array
-        for i in axes(models,1)
-            @inbounds G[i] = -∇loglikelihood(models[i], composite, data)
-        end
+        ∇loglikelihood!(G, composite, models, data)
+        G .*= -1 # We want the gradient of the negative log likelihood
     elseif F != nothing # Optim.optimize wants only objective
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
