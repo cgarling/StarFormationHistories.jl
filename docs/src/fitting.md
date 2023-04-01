@@ -216,7 +216,72 @@ F \equiv - \text{ln} \, \mathscr{L} &= \sum_i m_i - n_i \times \left( 1 - \text{
 \end{aligned}
 ```
 
-where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is bin ``i`` of the observed Hess diagram. These partial derivatives are easy to obtain. 
+where ``c_{i,j,k}`` is the value of template ``j,k`` in bin ``i`` and ``n_i`` is bin ``i`` of the observed Hess diagram. These partial derivatives are easy to obtain, but we need partials with respect to the fitting parameters ``R_j``. Given the above relation between ``r_{j,k}`` and ``R_j``, we can calculate these derivatives as
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, R_j} &= \sum_k \, \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j} \\
+\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{ \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)} = \frac{r_{j,k}}{R_j}
+\end{aligned}
+```
+
+Then we need only the partial derivatives of the objective function ``F`` with respect to the MDF parameters, which in this case are ``\alpha, \beta, \sigma``. For convenience we will rewrite
+
+```math
+r_{j,k} = R_j \, \frac{ \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)} = R_j \, \frac{A_{k,j}}{\sum_k A_{k,j}}
+```
+
+as many different types of models can be expressed via this simplified notation by substituting the ``A_{k,j}`` with different distributions. This allows us to write 
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, \beta} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \\
+\frac{\partial \, r_{j,k}}{\partial \, \beta} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \beta} \right)  \\
+&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
+\end{aligned}
+```
+
+Given our specific definition of ``A_{j,k}`` being a Gaussian distribution, we have
+
+```math
+\begin{aligned}
+\mu_j &= \alpha \, t_j + \beta \\
+\frac{\partial \, A_{k,j}}{\partial \, \beta} &= \frac{\partial}{\partial \, \beta} \, \left[ \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \right] \\
+&= \frac{A_{j,k}}{\sigma^2} \left( [\text{M}/\text{H}]_k - \mu_j \right)
+\end{aligned}
+```
+
+We can now substitute this result into the above expressions to write
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, \beta} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \\
+&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
+&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sigma^2 \, \sum_k \, A_{k,j}} \left( A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) - \frac{1}{\sum_k \, A_{k,j}} \sum_k A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) \right)
+\end{aligned}
+```
+
+It can be shown that the partial derivative of ``F`` with respect to ``\alpha`` is simply
+
+```math
+\frac{\partial \, F}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \times t_j \\
+```
+
+The partial derivative with respect to ``\sigma`` is slightly more complicated, but we can start identically to how we started above when deriving ``\frac{\partial \, F}{\partial \, \beta}`` with
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, \sigma} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \sigma} \\
+\frac{\partial \, r_{j,k}}{\partial \, \sigma} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{1}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \sigma} \right)  \\
+&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \sigma} \right) \\
+\end{aligned}
+```
+
+Then all we need is
+
+```math
+\frac{\partial \, A_{k,j}}{\partial \, \sigma} = 
+```
 
 ## Developer Internals
 
