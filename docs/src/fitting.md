@@ -236,8 +236,8 @@ as many different types of models can be expressed via this simplified notation 
 ```math
 \begin{aligned}
 \frac{\partial \, F}{\partial \, \beta} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \\
-\frac{\partial \, r_{j,k}}{\partial \, \beta} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \beta} \right)  \\
-&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
+\frac{\partial \, r_{j,k}}{\partial \, \beta} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{A_{j,k}}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \beta} \right)  \\
+&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{A_{j,k}}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
 \end{aligned}
 ```
 
@@ -256,8 +256,8 @@ We can now substitute this result into the above expressions to write
 ```math
 \begin{aligned}
 \frac{\partial \, F}{\partial \, \beta} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \\
-&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
-&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sigma^2 \, \sum_k \, A_{k,j}} \left( A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) - \frac{1}{\sum_k \, A_{k,j}} \sum_k A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) \right)
+&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \beta} - \frac{A_{j,k}}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \beta} \right) \\
+&= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{R_j}{\sigma^2 \, \sum_k \, A_{k,j}} \left( A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) - \frac{A_{j,k}}{\sum_k \, A_{k,j}} \sum_k A_{j,k} \left( [\text{M}/\text{H}]_k - \mu_j \right) \right)
 \end{aligned}
 ```
 
@@ -272,16 +272,18 @@ The partial derivative with respect to ``\sigma`` is slightly more complicated, 
 ```math
 \begin{aligned}
 \frac{\partial \, F}{\partial \, \sigma} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \sigma} \\
-\frac{\partial \, r_{j,k}}{\partial \, \sigma} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{1}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \sigma} \right)  \\
-&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{1}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \sigma} \right) \\
+\frac{\partial \, r_{j,k}}{\partial \, \sigma} &= R_j \left( \frac{1}{\sum_k \, A_{k,j}} \, \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{A_{j,k}}{\left( \sum_k \, A_{k,j} \right)^2} \, \frac{\partial \, \sum_k \, A_{k,j}}{\partial \, \sigma} \right)  \\
+&= \frac{R_j}{\sum_k \, A_{k,j}} \left( \frac{\partial \, A_{k,j}}{\partial \, \sigma} - \frac{A_{j,k}}{\sum_k \, A_{k,j}} \sum_k \frac{\partial \, A_{k,j}}{\partial \, \sigma} \right) \\
 \end{aligned}
 ```
 
 Then all we need is
 
 ```math
-\frac{\partial \, A_{k,j}}{\partial \, \sigma} = 
+\frac{\partial \, A_{k,j}}{\partial \, \sigma} = \frac{A_{k,j} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)^2}{\sigma^3}
 ```
+
+which we can substitute into the above expressions. 
 
 ## Developer Internals
 
