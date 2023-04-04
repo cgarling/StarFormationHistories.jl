@@ -283,7 +283,7 @@ Then all we need is
 \frac{\partial \, A_{k,j}}{\partial \, \sigma} = \frac{A_{k,j} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)^2}{\sigma^3}
 ```
 
-which we can substitute into the above expressions. 
+which we can substitute into the above expressions to find ``\frac{\partial \, F}{\partial \, \sigma}``.
 
 ## Developer Internals
 

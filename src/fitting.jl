@@ -615,10 +615,13 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
     composite!(composite, coeffs, models)
+    logL = loglikelihood(composite, data)
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
-        fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        fullG = Vector{eltype(G)}(undef,length(models))
+        ∇loglikelihood!(fullG, composite, models, data)
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-1] = zero(eltype(G))
         G[end] = zero(eltype(G))
@@ -639,9 +642,9 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
             G[end-1] += dLdα
             G[end] += dLdβ
         end
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        return -logL
     elseif F != nothing # Optim.optimize wants only objective
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        return -logL
     end
 end
 
@@ -690,8 +693,6 @@ function fit_templates_mdf(models::AbstractVector{T},
                                  # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
                                  # covariance matrix, which we can use to make parameter uncertainty estimates
                                  Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
-    # Show the optimization result
-    # show(full_result)
     # Transform the resulting variables
     result_vec = deepcopy( Optim.minimizer(full_result) )
     for i in eachindex(result_vec)[begin:end-2]
@@ -725,10 +726,13 @@ This version of mdf fg! also fits σ
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
     composite!(composite, coeffs, models)
+    logL = loglikelihood(composite, data) # Need to do this before ∇loglikelihood! because it will overwrite composite
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
-        fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        fullG = Vector{eltype(G)}(undef,length(models))
+        ∇loglikelihood!(fullG, composite, models, data)
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-2] = zero(eltype(G))
         G[end-1] = zero(eltype(G))
@@ -756,9 +760,9 @@ This version of mdf fg! also fits σ
             G[end-1] += dLdβ
             G[end] += dLdσ
         end
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        return -logL
     elseif F != nothing # Optim.optimize wants only objective
-        return -loglikelihood(composite, data) # Return the negative loglikelihood
+        return -logL
     end
 end
 
