@@ -669,7 +669,7 @@ function fit_templates_mdf(models::AbstractVector{T},
     # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
     # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
     # Jacobian corrections.
-    function fg_mdf_σ!_wrap(F, G, xvec)
+    function fg_mdf_σ!_map(F, G, xvec)
         for i in eachindex(xvec)[begin:end-2] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
@@ -685,7 +685,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         return logL
     end
     # Calculate result
-    full_result = Optim.optimize(Optim.only_fg!( fg_mdf_σ!_wrap ), x0,
+    result_map = Optim.optimize(Optim.only_fg!( fg_mdf_σ!_map ), x0,
                                  # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
                                  # makes it less sensitive to initial x0.
                                  Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
@@ -694,18 +694,18 @@ function fit_templates_mdf(models::AbstractVector{T},
                                  # covariance matrix, which we can use to make parameter uncertainty estimates
                                  Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...) )
     # Transform the resulting variables
-    result_vec = deepcopy( Optim.minimizer(full_result) )
+    result_vec = deepcopy( Optim.minimizer(result_map) )
     for i in eachindex(result_vec)[begin:end-2]
         result_vec[i] = exp(result_vec[i])
     end
 
     # Estimate parameter uncertainties from the inverse Hessian approximation
-    std_vec = sqrt.(diag(full_result.trace[end].metadata["~inv(H)"]))
+    std_vec = sqrt.(diag(result_map.trace[end].metadata["~inv(H)"]))
     # Need to account for the logarithmic transformation
     for i in eachindex(std_vec)[begin:end-2]
         std_vec[i] = result_vec[i] * std_vec[i]
     end
-    return result_vec, std_vec, full_result
+    return result_vec, std_vec, result_map
 end
 
 """
@@ -787,7 +787,7 @@ function fit_templates_mdf(models::AbstractVector{T},
     # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
     # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
     # Jacobian corrections.
-    function fg_mdf!_prior(F, G, xvec)
+    function fg_mdf!_map(F, G, xvec)
         for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
@@ -803,8 +803,7 @@ function fit_templates_mdf(models::AbstractVector{T},
         G[end] = G[end] * x[end] - 1
         return logL
     end
-    # same as fg_mdf!_prior but without the prior ... 
-    function fg_mdf!_final(F, G, xvec)
+    function fg_mdf!_mle(F, G, xvec)
         for i in eachindex(xvec)[begin:end-3] # These are the per-logage stellar mass coefficients
             x[i] = exp(xvec[i])
         end
@@ -827,30 +826,30 @@ function fit_templates_mdf(models::AbstractVector{T},
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_prior = Optim.optimize(Optim.only_fg!( fg_mdf!_prior ), x0, bfgs_struct, bfgs_options)
-    result = Optim.optimize(Optim.only_fg!( fg_mdf!_final ), Optim.minimizer(result_prior), bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(Optim.only_fg!( fg_mdf!_map ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mdf!_mle ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     # Transform the resulting variables
-    μ_prior = deepcopy( Optim.minimizer(result_prior) )
-    μ_final = deepcopy( Optim.minimizer(result) )
-    for i in eachindex(μ_prior,μ_final)[begin:end-3]
-        μ_prior[i] = exp(μ_prior[i])
-        μ_final[i] = exp(μ_final[i])
+    μ_map = deepcopy( Optim.minimizer(result_map) )
+    μ_mle = deepcopy( Optim.minimizer(result_mle) )
+    for i in eachindex(μ_map,μ_mle)[begin:end-3]
+        μ_map[i] = exp(μ_map[i])
+        μ_mle[i] = exp(μ_mle[i])
     end
-    μ_prior[end] = exp(μ_prior[end])
-    μ_final[end] = exp(μ_final[end])
+    μ_map[end] = exp(μ_map[end])
+    μ_mle[end] = exp(μ_mle[end])
 
     # Estimate parameter uncertainties from the inverse Hessian approximation
-    σ_prior = sqrt.(diag(Optim.trace(result_prior)[end].metadata["~inv(H)"]))
-    σ_final = sqrt.(diag(Optim.trace(result)[end].metadata["~inv(H)"]))
+    σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
     # Need to account for the logarithmic transformation
-    for i in eachindex(σ_prior,σ_final)[begin:end-3]
-        σ_prior[i] = μ_prior[i] * σ_prior[i]
-        σ_final[i] = μ_final[i] * σ_final[i]
+    for i in eachindex(σ_map,σ_mle)[begin:end-3]
+        σ_map[i] = μ_map[i] * σ_map[i]
+        σ_mle[i] = μ_mle[i] * σ_mle[i]
     end
-    σ_prior[end] = μ_prior[end] * σ_prior[end]
-    σ_final[end] = μ_final[end] * σ_final[end]
-    return (prior = (μ = μ_prior, σ = σ_prior, result = result_prior),
-            result = (μ = μ_final, σ = σ_final, result = result))
+    σ_map[end] = μ_map[end] * σ_map[end]
+    σ_mle[end] = μ_mle[end] * σ_mle[end]
+    return (map = (μ = μ_map, σ = σ_map, result = result_map),
+            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
 end
 
 # We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
