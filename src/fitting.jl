@@ -562,7 +562,7 @@ function construct_x0_mdf(logage::AbstractVector{T}; normalize_value::Number=one
              end for i in eachindex(dt) ]
 end
 
-_gausspdf(x,μ,σ) = inv(σ) * exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
+_gausspdf(x,μ,σ) = exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
 # _gausstest(x,age,α,β,σ) = inv(σ) * exp( -((x-(α*age+β))/σ)^2 / 2 )
 # ForwardDiff.derivative(x -> _gausstest(-1.0, 1e9, -1e-10, x, 0.2), -0.4) = -2.74
 # _dgaussdβ(x,age,α,β,σ) = (μ = α*age+β; (x-μ) * exp( -((x-μ)/σ)^2 / 2 ) * inv(σ)^3)
@@ -747,10 +747,10 @@ This version of mdf fg! also fits σ
                 ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
                          for j in eachindex(idxs)) / A / σ^2
             dLdα = dLdβ * age
-            σsum = sum( tmp_coeffs[j] / σ *
-                ( (metallicities[idxs[j]]-μ)^2 / σ^2 - 1) for j in eachindex(idxs))
+            σsum = sum( tmp_coeffs[j] *
+                (metallicities[idxs[j]]-μ)^2 / σ^3 for j in eachindex(idxs))
             dLdσ = -sum( fullG[idxs[j]] * variables[i] *
-                (tmp_coeffs[j] / σ * ((metallicities[idxs[j]]-μ)^2 / σ^2 - 1) -
+                (tmp_coeffs[j] * (metallicities[idxs[j]]-μ)^2 / σ^3 -
                 tmp_coeffs[j] / A * σsum) for j in eachindex(idxs)) / A
             G[end-2] += dLdα
             G[end-1] += dLdβ
