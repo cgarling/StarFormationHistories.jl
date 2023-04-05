@@ -477,7 +477,12 @@ end
 
 
 # Method exports
-export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth, generate_stars_mass, generate_stars_mag, generate_stars_mass_composite, generate_stars_mag_composite, model_cmd, fit_templates, hmc_sample
+# Exports from StarFormationHistories.jl
+export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
+# Exports from simulate.jl
+export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite, generate_stars_mag_composite, model_cmd
+# Exports from fitting.jl
+export fit_templates, hmc_sample
 
 
 end # module

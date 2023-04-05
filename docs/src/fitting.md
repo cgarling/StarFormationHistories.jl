@@ -205,6 +205,30 @@ where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}
 m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
 ```
 
+Below we show a fit using this hierarchical model to the same data as above. 
+
+![Example of a SFH fit with a linear metallicity evolution.](figures/mdf_model.png)
+
+We provide the method [`StarFormationHistories.fit_templates_mdf`](@ref) to fit this model to an observed Hess diagram.
+
+```@docs
+StarFormationHistories.fit_templates_mdf
+```
+
+The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`
+
+```@docs
+StarFormationHistories.construct_x0_mdf
+```
+
+and [`StarFormationHistories.calculate_coeffs_mdf`](@ref) can be used to calculate per-template stellar mass coefficients (the ``r_{j,k}`` above) given the results of a fit (which will be the ``R_j`` in the equations above)
+
+```@docs
+StarFormationHistories.calculate_coeffs_mdf
+```
+
+### Implementation
+
 While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. We will show that the gradient of this hierarchical model is analytic, allowing us to design an efficient optimization scheme.
 
 Equation 21 in Dolphin 2001 gives the gradient of our objective function with respect to the underlying coefficients
