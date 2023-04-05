@@ -23,5 +23,9 @@ docs/site/
 # environment.
 Manifest.toml
 
+# IPython notebook temporary files
+.ipynb_checkpoints
+
+
 # Some test files that don't need to be committed
 test/manual/madcash-2
