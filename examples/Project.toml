@@ -1,0 +1,10 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+InitialMassFunctions = "e9251ff4-c148-4db3-bf46-89407750fae0"
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StarFormationHistories = "774d3ad4-2d55-48fa-ab42-467705ebff24"
+TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
