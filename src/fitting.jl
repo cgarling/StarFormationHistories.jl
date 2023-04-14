@@ -139,28 +139,23 @@ function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number
     @assert axes(composite) == axes(data) 
     @assert axes(G,1) == axes(models,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
-    for j in axes(composite,2)  
-        @turbo for i in axes(composite,1)
-            # Setting eps() as minimum of composite greatly improves stability of convergence.
-            @inbounds ci = max( composite[i,j], eps(T) )
-            @inbounds ni = data[i,j]
-            composite[i,j] = one(T) - ni/ci
-        end
+    @turbo for idx in eachindex(composite, data)
+        # Setting eps() as minimum of composite greatly improves stability of convergence.
+        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds ni = data[idx]
+        @inbounds composite[idx] = one(T) - ni/ci
     end
-    # Calculate the per-model derivatives
-    for k in eachindex(G)
-        model = models[k]
+    for k in eachindex(G, models)
+        @inbounds model = models[k]
         @assert axes(model) == axes(data) == axes(composite)
         result = zero(T)
-        for j in axes(model,2) # Could @turbo thread=true here but scaling isn't great
-            @turbo for i in axes(model,1)
-                @inbounds mi = model[i,j]
-                @inbounds ni = data[i,j]
-                @inbounds nici = composite[i,j]
-                result += ifelse( ni > zero(T), -mi * nici, zero(T) )
-            end
+        @turbo thread=true for idx in eachindex(model, data, composite)
+            @inbounds mi = model[idx]
+            @inbounds ni = data[idx]
+            @inbounds nici = composite[idx]
+            result += ifelse( ni > zero(T), -mi * nici, zero(T) )
         end
-        G[k] = result
+        @inbounds G[k] = result
     end
 end
 
