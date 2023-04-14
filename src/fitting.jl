@@ -21,12 +21,9 @@ true
     for k in axes(coeffs,1) # @turbo doesn't help with this loop 
         @inbounds ck = coeffs[k]
         @inbounds model = models[k]
-        @assert axes(model) == axes(composite)
-        for j in axes(composite,2)
-            @simd for i in axes(composite,1) 
-                # @inbounds composite[i,j] += model[i,j] * ck 
-                @inbounds composite[i,j] = muladd(model[i,j], ck, composite[i,j])
-            end
+        @simd for idx in eachindex(composite, model)
+            # @inbounds composite[idx] += model[idx] * ck 
+            @inbounds composite[idx] = muladd(model[idx], ck, composite[idx])
         end
     end
 end
