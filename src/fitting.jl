@@ -51,15 +51,13 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
     @assert axes(composite) == axes(data) 
     @assert ndims(composite) == 2
     result = zero(T) 
-    @turbo for j in axes(composite,2)  # LoopVectorization.@turbo gives 4x speedup here
-        for i in axes(composite,1)       
-            # Setting eps() as minimum of composite greatly improves stability of convergence
-            @inbounds ci = max( composite[i,j], eps(T) ) 
-            @inbounds ni = data[i,j]
-            # result += (ci > zero(T)) & (ni > zero(T)) ? ni - ci - ni * log(ni / ci) : zero(T)
-            # result += ni > zero(T) ? ni - ci - ni * log(ni / ci) : zero(T)
-            result += ifelse( ni > zero(T), ni - ci - ni * log(ni / ci), zero(T) )
-        end
+    @turbo thread=true for idx in eachindex(composite, data) # LoopVectorization.@turbo gives 2x speedup here
+        # Setting eps() as minimum of composite greatly improves stability of convergence
+        @inbounds ci = max( composite[idx], eps(T) ) 
+        @inbounds ni = data[idx]
+        # result += (ci > zero(T)) & (ni > zero(T)) ? ni - ci - ni * log(ni / ci) : zero(T)
+        # result += ni > zero(T) ? ni - ci - ni * log(ni / ci) : zero(T)
+        result += ifelse( ni > zero(T), ni - ci - ni * log(ni / ci), zero(T) )
     end
     # Penalizing result==0 here improves stability of convergence
     result != zero(T) ? (return result) : (return -typemax(T))
