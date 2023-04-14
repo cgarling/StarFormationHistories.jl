@@ -23,9 +23,9 @@ true
         @inbounds model = models[k]
         @assert axes(model) == axes(composite)
         for j in axes(composite,2)
-            @simd for i in axes(composite,1) # Putting @turbo here doesn't really help.
-                @inbounds composite[i,j] += model[i,j] * ck 
-                # @inbounds composite[i,j] = muladd(model[i,j], ck, composite[i,j])
+            @simd for i in axes(composite,1) 
+                # @inbounds composite[i,j] += model[i,j] * ck 
+                @inbounds composite[i,j] = muladd(model[i,j], ck, composite[i,j])
             end
         end
     end
