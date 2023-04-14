@@ -95,16 +95,14 @@ where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
     @assert axes(model) == axes(composite) == axes(data)
     @assert ndims(model) == 2
     result = zero(T)
-    for j in axes(model, 2)  # ~4x speedup from LoopVectorization.@turbo here
-        @turbo for i in axes(model, 1)
-            # Setting eps() as minimum of composite greatly improves stability of convergence.
-            @inbounds ci = max( composite[i,j], eps(T) )
-            @inbounds mi = model[i,j]
-            @inbounds ni = data[i,j]
-            # Returning NaN is required for Optim.jl but not for SPGBox.jl
-            # result += ifelse( (ci > zero(T)) & (ni > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN)
-            result += ifelse( ni > zero(T), -mi * (one(T) - ni/ci), zero(T) )
-        end
+    @turbo thread=true for idx in eachindex(model, composite, data) # ~4x speedup from LoopVectorization.@turbo here
+        # Setting eps() as minimum of composite greatly improves stability of convergence.
+        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds mi = model[idx]
+        @inbounds ni = data[idx]
+        # Returning NaN is required for Optim.jl but not for SPGBox.jl
+        # result += ifelse( (ci > zero(T)) & (ni > zero(T)), -mi * (one(T) - ni/ci), zero(T)) # NaN)
+        result += ifelse( ni > zero(T), -mi * (one(T) - ni/ci), zero(T) )
     end
     return result
 end
