@@ -51,7 +51,7 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
     @assert axes(composite) == axes(data) 
     @assert ndims(composite) == 2
     result = zero(T) 
-    @turbo thread=true for idx in eachindex(composite, data) # LoopVectorization.@turbo gives 2x speedup here
+    @turbo thread=false for idx in eachindex(composite, data) # LoopVectorization.@turbo gives 2x speedup here
         # Setting eps() as minimum of composite greatly improves stability of convergence
         @inbounds ci = max( composite[idx], eps(T) ) 
         @inbounds ni = data[idx]
@@ -95,7 +95,7 @@ where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
     @assert axes(model) == axes(composite) == axes(data)
     @assert ndims(model) == 2
     result = zero(T)
-    @turbo thread=true for idx in eachindex(model, composite, data) # ~4x speedup from LoopVectorization.@turbo here
+    @turbo thread=false for idx in eachindex(model, composite, data) # ~4x speedup from LoopVectorization.@turbo here
         # Setting eps() as minimum of composite greatly improves stability of convergence.
         @inbounds ci = max( composite[idx], eps(T) )
         @inbounds mi = model[idx]
@@ -149,7 +149,7 @@ function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number
         @inbounds model = models[k]
         @assert axes(model) == axes(data) == axes(composite)
         result = zero(T)
-        @turbo thread=true for idx in eachindex(model, data, composite)
+        @turbo thread=false for idx in eachindex(model, data, composite)
             @inbounds mi = model[idx]
             @inbounds ni = data[idx]
             @inbounds nici = composite[idx]
@@ -196,20 +196,18 @@ julia> sum(x0)
 5.05... # Close to `normalize_value`.
 ```
 """
-function construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
-    minlog, maxlog = extrema(logage)
-    sfr = normalize_value / (exp10(maxlog) - exp10(minlog)) # Average SFR / yr
-    unique_logage = sort!(unique(logage))
-    num_ages = [count(logage .== la) for la in unique_logage] # number of entries per unique
-    # unique_logage is sorted, but we want the first element to be zero to properly calculate
-    # the dt from present-day to the most recent logage in the vector, so vcat it on
-    unique_logage = vcat( [zero(T)], unique_logage )
-    dt = [exp10(unique_logage[i+1]) - exp10(unique_logage[i]) for i in 1:length(unique_logage)-1]
-    result = similar(logage)
-    for i in eachindex(logage, result)
-        la = logage[i]
-        idx = findfirst( x -> x==la, unique_logage )
-        result[i] = sfr * dt[idx-1] / num_ages[idx-1]
+function construct_x0(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
+    min_log, max_log = extrema(logAge)
+    @assert max_logAge > max_log # max_logAge must be greater than maximum(logAge)
+    unique_logAge = vcat(sort!(unique(logAge)), max_logAge)
+    sfr = normalize_value / (exp10(max_logAge) - exp10(min_log)) # Average SFR / yr
+    num_ages = [count(logAge .== la) for la in unique_logAge] # number of entries per unique
+    dt = [exp10(unique_logAge[i+1]) - exp10(unique_logAge[i]) for i in 1:length(unique_logAge)-1]
+    result = similar(logAge)
+    for i in eachindex(logAge, result)
+        la = logAge[i]
+        idx = findfirst( x -> x==la, unique_logAge )
+        result[i] = sfr * dt[idx] / num_ages[idx]
     end
     return result
 end
@@ -234,7 +232,7 @@ Calculates cumulative star formation history, star formation rates, and mean met
  - `sfr::Vector` gives the star formation rate across each bin in `unique_logAge`. If `coeffs .* normalize_value` are in units of solar masses, then `sfr` is in units of solar masses per year.
  - `mean_MH::Vector` gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique_logAge`. 
 """
-function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
+function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, max_logAge::Number, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
     @assert axes(coeffs) == axes(logAge) == axes(MH)
     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
     mstar_total = sum(coeffs) # Calculate the total stellar mass of the model
@@ -246,7 +244,7 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
         MH = MH[idx] 
     end
     unique_logAge = unique(logAge)
-    dt = diff( vcat(0, exp10.(unique_logAge)) )
+    dt = diff( vcat(exp10.(unique_logAge), exp10(max_logAge)) )
     mstar_arr = Vector{eltype(coeffs)}(undef, length(unique_logAge))
     mean_mh_arr = zeros(promote_type(eltype(MH),eltype(coeffs)), length(unique_logAge))
     for i in eachindex(unique_logAge)
@@ -536,20 +534,18 @@ julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3); normalize_value=5.0) ≈ co
 true
 ```
 """
-function construct_x0_mdf(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
-    minlog, maxlog = extrema(logage)
-    sfr = normalize_value / (exp10(maxlog) - exp10(minlog)) # Average SFR / yr
-    unique_logage = unique(logage)
-    idxs = sortperm(unique_logage)
-    # unique_logage is sorted, but we want the first element to be zero to properly calculate
-    # the dt from present-day to the most recent logage in the vector, so vcat it on
-    sorted_ul = vcat([zero(T)], unique_logage[idxs])
-    dt = [exp10(sorted_ul[i+1]) - exp10(sorted_ul[i]) for i in 1:length(sorted_ul)-1]
-    # return sfr .* dt
+function construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
+    minlog, maxlog = extrema(logAge)
+    @assert max_logAge > maxlog # max_logAge has to be greater than the maximum of logAge vector
+    sfr = normalize_value / (exp10(max_logAge) - exp10(minlog)) # Average SFR / yr
+    unique_logAge = unique(logAge)
+    idxs = sortperm(unique_logAge)
+    sorted_ul = vcat(unique_logAge[idxs], max_logAge)
+    dt = diff( vcat(exp10.(sorted_ul), exp10(max_logAge)) )
     return [ begin
-                idx = findfirst( ==(sorted_ul[i+1]), unique_logage )
+                idx = findfirst( ==(sorted_ul[i]), unique_logAge )
                 sfr * dt[idx]
-             end for i in eachindex(dt) ]
+             end for i in eachindex(unique_logAge) ]
 end
 
 _gausspdf(x,μ,σ) = exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
