@@ -183,13 +183,13 @@ Computes -loglikelihood and its gradient simultaneously for use with Optim.jl an
 end
 
 """
-    x0::typeof(logage) = construct_x0(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
+    x0::typeof(logage) = construct_x0(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
 
-Generates a vector of initial stellar mass normalizations for input to [`fit_templates`](@ref) or [`hmc_sample`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logage` vector that contains the `log10(age [yr])` of each isochrone that you are going to input as models.
+Generates a vector of initial stellar mass normalizations for input to [`fit_templates`](@ref) or [`hmc_sample`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logAge` vector that contains the `log10(Age [yr])` of each isochrone that you are going to input as models. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, and with the final right-bin edge being `max_logAge`. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case you would want to set `max_logAge=6.9` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
 # Examples
 ```julia
-julia> x0 = construct_x0(repeat([7.0,8.0,9.0],3); normalize_value=5.0)
+julia> x0 = construct_x0(repeat([7.0,8.0,9.0],3), 10.0; normalize_value=5.0)
 9-element Vector{Float64}: ...
 
 julia> sum(x0)
@@ -213,13 +213,14 @@ function construct_x0(logAge::AbstractVector{T}, max_logAge::Number; normalize_v
 end
 
 """
-    (unique_logAge, cum_sfh, sfr, mean_MH) = calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
+    (unique_logAge, cum_sfh, sfr, mean_MH) = calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, max_logAge::Number, MH::AbstractVector; normalize_value=1, sorted::Bool=false)
 
 Calculates cumulative star formation history, star formation rates, and mean metallicity evolution as functions of `logAge = log10(age [yr])`.
 
 # Arguments
  - `coeffs::AbstractVector` is a vector of stellar mass coefficients such as those returned by [`fit_templates`](@ref), for example. Actual stellar mass in stellar population `j` is `coeffs[j] * normalize_value`.
- - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations corresponding to the provided `coeffs`.
+ - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations corresponding to the provided `coeffs`. For the purposes of calculating star formation rates, these are assumed to be left-bin edges.
+ - `max_logAge::Number` is the rightmost final bin edge for calculating star formation rates. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case you would want to set `max_logAge=6.9` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
  - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations corresponding to the provided `coeffs`.
 
 # Keyword Arguments
@@ -508,29 +509,29 @@ end
 # Fitting with a metallicity distribution function rather than totally free per logage
 
 """
-    x0::Vector = construct_x0_mdf(logage::AbstractVector{T}; normalize_value::Number=one(T)) where T <: Number
+    x0::Vector = construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
 
-Generates a vector of initial stellar mass normalizations for input to [`StarFormationHistories.fit_templates_mdf`](@ref) or [`StarFormationHistories.hmc_sample_mdf`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logage` vector that contains the `log10(age [yr])` of each isochrone that you are going to input as models.
+Generates a vector of initial stellar mass normalizations for input to [`StarFormationHistories.fit_templates_mdf`](@ref) or [`StarFormationHistories.hmc_sample_mdf`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logAge` vector that contains the `log10(Age [yr])` of each isochrone that you are going to input as models. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, and with the final right-bin edge being `max_logAge`. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case you would want to set `max_logAge=6.9` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
-The difference between this function and [`StarFormationHistories.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logage`) while [`StarFormationHistories.construct_x0`](@ref) returns an `x0` vector that is of length `length(logage)`; that is, a normalization factor for every entry in `logage`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logage)[i]`. 
+The difference between this function and [`StarFormationHistories.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logAge`) while [`StarFormationHistories.construct_x0`](@ref) returns an `x0` vector that is of length `length(logAge)`; that is, a normalization factor for every entry in `logAge`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logAge)[i]`. 
 
 # Notes
 
 # Examples
 ```julia
-julia> construct_x0_mdf([9.0,8.0,7.0]; normalize_value=5.0)
+julia> construct_x0_mdf([9.0,8.0,7.0], 10.0; normalize_value=5.0)
 3-element Vector{Float64}:
- 4.545454545454545
- 0.45454545454545453
- 0.050505045454545455
+ 4.504504504504504
+ 0.4504504504504504
+ 0.04504504504504504
 
-julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0];inner=3); normalize_value=5.0)
+julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0];inner=3), 10.0; normalize_value=5.0)
 3-element Vector{Float64}:
- 4.545454545454545
- 0.45454545454545453
- 0.050505045454545455
+ 4.504504504504504
+ 0.4504504504504504
+ 0.04504504504504504
 
-julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3); normalize_value=5.0) ≈ construct_x0([9.0,8.0,7.0]; normalize_value=5.0)
+julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3), 10.0; normalize_value=5.0) ≈ construct_x0([9.0,8.0,7.0], 10.0; normalize_value=5.0)
 true
 ```
 """
