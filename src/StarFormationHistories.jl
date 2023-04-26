@@ -1,16 +1,16 @@
 module StarFormationHistories
 
-import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, sampler # cdf
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, Multivariate, MvNormal, _rand! # cdf
 import DynamicHMC  # For random uncertainties in SFH fits
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
-import LinearAlgebra: diag # det, inv 
+import LinearAlgebra: diag, Hermitian # det, inv 
 import LogDensityProblems # For interfacing with DynamicHMC
 import LoopVectorization: @turbo
 import Optim
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
-import Random: AbstractRNG, default_rng
+import Random: AbstractRNG, default_rng, rand
 import Roots: find_zero # For mass_limits in simulate.jl
 import SpecialFunctions: erf
 import StaticArrays: SVector, SMatrix, sacollect

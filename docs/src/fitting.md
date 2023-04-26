@@ -174,6 +174,7 @@ We implement this optimization scheme in [`fit_templates`](@ref), which is our r
 
 ```@docs
 StarFormationHistories.fit_templates
+StarFormationHistories.LogTransformFTResult
 ```
 
 Once you have obtained stellar mass coefficients from the above methods, you can convert them into star formation rates and compute per-age mean metallicities with [`StarFormationHistories.calculate_cum_sfr`](@ref).
