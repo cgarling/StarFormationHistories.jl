@@ -174,6 +174,7 @@ We implement this optimization scheme in [`fit_templates`](@ref), which is our r
 
 ```@docs
 StarFormationHistories.fit_templates
+StarFormationHistories.LogTransformFTResult
 ```
 
 Once you have obtained stellar mass coefficients from the above methods, you can convert them into star formation rates and compute per-age mean metallicities with [`StarFormationHistories.calculate_cum_sfr`](@ref).
@@ -213,6 +214,8 @@ We provide the method [`StarFormationHistories.fit_templates_mdf`](@ref) to fit 
 
 ```@docs
 StarFormationHistories.fit_templates_mdf
+StarFormationHistories.LogTransformMDFσResult
+StarFormationHistories.LogTransformMDFResult
 ```
 
 The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`

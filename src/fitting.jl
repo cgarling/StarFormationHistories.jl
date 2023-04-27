@@ -188,7 +188,7 @@ end
 Generates a vector of initial stellar mass normalizations for input to [`fit_templates`](@ref) or [`hmc_sample`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logAge` vector that contains the `log10(Age [yr])` of each isochrone that you are going to input as models. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, and with the final right-bin edge being `max_logAge`. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case you would want to set `max_logAge=6.9` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
 # Examples
-```julia
+```julia-repl
 julia> x0 = construct_x0(repeat([7.0,8.0,9.0],3), 10.0; normalize_value=5.0)
 9-element Vector{Float64}: ...
 
@@ -307,11 +307,49 @@ function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:
     LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
+"""
+    LogTransformFTResult(μ::AbstractVector{<:Number},
+                         σ::AbstractVector{<:Number},
+                         invH::AbstractMatrix{<:Number},
+                         result)
+
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates`](@ref). The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate).
+
+`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
+
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (logarithmically transformed) fitting variables with covariance matrix `invH` and means `log.(μ)`. We find this approximation is good for the MAP result but less robust for the MLE. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `length(μ) x N` matrix, or fail if `invH` is not positive definite.
+
+# Examples
+```julia-repl
+julia> result = fit_templates(models, data);
+
+julia> typeof(result.map)
+StarFormationHistories.LogTransformFTResult{...}
+
+julia> size(rand(result.map, 3)) == (length(models),3)
+true
+```
+"""
+struct LogTransformFTResult{S <: AbstractVector{<:Number},
+                            T <: AbstractVector{<:Number},
+                            U <: AbstractMatrix{<:Number},
+                            V} <: Sampleable{Multivariate, Continuous}
+    μ::S
+    σ::T
+    invH::U
+    result::V
+end
+Base.length(result::LogTransformFTResult) = length(result.μ)
+function _rand!(rng::AbstractRNG, result::LogTransformFTResult, x::Union{AbstractVector{T}, DenseMatrix{T}}) where T <: Real
+    dist = MvNormal(Optim.minimizer(result.result), Hermitian(result.invH))
+    _rand!(rng, dist, x)
+    @. x = exp(x)
+end
 
 """
     result = fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
-Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (MAP) for the coefficients `coeffs` such that the composite Hess diagram model is `sum(models .* coeffs)` using the provided templates `models` and the observed Hess diagram `data`. Utilizes the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the likelihood of the data given the model. See the examples in the documentation for comparisons of the results of this method and [`hmc_sample`](@ref). 
+Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (MAP) for the coefficients `coeffs` such that the composite Hess diagram model is `sum(models .* coeffs)` using the provided templates `models` and the observed Hess diagram `data`. Utilizes the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the likelihood of the data given the model. See the examples in the documentation for comparisons of the results of this method and [`hmc_sample`](@ref) which samples the posterior via Hamiltonian Monte Carlo. 
 
 # Arguments
  - `models::AbstractVector{AbstractMatrix{<:Number}}`: the list of template Hess diagrams for the simple stellar populations (SSPs) being considered; all must have the same size.
@@ -323,7 +361,7 @@ Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (
 Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization. 
 
 # Returns
-`result` is a `NamedTuple` containing two `NamedTuple`s, each of which has identical structure. The two components of `result` are `result.map=result[1]`, which contains the results of the MAP optimization, and `result.mle=result[2]`, which contains the results of the MLE optimization. Each of these `NamedTuple`s contain the following fields, accessible as, e.g., `result.map.μ`, `result.map.result`, etc.:
+`result` is a `NamedTuple` containing two [`StarFormationHistories.LogTransformFTResult`](@ref). The two components of `result` are `result.map` or `result[1]`, which contains the results of the MAP optimization, and `result.mle` or `result[2]`, which contains the results of the MLE optimization. The documentation for [`StarFormationHistories.LogTransformFTResult`](@ref) contains more information about these types, but briefly they contain the following fields, accessible as, e.g., `result.map.μ`, `result.map.σ`, etc.:
  - `μ::Vector{<:Number}` are the optimized `coeffs` at the maximum.
  - `σ::Vector{<:Number}` are the standard errors on the coeffs `μ` calculated from an estimate of the inverse Hessian matrix evaluated at `μ`. The inverse of the Hessian matrix at the maximum of the likelihood (or posterior) is a estimator for the variance-covariance matrix of the parameters, but is only accurate when the second-order expansion given by the Hessian at the maximum is a good approximation to the function being optimized (i.e., when the optimized function is approximately quadratic around the maximum; see [Dovi et al. 1991](https://doi.org/10.1016/0893-9659(91)90129-J) for more information). We find this is often the case for the MAP estimate, but the errors found for coefficients that are ≈0 in the MLE are typically unrealistically small. For coefficients significantly greater than 0, the `σ` values from the MAP and MLE are typically consistent to 5--10%.
  - `invH::Matrix{<:Number}` is the estimate of the inverse Hessian matrix at `μ` that was used to derive `σ`. The optimization is done under a logarithmic transform, such that `θ[j] = log(coeffs[j])` are the actual parameters optimized, so the entries in the Hessian are actually
@@ -331,6 +369,8 @@ Other `kws...` are passed to `Optim.options` to set things like convergence crit
 H^{(j,k)} ( \\boldsymbol{\\hat \\theta} ) = \\left. \\frac{\\partial^2 \\, J(\\boldsymbol{\\theta})}{\\partial \\theta_j \\, \\partial \\theta_k} \\right\\vert_{\\boldsymbol{\\theta}=\\boldsymbol{\\hat \\theta}}
 ```
  - `result` is the full object returned by the optimization from `Optim.jl`; this is of type `Optim.MultivariateOptimizationResults`. Remember that the optimization is done with parameters `θ[j] = log(coeffs[j])` when dealing with this raw output. This means that, for example, we calculate `result.map.μ` as `exp.(Optim.minimizer(result.map.result))`.
+
+The special property of the [`StarFormationHistories.LogTransformFTResult`](@ref) type is that you can draw a set of `N::Integer` random parameter samples from the result using the inverse Hessian approximation discussed above by doing `rand(result.map, N)`. This type implements the random sampling API of `Distributions.jl` so the other standard sampling methods should work as well. In our tests these samples compare very favorably against those from [`hmc_sample`](@ref), which samples the posterior via Hamiltonian Monte Carlo and is therefore more robust but much more expensive. We compare these methods in the examples.
 
 # Notes
  - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred).
@@ -370,19 +410,18 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
     # Calculate final result without prior
     result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
-    # result = Optim.optimize(Optim.only_fg!( fg_final! ), fill(-10.0,length(models)), fill(Inf,length(models)), Optim.minimizer(result_prior), Optim.Fminbox(bfgs_struct), Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, outer_iterations=1, kws...))
-    # NamedTuple of NamedTuples. "map" contains the mean `μ`, standard error `σ`, 
-    # the estimate of the inverse Hessian `invH` from BFGS and full result struct `result`
-    # for the maximum a posteriori estimate. "mle" contains the same entries but for the maximum
-    # likelihood estimate. 
-    return  ( map = ( μ = exp.(Optim.minimizer(result_map)),
-                            σ = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_map)),
-                            invH = result_map.trace[end].metadata["~inv(H)"],
-                            result = result_map ),
-              mle = ( μ = exp.(Optim.minimizer(result_mle)),
-                      σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* exp.(Optim.minimizer(result_mle)),
-                      invH = result_mle.trace[end].metadata["~inv(H)"],
-                      result = result_mle) )
+    # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
+    # "mle" contains the same entries but for the maximum likelihood estimate.
+    return  ( map = LogTransformFTResult(exp.(Optim.minimizer(result_map)),
+                                       sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
+                                           exp.(Optim.minimizer(result_map)),
+                                       result_map.trace[end].metadata["~inv(H)"],
+                                       result_map ),
+              mle = LogTransformFTResult(exp.(Optim.minimizer(result_mle)),
+                                       sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                           exp.(Optim.minimizer(result_mle)),
+                                       result_mle.trace[end].metadata["~inv(H)"],
+                                       result_mle ) )
 end
 
 # M1 = rand(120,100)
@@ -450,29 +489,29 @@ import StatFormationHistories: hmc_sample
 import Statistics: mean
 # Run sampler using progress meter to monitor progress
 # assuming you have constructed some templates `models` and your observational Hess diagram `data`
-julia> result = hmc_sample( models, data, 1000; reporter=DynamicHMC.ProgressMeterReport())
+result = hmc_sample( models, data, 1000; reporter=DynamicHMC.ProgressMeterReport())
 # The chain values are stored in result.posterior matrix; extract them with `result.posterior_matrix`
 # An exponential transformation is needed since the optimization internally uses a logarithmic 
 # transformation and samples log(θ) rather than θ directly. 
-julia> mc_matrix = exp.( result.posterior_matrix )
+mc_matrix = exp.( result.posterior_matrix )
 # We can look at some statistics from the chain; want to see high acceptance rate (>0.5) and large % of
 # "turning" for termination criteria. 
-julia> DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)
-Hamiltonian Monte Carlo sample of length 1000
-  acceptance rate mean: 0.92, 5/25/50/75/95%: 0.65 0.88 0.97 1.0 1.0
-  termination: divergence => 0%, max_depth => 0%, turning => 100%
-  depth: 0 => 0%, 1 => 64%, 2 => 36%
+DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)
+    Hamiltonian Monte Carlo sample of length 1000
+      acceptance rate mean: 0.92, 5/25/50/75/95%: 0.65 0.88 0.97 1.0 1.0
+      termination: divergence => 0%, max_depth => 0%, turning => 100%
+      depth: 0 => 0%, 1 => 64%, 2 => 36%
 # mc_matrix has size `(length(models), nsteps)` so each column is an independent
 # sample of the SFH as defined by the coefficients and the rows contain the samples
 # for each parameter. 
-julia> mstar_tot = sum.(eachcol(mc_matrix)) # Total stellar mass of the modelled system per sample
-julia> mc_means = mean.(eachrow(mc_matrix)) # Mean of each coefficient evaluated across all samples
+mstar_tot = sum.(eachcol(mc_matrix)) # Total stellar mass of the modelled system per sample
+mc_means = mean.(eachrow(mc_matrix)) # Mean of each coefficient evaluated across all samples
 # Example with multiple chains sampled in parallel via multi-threading
 import Threads
-julia> t_result = hmc_sample( models, data, 1000, Threads.nthreads(); reporter=DynamicHMC.ProgressMeterReport())
+t_result = hmc_sample( models, data, 1000, Threads.nthreads(); reporter=DynamicHMC.ProgressMeterReport())
 # Combine the multiple chains into a single matrix and transform
 # Can then use the same way as `mc_matrix` above
-julia> mc_matrix = exp.( DynamicHMC.pool_posterior_matrices(t_result) )
+mc_matrix = exp.( DynamicHMC.pool_posterior_matrices(t_result) )
 ```
 """
 function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
@@ -547,6 +586,50 @@ function construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normali
                 idx = findfirst( ==(sorted_ul[i]), unique_logAge )
                 sfr * dt[idx]
              end for i in eachindex(unique_logAge) ]
+end
+
+"""
+    LogTransformMDFσResult(μ::AbstractVector{<:Number},
+                           σ::AbstractVector{<:Number},
+                           invH::AbstractMatrix{<:Number},
+                           result)
+
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) for fixed `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate).
+
+`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
+
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (logarithmically transformed) fitting variables with covariance matrix `invH` and means `log.(μ)`. We find this approximation is good for the MAP result but less robust for the MLE. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `(length(μ)+2) x N` matrix, or fail if `invH` is not positive definite.
+
+# Examples
+```julia-repl
+julia> result = fit_templates_mdf(models, data, model_logAge, model_MH, 0.3);
+
+julia> typeof(result.map)
+StarFormationHistories.LogTransformMDFσResult{...}
+
+julia> size(rand(result.map, 3)) == (length(models)+2,3)
+true
+```
+"""
+struct LogTransformMDFσResult{S <: AbstractVector{<:Number},
+                              T <: AbstractVector{<:Number},
+                              U <: AbstractMatrix{<:Number},
+                              V} <: Sampleable{Multivariate, Continuous}
+    μ::S
+    σ::T
+    invH::U
+    result::V
+end
+Base.length(result::LogTransformMDFσResult) = length(result.μ)
+function _rand!(rng::AbstractRNG, result::LogTransformMDFσResult, x::Union{AbstractVector{T}, DenseMatrix{T}}) where T <: Real
+    dist = MvNormal(Optim.minimizer(result.result), Hermitian(result.invH))
+    _rand!(rng, dist, x)
+    for i in axes(x,1)[begin:end-2]
+        for j in axes(x,2)
+            x[i,j] = exp(x[i,j])
+        end
+    end
+    return x
 end
 
 _gausspdf(x,μ,σ) = exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
@@ -708,8 +791,58 @@ function fit_templates_mdf(models::AbstractVector{T},
         σ_map[i] = μ_map[i] * σ_map[i]
         σ_mle[i] = μ_mle[i] * σ_mle[i]
     end
-    return (map = (μ = μ_map, σ = σ_map, result = result_map),
-            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+    return (map = LogTransformMDFσResult(μ_map, σ_map, Optim.trace(result_map)[end].metadata["~inv(H)"], result_map),
+            mle = LogTransformMDFσResult(μ_mle, σ_mle, Optim.trace(result_mle)[end].metadata["~inv(H)"], result_mle))
+    # return (map = (μ = μ_map, σ = σ_map, result = result_map),
+    #         mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+end
+
+"""
+    LogTransformMDFResult(μ::AbstractVector{<:Number},
+                           σ::AbstractVector{<:Number},
+                           invH::AbstractMatrix{<:Number},
+                           result)
+
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) when freely fitting `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate).
+
+`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
+
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (logarithmically transformed) fitting variables with covariance matrix `invH` and means `log.(μ)`. We find this approximation is good for the MAP result but less robust for the MLE. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `(length(μ)+3) x N` matrix, or fail if `invH` is not positive definite.
+
+# Examples
+```julia-repl
+julia> result = fit_templates_mdf(models, data, model_logAge, model_MH);
+
+julia> typeof(result.map)
+StarFormationHistories.LogTransformMDFσResult{...}
+
+julia> size(rand(result.map, 3)) == (length(models)+3,3)
+true
+```
+"""
+struct LogTransformMDFResult{S <: AbstractVector{<:Number},
+                             T <: AbstractVector{<:Number},
+                             U <: AbstractMatrix{<:Number},
+                             V} <: Sampleable{Multivariate, Continuous}
+    μ::S
+    σ::T
+    invH::U
+    result::V
+end
+Base.length(result::LogTransformMDFResult) = length(result.μ)
+function _rand!(rng::AbstractRNG, result::LogTransformMDFResult, x::Union{AbstractVector{T}, DenseMatrix{T}}) where T <: Real
+    dist = MvNormal(Optim.minimizer(result.result), Hermitian(result.invH))
+    _rand!(rng, dist, x)
+    for i in axes(x,1)[begin:end-3]
+        for j in axes(x,2)
+            x[i,j] = exp(x[i,j])
+        end
+    end
+    # Transform the σ
+    for j in axes(x,2)
+        x[end,j] = exp(x[end,j])
+    end
+    return x
 end
 
 """
@@ -798,10 +931,10 @@ This function is designed to work best with a "grid" of stellar models, defined 
 Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
 
 # Returns
- - This function returns an object of identical structure to the object returned by [`fit_templates`](@ref); please refer to that documentation. `α` and `β` are not optimized under a logarithmic transform, but `σ` is since it must be positive. 
+ - This function returns an object (say, `result`) of similar structure to the object returned by [`fit_templates`](@ref). Specifically, this method will return a `NamedTuple` with entries `result.mle` and `result.map` for the maximum likelihood and maximum a posteriori estimates, respectively. If you provide a fixed `σ`, those objects will be instances of [`StarFormationHistories.LogTransformMDFσResult`](@ref). If you allow `σ` to be freely fit, those objects will be instances of [`StarFormationHistories.LogTransformMDFResult`](@ref). Both of these types support sampling via, e.g., `rand(result.map, 10)`. 
 
 # Notes
- - This method also uses the `BFGS` method from `Optim.jl` internally just like [`fit_templates`](@ref); please see the notes section of that method. 
+ - `α` and `β` are not optimized under a logarithmic transform, but `σ` is since it must be positive. This method also uses the `BFGS` method from `Optim.jl` internally just like [`fit_templates`](@ref); please see the notes section of that method. 
 """
 function fit_templates_mdf(models::AbstractVector{T},
                            data::AbstractMatrix{<:Number},
@@ -885,8 +1018,10 @@ function fit_templates_mdf(models::AbstractVector{T},
     end
     σ_map[end] = μ_map[end] * σ_map[end]
     σ_mle[end] = μ_mle[end] * σ_mle[end]
-    return (map = (μ = μ_map, σ = σ_map, result = result_map),
-            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+    return (map = LogTransformMDFResult(μ_map, σ_map, Optim.trace(result_map)[end].metadata["~inv(H)"], result_map),
+            mle = LogTransformMDFResult(μ_mle, σ_mle, Optim.trace(result_mle)[end].metadata["~inv(H)"], result_mle))
+    # return (map = (μ = μ_map, σ = σ_map, result = result_map),
+    #         mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
 end
 
 # We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
