@@ -214,6 +214,8 @@ We provide the method [`StarFormationHistories.fit_templates_mdf`](@ref) to fit 
 
 ```@docs
 StarFormationHistories.fit_templates_mdf
+StarFormationHistories.LogTransformMDFσResult
+StarFormationHistories.LogTransformMDFResult
 ```
 
 The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`

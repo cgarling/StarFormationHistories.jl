@@ -1,6 +1,6 @@
 module StarFormationHistories
 
-import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, Multivariate, MvNormal, _rand! # cdf
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, Multivariate, MvNormal, _rand!, sampler # cdf
 import DynamicHMC  # For random uncertainties in SFH fits
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import LBFGSB # Used for one method in fitting.jl
