@@ -63,20 +63,24 @@ end
 
 #### Metallicity utilities
 """
-    Y_from_Z(Z)
-Calculates the helium mass fraction (Y) for a star given its metal mass fraction (Z) using the approximation `Y = 0.2485 + 1.78Z` as assumed for [PARSEC](http://stev.oapd.inaf.it/cgi-bin/cmd_3.7) isochrones. 
+    Y_from_Z(Z, Y_p=0.2485)
+Calculates the helium mass fraction (Y) for a star given its metal mass fraction (Z) using the approximation `Y = Y_p + 1.78Z`, with `Y_p` being the primordial helium abundance equal to 0.2485 as assumed for [PARSEC](http://stev.oapd.inaf.it/cmd) isochrones. 
 """
-Y_from_Z(Z) = 0.2485 + 1.78Z
+Y_from_Z(Z, Y_p = 0.2485) = Y_p + 1.78Z
 """
     X_from_Z(Z)
 Calculates the hydrogen mass fraction (X) for a star given its metal mass fraction (Z) via `X = 1 - (Z + Y)`, with the helium mass fraction `Y` approximated via [`StarFormationHistories.Y_from_Z`](@ref). 
 """
 X_from_Z(Z) = 1 - (Y_from_Z(Z) + Z)
 """
-    MH_from_Z(Z, solZ=0.0152)
-Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`StarFormationHistories.X_from_Z`](@ref). This is based on an approximation and may not be suitable for precision calculations.
+    MH_from_Z(Z, solZ=0.01524)
+Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`StarFormationHistories.X_from_Z`](@ref).
+
+The present-day solar Z is measured to be 0.01524 ([Caffau et al. 2011](https://ui.adsabs.harvard.edu/abs/2011SoPh..268..255C/abstract)), but for PARSEC isochrones an [M/H] of 0 corresponds to Z=0.01471. This is because of a difference between the Sun's initial and present helium content caused by diffusion. If you want to reproduce PARSEC's scaling, you should set `solZ=0.01471`.
+
+This function is an approximation and may not be suitable for precision calculations.
 """
-MH_from_Z(Z, solZ=0.0152) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ))
+MH_from_Z(Z, solZ=0.01524) = log10(Z / X_from_Z(Z)) - log10(solZ / X_from_Z(solZ))
 # PARSEC says that the solar Z is 0.0152 and Z/X = 0.0207, but they don't quite agree
 # when assuming their provided Y=0.2485+1.78Z. We'll adopt their solZ here, but this
 # should probably not be used for precision calculations.
