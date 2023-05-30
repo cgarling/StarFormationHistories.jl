@@ -4,5 +4,5 @@
 StarFormationHistories.AbstractBinaryModel
 StarFormationHistories.sample_binary
 StarFormationHistories.NoBinaries
-StarFormationHistories.Binaries
+StarFormationHistories.RandomBinaryPairs
 ```
