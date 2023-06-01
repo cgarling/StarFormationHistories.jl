@@ -547,6 +547,53 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
     return mass_vec, mag_vec
 end
 
+generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
+    generate_stars_mag(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
+function generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3)) where {N, T<:Number}
+    # Setup and input ingestion
+    mags = [ i .+ dist_mod for i in mags ]         # Update mags with the provided distance modulus.
+    mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
+    limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
+    # Construct the sampler object for the provided imf; for some distributions, this will return a
+    # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
+    imf_sampler = sampler(imf)
+    itp = interpolate((mini_vec,), mags, Gridded(Linear()))
+    mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
+
+    # Find indices into `mags` and `mag_names` that correspdong to `limit_name` and `mag_lim_name`.
+    idxlim = findfirst(x->x==absmag_name, mag_names) 
+    # Throw error if absmag_name not in mag_names.
+    if idxlim == nothing
+        throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
+    end
+    sourceidx = findfirst(x->x==mag_lim_name, mag_names) # Get the index into `mags` and `mag_names` that equals `mag_lim_name`
+    if (!isinfinite(mag_lim) & (sourceidx == nothing))
+        throw(ArgumentError("Provided `mag_lim_name` is not contained in provided `mag_names` array."))
+    end
+
+    # Set up accumulators and loop
+    total = zero(T)
+    mass_vec = Vector{SVector{length(binary_model),eltype(imf)}}(undef,0)
+    mag_vec = Vector{eltype(mags)}(undef,0)
+    while total < limit
+        masses = sample_system(imf_sampler, rng, binary_model) # Sample masses of stars in a single system
+        lum = zero(eltype(mags)) # Accumulator to hold per-filter luminosities
+        for mass in masses
+            # Continue loop if sampled mass is outside of valid isochrone range
+            if (mass < mmin1) | (mass > mmax)
+                continue
+            end
+            lum += L_from_MV.( itp(mass) )
+        end
+        total += lum[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
+        if (sum(lum) > 0) & (MV_from_L(lum[sourceidx]) > mag_lim) # If the source is bright enough, add it to output
+            push!(mass_vec, masses)
+            push!(mag_vec, MV_from_L.(lum))
+        end
+    end
+    return mass_vec, mag_vec
+end
+
 ############################################################################
 #### Functions to generate composite mock galaxy catalogs from multiple SSPs
 """
