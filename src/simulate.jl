@@ -636,6 +636,27 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
     return massvec, mag_vec
 end
 
+function generate_stars_mass_composite2(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number} 
+    if !(axes(mini_vec,1) == axes(mags,1) == axes(massfrac,1))
+        throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all have equal length and identical indexing."))
+    end
+    ncomposite = length(mini_vec) # Number of stellar populations provided.
+    massfrac = massfrac ./ sum(massfrac) # Ensure massfrac is normalized to sum to 1.
+    # Allocate output vectors.
+    massvec = [ Vector{SVector{length(binary_model),eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
+    mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
+    mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
+    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
+    Threads.@threads for i in eachindex(mini_vec, mags, massfrac)
+        result = generate_stars_mass2(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf;
+                                      binary_model = binary_model, kws...)
+        massvec[i] = result[1]
+        mag_vec[i] = result[2]
+    end
+    return massvec, mag_vec
+end
+
 """
     (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", kws...)
 
