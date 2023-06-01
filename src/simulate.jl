@@ -214,12 +214,20 @@ function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T}
     else
         idxmag = findfirst(x->x==mag_lim_name, mag_names) # Find the index into mag_lim_names where == mag_lim_name.
         idxmag == nothing && throw(ArgumentError("Provided `mag_lim_name` is not contained in provided `mag_names` array."))
+        # If mag_lim is brighter than the faintest star in the isochrone, then we solve
         if mag_lim < mags[findfirst(x->x==mmin, mini_vec)][idxmag]
             tmp_mags = [i[idxmag] for i in mags]
-            mag_lim < minimum(tmp_mags) && throw(DomainError(mag_lim, "The provided `mag_lim` is brighter than all the stars in the input `mags` array assuming the input distance modulus `dist_mod`. Revise your arguments."))
+            if mag_lim < minimum(tmp_mags)
+                throw(DomainError(mag_lim, "The provided `mag_lim` is brighter than all the stars in the input `mags` array assuming the input distance modulus `dist_mod`. Revise your arguments."))
+            end
             # Solve for stellar initial mass where mag == mag_lim by constructing interpolator and root-finding.
+            # If the isochrone includes post-RGB evolution, then luminosity may not be a
+            # monotonic function of initial birth mass. To bracket our root-finding, we will
+            # find the brightest star in the isochrone and use the initial mass of that star
+            # as the upper limit.
+            brightest = findmin(tmp_mags)
             itp = interpolate((mini_vec,), tmp_mags, Gridded(Linear()))
-            mmin2 = find_zero(x -> itp(x) - mag_lim, (mmin, mmax))
+            mmin2 = find_zero(x -> itp(x) - mag_lim, (mmin, mini_vec[brightest[2]])) # (mmin, mmax))
             return mmin2, mmax
         else
             return mmin, mmax
@@ -548,12 +556,15 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
 end
 
 generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
-    generate_stars_mag(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
+    generate_stars_mag2(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
 function generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3)) where {N, T<:Number}
     # Setup and input ingestion
     mags = [ i .+ dist_mod for i in mags ]         # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
-    limit = L_from_MV(absmag) # Convert the provided `limit` from magnitudes into luminosity.
+    # Convert the provided `limit` from absolute magnitudes to apparent magnitudes and then
+    # into luminosity; the conversion to apparent mag here will make it easier to accumulate
+    # the luminosity later in the loop, since `mags` has distance modulus added as well. 
+    limit = L_from_MV(absmag + dist_mod) 
     # Construct the sampler object for the provided imf; for some distributions, this will return a
     # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
     imf_sampler = sampler(imf)
@@ -561,13 +572,14 @@ function generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags::AbstractV
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
 
     # Find indices into `mags` and `mag_names` that correspdong to `limit_name` and `mag_lim_name`.
-    idxlim = findfirst(x->x==absmag_name, mag_names) 
-    # Throw error if absmag_name not in mag_names.
+    idxlim = findfirst(x->x==absmag_name, mag_names)
+    # Throw error if `absmag_name` not in `mag_names`.
     if idxlim == nothing
         throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
     end
     sourceidx = findfirst(x->x==mag_lim_name, mag_names) # Get the index into `mags` and `mag_names` that equals `mag_lim_name`
-    if (!isinfinite(mag_lim) & (sourceidx == nothing))
+    # Throw error if `mag_lim` is finite (not `Inf`) and `mag_lim_name` not in `mag_names`.
+    if (isfinite(mag_lim) & (sourceidx == nothing))
         throw(ArgumentError("Provided `mag_lim_name` is not contained in provided `mag_names` array."))
     end
 
@@ -586,11 +598,13 @@ function generate_stars_mag2(mini_vec::AbstractVector{<:Number}, mags::AbstractV
             lum += L_from_MV.( itp(mass) )
         end
         total += lum[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
-        if (sum(lum) > 0) & (MV_from_L(lum[sourceidx]) > mag_lim) # If the source is bright enough, add it to output
+        # If the source is bright enough, or `mag_lim` is infinite, add it to output
+        if (sum(lum) > 0) & (!isfinite(mag_lim) || MV_from_L(lum[sourceidx]) < mag_lim) 
             push!(mass_vec, masses)
             push!(mag_vec, MV_from_L.(lum))
         end
     end
+    # println(MV_from_L(total) - dist_mod) # Print absolute luminosity sampled
     return mass_vec, mag_vec
 end
 
@@ -701,6 +715,34 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
     Threads.@threads for i in eachindex(mini_vec, mags, fracs)
         result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf; kws...)
+        massvec[i] = result[1]
+        mag_vec[i] = result[2]
+    end
+    return massvec, mag_vec
+end
+
+function generate_stars_mag_composite2(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number}
+    !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
+    ncomposite = length(mini_vec) # Number of stellar populations provided.
+    fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
+    # Interpret whether user requests `fracs` represent luminosity or mass fractions.
+    if frac_type == "lum"
+        limit = L_from_MV(absmag)   # Convert the provided `limit` from magnitudes into luminosity.
+        fracs = MV_from_L.( fracs .* limit )
+    elseif frac_type == "mass"
+        throw(ArgumentError("`frac_type == mass` not yet implemented."))
+    else
+        throw(ArgumentError("Supported `frac_type` arguments for generate_stars_mag_composite are \"lum\" or \"mass\"."))
+    end
+    # Allocate output vectors.
+    massvec = [ Vector{SVector{length(binary_model),eltype(imf)}}(undef,0) for i in 1:ncomposite ]
+    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
+    mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
+    mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
+    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
+    for i in eachindex(mini_vec, mags, fracs)
+        result = generate_stars_mag2(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf;
+                                     binary_model = binary_model, kws...)
         massvec[i] = result[1]
         mag_vec[i] = result[2]
     end
