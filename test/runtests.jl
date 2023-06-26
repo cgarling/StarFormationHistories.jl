@@ -106,6 +106,52 @@ const rtols = (1e-3, 1e-7)
             end
         end
     end
+    @testset "construct_x0" begin
+        label = float_type_labels[i]
+        for i in eachindex(float_types, float_type_labels)
+            T = float_types[i]
+            result = SFH.construct_x0(repeat(T[1,2,3],3), 4; normalize_value=5)
+            @test result ≈ repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3) rtol=rtols[i]
+            @test sum(result) ≈ 5 rtol=rtols[i]
+            @test result isa Vector{T}
+            # Reverse order of input logAge to ensure it does not assume sorting
+            result = SFH.construct_x0(reverse(repeat(T[1,2,3],3)), 4; normalize_value=5)
+            @test result ≈ reverse(repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3)) rtol=rtols[i]
+            @test sum(result) ≈ 5 rtol=rtols[i]
+            @test result isa Vector{T}
+        end
+    end
+    @testset "calculate_cum_sfr" begin
+        label = float_type_labels[i]
+        for i in eachindex(float_types, float_type_labels)
+            T = float_types[i]
+            coeffs = T[1,2,2,4]
+            logAge = T[1,2,1,2]
+            max_logAge = 3
+            MH = T[-2,-2,-1,-1]
+            result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=false)
+            @test result[1] == T[1, 2]
+            @test result[2] ≈ T[1, 2//3]
+            @test result[3] ≈ T[1//30, 2//300]
+            @test result[4] ≈ T[-4//3, -4//3]
+            # Test normalize_value
+            result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=5)
+            @test result[1] == T[1, 2]
+            @test result[2] ≈ T[1, 2//3]
+            @test result[3] ≈ T[5//30, 10//300]
+            @test result[4] ≈ T[-4//3, -4//3]
+            # Test sorted version
+            coeffs = T[1,2,2,4]
+            logAge = T[1,1,2,2]
+            max_logAge = 3
+            MH = T[-2,-1,-2,-1]
+            result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=true)
+            @test result[1] == T[1, 2]
+            @test result[2] ≈ T[1, 2//3]
+            @test result[3] ≈ T[1//30, 2//300]
+            @test result[4] ≈ T[-4//3, -4//3]
+        end
+    end
     
     # Benchmarking
     # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
@@ -174,5 +220,25 @@ const rtols = (1e-3, 1e-7)
             # @test Optim.minimizer(optim_result1) ≈ Optim.minimizer(optim_result2) ≈ spg_result1.x ≈ spg_result2.x # Test all optimizations have similar result
             @test Optim.minimizer(optim_result1) ≈ Optim.minimizer(optim_result2) ≈ spg_result1.x ≈ spg_result2.x # Test all optimizations have similar result
         end
+    end
+end
+
+
+@testset "utilities" begin
+    label = float_type_labels[i]
+    for i in eachindex(float_types, float_type_labels)
+        T = float_types[i]
+        @test SFH.distance_modulus( convert(T, 1e3) ) === convert(T, 10)
+        @test SFH.distance_modulus_to_distance( convert(T, 10) ) === convert(T, 1e3)
+        @test SFH.arcsec_to_pc(convert(T,20), convert(T,15)) ≈ big"0.9696273591803334731099601686313164294561427182958537274091716194331610209032407" rtol=rtols[i]
+        @test SFH.pc_to_arcsec( convert(T, big"0.9696273591803334731099601686313164294561427182958537274091716194331610209032407"), convert(T, 15)) ≈ 20
+
+        @test SFH.Y_from_Z(convert(T,1e-3), 0.2485) ≈ 0.2502800000845455 rtol=rtols[i] # Return type not guaranteed
+        @test SFH.X_from_Z(convert(T,1e-3)) ≈ 0.748719999867957 rtol=rtols[i] # Return type not guaranteed
+        @test SFH.MH_from_Z(convert(T,1e-3), 0.01524) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
+        @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) ≈ big"0.9933071490757151444406380196186748196062559910927034697307877569401159160854199" rtol=rtols[i]
+        @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) isa T
+        @test SFH.exp_photerr(T[20.0, 1.05, 10.0, 32.0, 0.01]...) ≈ big"0.01286605230281143891186877135084309862554426640053421106995766903206843498217022"
+        @test SFH.exp_photerr(T[20.0, 1.05, 10.0, 32.0, 0.01]...) isa T
     end
 end
