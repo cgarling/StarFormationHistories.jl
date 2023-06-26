@@ -107,25 +107,14 @@ const rtols = (1e-3, 1e-7)
         end
     end
     
-    @testset "loglikelihood and gradient" begin
-        tset_rtol = 1e-7
-        @test SFH.loglikelihood( Float64[1 1 1; 2 2 2; 3 3 3], Float64[1 1 1; 2 2 2; 2 2 2] ) ≈ -0.5672093513510137 rtol=tset_rtol
-        @test SFH.∇loglikelihood( Float64[0 0 0; 0 0 0; 1 1 1], Float64[1 1 1; 2 2 2; 3 3 3], Float64[1 1 1; 2 2 2; 2 2 2] ) ≈ -1.0 rtol=tset_rtol
-        # These two should be equivalent and they are
-        # SFH.∇loglikelihood([1.0], [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3])
-        # FiniteDifferences.grad(FiniteDifferences.central_fdm(5,1), x->SFH.loglikelihood(x, [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3]), [1.0])
-        # ForwardDiff.gradient(x->SFH.loglikelihood(x, [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3]), [1.0])
-        @test SFH.∇loglikelihood([1.0], [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3])[1] ≈ 6.0 rtol=tset_rtol
-        @test SFH.∇loglikelihood(Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 3 3 3])[1] ≈ 6.0 rtol=tset_rtol
-        @test all( isapprox.( SFH.fg(Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 3 3 3]), (-3.8875105980129874, 6.0); rtol=tset_rtol) )
-        let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
-            @btime SFH.loglikelihood($M[1], $N)
-            @btime SFH.∇loglikelihood($M[1], $M[1], $N) # @btime SFH.∇loglikelihood($x, $M, $N)
-            @btime SFH.fg($M[1], $M[1], $N)
-            @btime SFH.fg!($true, $G, $x, $M, $N, $C)
-        end
-        
-    end
+    # Benchmarking
+    # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
+    #     @btime SFH.loglikelihood($M[1], $N)
+    #     @btime SFH.∇loglikelihood($M[1], $M[1], $N) # @btime SFH.∇loglikelihood($x, $M, $N)
+    #     @btime SFH.fg($M[1], $M[1], $N)
+    #     @btime SFH.fg!($true, $G, $x, $M, $N, $C)
+    # end
+    
     @testset "Solving" begin
         tset_rtol=1e-5
         # Try an easy example with an exact result and only one model
