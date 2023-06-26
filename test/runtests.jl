@@ -1,4 +1,4 @@
-import SFH
+import StarFormationHistories as SFH
 import Distributions: Poisson
 import Random
 import Optim
@@ -7,9 +7,85 @@ using Test
 
 
 
-
+const float_types = (Float32, Float64)
+const float_type_labels = ("Float32", "Float64")
+const rtols = (1e-3, 1e-7)
+@assert length(float_types) == length(float_type_labels)
 
 @testset "SFH Fitting" begin
+    @testset "composite!" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                A = T[0 0 0; 1 1 1; 0 0 0]
+                B = T[0 0 0; 0 0 0; 1 1 1]
+                models = [A,B]
+                coeffs = T[1,2]
+                C = zeros(T, 3,3)
+                SFH.composite!(C, coeffs, models )
+                @test C == T[0 0 0; 1 1 1; 2 2 2]
+            end
+        end
+    end
+    @testset "loglikelihood" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                C = T[1 1 1; 2 2 2; 3 3 3]
+                data = Int64[1 1 1; 2 2 2; 2 2 2]
+                @test SFH.loglikelihood( C, data ) ≈ -0.5672093513510137 rtol=rtols[i]
+                @test SFH.loglikelihood( C, data ) isa T
+            end
+        end
+    end
+    @testset "∇loglikelihood" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                model = T[0 0 0; 0 0 0; 1 1 1]
+                C = T[1 1 1; 2 2 2; 3 3 3]
+                data = Int64[1 1 1; 2 2 2; 2 2 2]
+                result = SFH.∇loglikelihood( model, C, data )
+                @test result ≈ -1 rtol=rtols[i]
+                @test result isa T
+                # Test the method for multiple models
+                result = SFH.∇loglikelihood( [model, model], C, data )
+                @test result ≈ [-1, -1] rtol=rtols[i]
+                @test result isa Vector{T}
+                @test length(result) == 2
+                # Test the method for multiple models that takes `coeffs` rather than `composite`
+                models = [ T[1 1 1; 0 0 0; 0 0 0],
+                           T[0 0 0; 1 1 1; 0 0 0],
+                           T[0 0 0; 0 0 0; 1 1 1] ]
+                coeffs = T[1.5, 3, 3]
+                result = SFH.∇loglikelihood( coeffs, models, data )
+                @test result ≈ [-1, -1, -1] rtol=rtols[i]
+                @test result isa Vector{T}
+                @test length(result) == 3
+            end
+        end
+    end
+    @testset "∇loglikelihood!" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                data = Int64[1 1 1; 2 2 2; 2 2 2]
+                models = [ T[1 1 1; 0 0 0; 0 0 0],
+                           T[0 0 0; 1 1 1; 0 0 0],
+                           T[0 0 0; 0 0 0; 1 1 1] ]
+                coeffs = T[1.5, 3, 3]
+                C = sum( coeffs .* models )
+                grad = Vector{T}(undef,3)
+                SFH.∇loglikelihood!( grad, C, models, data )
+                @test grad ≈ [-1, -1, -1] rtol=rtols[i]
+            end
+        end
+    end
+    
     @testset "loglikelihood and gradient" begin
         tset_rtol = 1e-7
         @test SFH.loglikelihood( Float64[1 1 1; 2 2 2; 3 3 3], Float64[1 1 1; 2 2 2; 2 2 2] ) ≈ -0.5672093513510137 rtol=tset_rtol
@@ -17,6 +93,7 @@ using Test
         # These two should be equivalent and they are
         # SFH.∇loglikelihood([1.0], [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3])
         # FiniteDifferences.grad(FiniteDifferences.central_fdm(5,1), x->SFH.loglikelihood(x, [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3]), [1.0])
+        # ForwardDiff.gradient(x->SFH.loglikelihood(x, [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3]), [1.0])
         @test SFH.∇loglikelihood([1.0], [Float64[0 0 0; 0 0 0; 1 1 1]], Float64[0 0 0; 0 0 0; 3 3 3])[1] ≈ 6.0 rtol=tset_rtol
         @test SFH.∇loglikelihood(Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 3 3 3])[1] ≈ 6.0 rtol=tset_rtol
         @test all( isapprox.( SFH.fg(Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 1 1 1], Float64[0 0 0; 0 0 0; 3 3 3]), (-3.8875105980129874, 6.0); rtol=tset_rtol) )

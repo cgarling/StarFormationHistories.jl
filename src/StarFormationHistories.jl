@@ -17,6 +17,7 @@ import StaticArrays: SVector, SMatrix, sacollect
 import StatsBase: fit, Histogram, Weights, sample, mean
 
 # Code inclusion
+include("utilities.jl")
 include("simulate.jl")
 include("fitting.jl")
 
