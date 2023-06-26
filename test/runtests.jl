@@ -85,6 +85,27 @@ const rtols = (1e-3, 1e-7)
             end
         end
     end
+    @testset "fg!" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                data = Int64[1 1 1; 2 2 2; 2 2 2]
+                models = [ T[1 1 1; 0 0 0; 0 0 0],
+                           T[0 0 0; 1 1 1; 0 0 0],
+                           T[0 0 0; 0 0 0; 1 1 1] ]
+                coeffs = T[1.5, 3, 3]
+                C = Matrix{T}(undef,3,3)
+                grad = Vector{T}(undef,3)
+                result = SFH.fg!(true, grad, coeffs, models, data, C)
+                @test -grad ≈ [-1, -1, -1] rtol=rtols[i]
+                @test -result ≈ -1.4180233783775342 rtol=rtols[i]
+                # Try again without providing G (grad)
+                result = SFH.fg!(true, nothing, coeffs, models, data, C)
+                @test -result ≈ -1.4180233783775342 rtol=rtols[i]
+            end
+        end
+    end
     
     @testset "loglikelihood and gradient" begin
         tset_rtol = 1e-7
