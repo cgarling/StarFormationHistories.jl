@@ -251,10 +251,16 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test typeof(cmd) == typeof(model_mags)
                 @test length(cmd) ≈ length(model_mags) * T(4//25) rtol=T(1//10)
                 # Use Vector{Vector} for model_mags
-                model_mags = convert(Vector{Vector{T}}, model_mags)
-                cmd = SFH.model_cmd( model_mags, errfuncs, completefuncs; rng=rng)
-                @test typeof(cmd) == typeof(model_mags)
-                @test length(cmd) ≈ length(model_mags) * T(4//25) rtol=T(1//10)
+                model_mags2 = convert(Vector{Vector{T}}, model_mags)
+                cmd = SFH.model_cmd( model_mags2, errfuncs, completefuncs; rng=rng)
+                @test typeof(cmd) == typeof(model_mags2)
+                @test length(cmd) ≈ length(model_mags2) * T(4//25) rtol=T(1//10)
+
+                # Test errors
+                # Vector{SVector} mags argument
+                @test_throws ArgumentError SFH.model_cmd( model_mags, [one, errfuncs...], completefuncs; rng=rng) 
+                # Vector{Vector} mags argument
+                @test_throws ArgumentError SFH.model_cmd( model_mags2, [one, errfuncs...], completefuncs; rng=rng)
             end
         end
     end
