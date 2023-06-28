@@ -25,7 +25,7 @@ function ingest_mags(mini_vec::AbstractVector, mags::AbstractMatrix{S}) where S 
 end
 function ingest_mags(mini_vec::AbstractVector, mags::AbstractVector{T}) where {S <: Number, T <: AbstractVector{S}}
     if length(mags) != length(mini_vec)
-        nstars = length(first(mags))
+        nstars = length(mini_vec) 
         if ~mapreduce(x->isequal(nstars,length(x)), &, mags)
             throw(ArgumentError("`generate_stars...` received a misshapen `mags` argument. When providing a `mags::AbstractVector{AbstractVector{<:Real}}` with `length(mags)!=length(mini_vec)`, then each element of `mags` should have length equal to `length(mini_vec)`."))
         else
@@ -508,3 +508,5 @@ end
 # eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols(i) for i in v)
 # eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = reduce(hcat, eltocols.(v))
 # eltocols(v::Vector{Vector{SVector{dim, T}}}) where {dim, T} = hcat(eltocols.(v)...)
+# Fast way to sum over vector of SVectors
+# @benchmark reduce(+,reduce(+,x)) setup=(x=rand(SVector{2,Float64}, 3))
