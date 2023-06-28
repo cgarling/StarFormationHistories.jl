@@ -262,15 +262,15 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
         if first(masses) < mmin2 # Primary by itself would be fainter than `mag_lim` so continue
             continue             
         end
-        lum = zero(eltype(mags))
+        flux = zero(eltype(mags))
         for mass in masses
             if (mass > mmin1) & (mass < mmax) # Mass is in valid interpolation range
-                lum += L_from_MV.( itp(mass) ) # Think this works for SVectors? not sure
+                flux += mag2flux.( itp(mass) ) # Think this works for SVectors? not sure
             end
         end
-        if sum(lum) > 0 # Possible that first(masses) > mmax and no valid companions either, meaning sum(lum) == 0
+        if sum(flux) > 0 # Possible that first(masses) > mmax and no valid companions either, meaning sum(lum) == 0
             push!(mass_vec, masses)
-            push!(mag_vec, MV_from_L.(lum))
+            push!(mag_vec, flux2mag.(flux))
         end
     end
     return mass_vec, mag_vec
@@ -292,8 +292,8 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
     mags = [ i .+ dist_mod for i in mags ]         # Update mags with the provided distance modulus.
     mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
     # Convert the provided `limit` from absolute magnitudes to apparent magnitudes and then
-    # into luminosity; the conversion to apparent mag here will make it easier to accumulate
-    # the luminosity later in the loop, since `mags` has distance modulus added as well. 
+    # into flux; the conversion to apparent mag here will make it easier to accumulate
+    # the flux later in the loop, since `mags` has distance modulus added as well. 
     limit = L_from_MV(absmag + dist_mod) 
     # Construct the sampler object for the provided imf; for some distributions, this will return a
     # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).

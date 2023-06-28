@@ -45,6 +45,9 @@ function angular_transformation_distance(angle, distance0, distance1)
 end
 
 #### Luminosity Utilities
+mag2flux(m::T, zpt::S=0) where {T<:Real,S<:Real} = exp10(4 * (zpt-m) / 10)
+flux2mag(f::T, zpt::S=0) where {T<:Real,S<:Real} = zpt - 5 * log10(f) / 2
+
 L_from_MV(absmagv) = exp10(0.4 * (4.8 - absmagv))
 MV_from_L(lum) = 4.8 - 2.5 * log10(lum)
 """ Luminosity in watts. """
