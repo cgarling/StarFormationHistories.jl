@@ -105,7 +105,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             end
         end
     end
-    @testset "generate_stars" begin
+    @testset "generate_stars and model_cmd" begin
         rng = StableRNG(seedval)
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]
@@ -194,6 +194,67 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, "V", imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
                 @test_throws ArgumentError SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(25), mag_lim_name="V", binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
+
+                ####################################
+                # Test generate_stars_mass_composite
+                # We'll spoof a second isochrone by just shifting
+                # the F814W mags slightly lower and slightly altering m_ini
+                composite_masses = [m_ini,m_ini .+ T(0.01)]
+                composite_mags = [mags, [mags[1], mags[2] .- T(0.02)]]
+                @test length(composite_masses) == length(composite_mags)
+                # nisochrones = length(composite_masses)
+                
+                result = SFH.generate_stars_mass_composite(composite_masses, composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
+                @test length(result) == 2    # Masses and magnitudes
+                @test length(result[1]) == length(composite_masses) # Number of isochrones
+                @test length(result[2]) == length(composite_masses) # Number of isochrones
+                for i in eachindex(composite_masses, composite_mags) # Isochrone i 
+                    @test length(result[1][i]) == length(result[2][i]) # Number of masses equals number of mags
+                    @test result[1][i] isa Vector{SVector{1,T}} # Masses
+                    @test result[2][i] isa Vector{SVector{2,T}} # Magnitudes
+                end
+                # Test total mass of the returned stars
+                # There will be less random variance with higher `total_mass`.
+                @test sum( reduce(+,reduce(+,i)) for i in result[1] ) ≈ total_mass * mass_frac rtol=5e-2
+
+                # Test errors
+                @test_throws ArgumentError SFH.generate_stars_mass_composite([m_ini, composite_masses...], composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
+
+                ####################################
+                # Test generate_stars_mag_composite
+                result = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
+                @test length(result) == 2    # Masses and magnitudes
+                @test length(result[1]) == length(result[2]) == length(composite_masses)
+                for i in eachindex(composite_masses, composite_mags) # Isochrone i 
+                    @test length(result[1][i]) == length(result[2][i]) # Number of masses equals number of mags
+                    @test result[1][i] isa Vector{SVector{1,T}} # Masses
+                    @test result[2][i] isa Vector{SVector{2,T}} # Magnitudes
+                end
+                # Test that total magnitude of sampled population is (slightly)
+                # brighter than the requested absmaglim
+                apparent_mag = SFH.flux2mag( sum( sum(map(x->SFH.mag2flux(x[2]), i)) for i in result[2]) )
+                abs_mag = apparent_mag - dmod
+                @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+
+                # Test errors
+                @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name
+                @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type="asdf", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad frac_type
+                @test_throws ArgumentError SFH.generate_stars_mag_composite([m_ini, composite_masses...], composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
+
+                ################
+                # Test model_cmd
+                errfuncs = [x->T(1//10)*x, x->T(2//10)*x] # Placeholder anonymous functions
+                completefuncs = [x->T(4//10), x->T(4//10)] # Placeholder anonymous functions
+                model_mags = vcat(result[2]...)
+                # Use Vector{SVector} for model_mags
+                cmd = SFH.model_cmd( model_mags, errfuncs, completefuncs; rng=rng)
+                @test typeof(cmd) == typeof(model_mags)
+                @test length(cmd) ≈ length(model_mags) * T(4//25) rtol=T(1//10)
+                # Use Vector{Vector} for model_mags
+                model_mags = convert(Vector{Vector{T}}, model_mags)
+                cmd = SFH.model_cmd( model_mags, errfuncs, completefuncs; rng=rng)
+                @test typeof(cmd) == typeof(model_mags)
+                @test length(cmd) ≈ length(model_mags) * T(4//25) rtol=T(1//10)
             end
         end
     end

@@ -48,22 +48,6 @@ end
 mag2flux(m::T, zpt::S=0) where {T<:Real,S<:Real} = exp10(4 * (zpt-m) / 10)
 flux2mag(f::T, zpt::S=0) where {T<:Real,S<:Real} = zpt - 5 * log10(f) / 2
 
-L_from_MV(absmagv) = exp10(0.4 * (4.8 - absmagv))
-MV_from_L(lum) = 4.8 - 2.5 * log10(lum)
-""" Luminosity in watts. """
-M_bol_from_L(lum) = 71.1974 - 2.5 * log10(lum)
-""" Returns watts. """
-L_from_M_bol( absbolmag ) = exp10((71.1974 - absbolmag)/2.5)
-"""
-    find_Mv_flat_mu(μ, area, dist_mod)
-Given a constant surface brightness `μ`, an angular area `area`, and a distance modulus `dist_mod`, returns the magnitude of the feature. 
-"""
-function find_Mv_flat_mu(μ, area, dist_mod)
-    L = L_from_MV(μ - dist_mod)
-    L_total = L * area
-    return MV_from_L(L_total)
-end
-
 #### Metallicity utilities
 """
     Y_from_Z(Z, Y_p=0.2485)
