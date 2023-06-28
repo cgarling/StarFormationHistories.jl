@@ -294,7 +294,7 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
     # Convert the provided `limit` from absolute magnitudes to apparent magnitudes and then
     # into flux; the conversion to apparent mag here will make it easier to accumulate
     # the flux later in the loop, since `mags` has distance modulus added as well. 
-    limit = L_from_MV(absmag + dist_mod) 
+    limit = mag2flux(absmag + dist_mod) 
     # Construct the sampler object for the provided imf; for some distributions, this will return a
     # Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
     imf_sampler = sampler(imf)
@@ -319,22 +319,22 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
     mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         masses = sample_system(imf_sampler, rng, binary_model) # Sample masses of stars in a single system
-        lum = zero(eltype(mags)) # Accumulator to hold per-filter luminosities
+        flux = zero(eltype(mags)) # Accumulator to hold per-filter luminosities
         for mass in masses
             # Continue loop if sampled mass is outside of valid isochrone range
             if (mass < mmin1) | (mass > mmax)
                 continue
             end
-            lum += L_from_MV.( itp(mass) )
+            flux += mag2flux.( itp(mass) )
         end
-        total += lum[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
+        total += flux[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
         # If the source is bright enough, or `mag_lim` is infinite, add it to output
-        if (sum(lum) > 0) & (!isfinite(mag_lim) || MV_from_L(lum[sourceidx]) < mag_lim) 
+        if (sum(flux) > 0) & (!isfinite(mag_lim) || flux2mag(flux[sourceidx]) < mag_lim) 
             push!(mass_vec, masses)
-            push!(mag_vec, MV_from_L.(lum))
+            push!(mag_vec, flux2mag.(flux))
         end
     end
-    # println(MV_from_L(total) - dist_mod) # Print absolute luminosity sampled
+    # println(flux2mag(total) - dist_mod) # Print absolute magnitude sampled
     return mass_vec, mag_vec
 end
 
@@ -413,8 +413,8 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
     # Interpret whether user requests `fracs` represent luminosity or mass fractions.
     if frac_type == "lum"
-        limit = L_from_MV(absmag)   # Convert the provided `limit` from magnitudes into luminosity.
-        fracs = MV_from_L.( fracs .* limit )
+        limit = mag2flux(absmag)   # Convert the provided `limit` from magnitudes into flux.
+        fracs = flux2mag.( fracs .* limit )
     elseif frac_type == "mass"
         throw(ArgumentError("`frac_type == mass` not yet implemented."))
     else

@@ -397,7 +397,10 @@ end
             @test SFH.distance_modulus_to_distance( convert(T, 10) ) === convert(T, 1e3)
             @test SFH.arcsec_to_pc(convert(T,20), convert(T,15)) ≈ big"0.9696273591803334731099601686313164294561427182958537274091716194331610209032407" rtol=rtols[i]
             @test SFH.pc_to_arcsec( convert(T, big"0.9696273591803334731099601686313164294561427182958537274091716194331610209032407"), convert(T, 15)) ≈ 20 rtol=rtols[i]
-
+            @test SFH.mag2flux(T(-5//2)) === T(10)
+            @test SFH.mag2flux(T(-3//2), 1) === T(10)
+            @test SFH.flux2mag(T(10)) === T(-5//2)
+            @test SFH.flux2mag(T(10), 1) === T(-3//2)
             @test SFH.Y_from_Z(convert(T,1e-3), 0.2485) ≈ 0.2502800000845455 rtol=rtols[i] # Return type not guaranteed
             @test SFH.X_from_Z(convert(T,1e-3)) ≈ 0.748719999867957 rtol=rtols[i] # Return type not guaranteed
             @test SFH.MH_from_Z(convert(T,1e-3), 0.01524) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
