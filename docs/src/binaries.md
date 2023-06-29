@@ -2,7 +2,8 @@
 
 ```@docs
 StarFormationHistories.AbstractBinaryModel
-StarFormationHistories.sample_binary
+StarFormationHistories.sample_system
 StarFormationHistories.NoBinaries
-StarFormationHistories.Binaries
+StarFormationHistories.RandomBinaryPairs
+StarFormationHistories.BinaryMassRatio
 ```

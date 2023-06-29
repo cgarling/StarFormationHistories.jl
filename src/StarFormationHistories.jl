@@ -1,6 +1,6 @@
 module StarFormationHistories
 
-import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, Multivariate, MvNormal, _rand!, sampler # cdf
+import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, quantile, Multivariate, MvNormal, _rand!, sampler, Uniform # cdf
 import DynamicHMC  # For random uncertainties in SFH fits
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import LBFGSB # Used for one method in fitting.jl
@@ -17,6 +17,7 @@ import StaticArrays: SVector, SMatrix, sacollect
 import StatsBase: fit, Histogram, Weights, sample, mean
 
 # Code inclusion
+include("utilities.jl")
 include("simulate.jl")
 include("fitting.jl")
 
