@@ -347,6 +347,45 @@ function _rand!(rng::AbstractRNG, result::LogTransformFTResult, x::Union{Abstrac
 end
 
 """
+    SqrtTransformFTResult(μ::AbstractVector{<:Number},
+                             σ::AbstractVector{<:Number},
+                             invH::AbstractMatrix{<:Number},
+                             result)
+
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates`](@ref) when using a `sqrt` transform. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native fitting space into natural units (i.e., stellar mass or star formation rate).
+
+`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
+
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (square-root transformed) fitting variables with covariance matrix `invH` and means `μ.^2`. We find this approximation is good for the MAP result but less robust for the MLE. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `length(μ) x N` matrix, or fail if `invH` is not positive definite.
+
+# Examples
+```julia-repl
+julia> result = fit_templates(models, data);
+
+julia> typeof(result.map)
+StarFormationHistories.LogTransformFTResult{...}
+
+julia> size(rand(result.map, 3)) == (length(models),3)
+true
+```
+"""
+struct SqrtTransformFTResult{S <: AbstractVector{<:Number},
+                             T <: AbstractVector{<:Number},
+                             U <: AbstractMatrix{<:Number},
+                             V} <: Sampleable{Multivariate, Continuous}
+    μ::S
+    σ::T
+    invH::U
+    result::V
+end
+Base.length(result::SqrtTransformFTResult) = length(result.μ)
+function _rand!(rng::AbstractRNG, result::SqrtTransformFTResult, x::Union{AbstractVector{T}, DenseMatrix{T}}) where T <: Real
+    dist = MvNormal(Optim.minimizer(result.result), Hermitian(result.invH))
+    _rand!(rng, dist, x)
+    @. x = x^2
+end
+
+"""
     result = fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (MAP) for the coefficients `coeffs` such that the composite Hess diagram model is `sum(models .* coeffs)` using the provided templates `models` and the observed Hess diagram `data`. Utilizes the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the likelihood of the data given the model. See the examples in the documentation for comparisons of the results of this method and [`hmc_sample`](@ref) which samples the posterior via Hamiltonian Monte Carlo. 
@@ -378,23 +417,23 @@ The special property of the [`StarFormationHistories.LogTransformFTResult`](@ref
 """
 function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
-    # log-transform the initial guess vector
-    x0 = log.(x0)
+    # transform the initial guess vector
+    x0 = sqrt.(x0)
     # Make scratch array for assessing transformations
     x = similar(x0)
-    function fg_map!(F,G,logx)
-        @. x = exp(logx)
-        logL = fg!(true,G,x,models,data,composite) - sum(logx) # - sum(logx) is the Jacobian correction
+    function fg_map!(F,G,sqrtx)
+        @. x = sqrtx^2
+        logL = fg!(true,G,x,models,data,composite) - sum(log(abs(2i)) for i in sqrtx) # - sum... is the Jacobian correction
         if G != nothing
-            @. G = G * x - 1 # Add Jacobian correction and log-transform to every element of G
+            @. G = G * 2 * sqrtx - 1/sqrtx # Add Jacobian correction to every element of G
         end
         return logL
     end
-    function fg_mle!(F,G,logx)
-        @. x = exp(logx)
+    function fg_mle!(F,G,sqrtx)
+        @. x = sqrtx^2
         logL = fg!(true,G,x,models,data,composite)
         if G != nothing
-            @. G = G * x # Only correct for log-transform
+            @. G = G * 2 * sqrtx # Only correct for transform
         end
         return logL
     end
@@ -412,14 +451,18 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
     # "mle" contains the same entries but for the maximum likelihood estimate.
-    return  ( map = LogTransformFTResult(exp.(Optim.minimizer(result_map)),
-                                       sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
-                                           exp.(Optim.minimizer(result_map)),
+    return  ( map = SqrtTransformFTResult(Optim.minimizer(result_map).^2,
+                                       # sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
+                                       #     Optim.minimizer(result_map).^2,
+                                          (sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
+                                           Optim.minimizer(result_map)).^2,
                                        result_map.trace[end].metadata["~inv(H)"],
                                        result_map ),
-              mle = LogTransformFTResult(exp.(Optim.minimizer(result_mle)),
-                                       sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
-                                           exp.(Optim.minimizer(result_mle)),
+              mle = SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
+                                       # sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                          #     Optim.minimizer(result_mle).^2,
+                                          (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                           Optim.minimizer(result_mle)).^2,
                                        result_mle.trace[end].metadata["~inv(H)"],
                                        result_mle ) )
 end
