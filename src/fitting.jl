@@ -348,24 +348,24 @@ end
 
 """
     SqrtTransformFTResult(μ::AbstractVector{<:Number},
-                             σ::AbstractVector{<:Number},
-                             invH::AbstractMatrix{<:Number},
-                             result)
+                          σ::AbstractVector{<:Number},
+                          invH::AbstractMatrix{<:Number},
+                          result)
 
 Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates`](@ref) when using a `sqrt` transform. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native fitting space into natural units (i.e., stellar mass or star formation rate).
 
-`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
+`invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the `sqrt` fitting units. `result` is the full result object returned by the optimization routine.
 
-This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (square-root transformed) fitting variables with covariance matrix `invH` and means `μ.^2`. We find this approximation is good for the MAP result but less robust for the MLE. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `length(μ) x N` matrix, or fail if `invH` is not positive definite.
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution. We approximate the distribution as a multivariate Gaussian in the native (square-root transformed) fitting variables with covariance matrix `invH` and means `μ`. You can obtain `N::Integer` samples from the distribution by `rand(R, N)` where `R` is an instance of this type; this will return a size `length(μ) x N` matrix, or fail if `invH` is not positive definite.
 
 # Examples
 ```julia-repl
 julia> result = fit_templates(models, data);
 
-julia> typeof(result.map)
-StarFormationHistories.LogTransformFTResult{...}
+julia> typeof(result.mle)
+StarFormationHistories.SqrtTransformFTResult{...}
 
-julia> size(rand(result.map, 3)) == (length(models),3)
+julia> size(rand(result.mle, 3)) == (length(models),3)
 true
 ```
 """
@@ -454,13 +454,12 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     # "mle" contains the same entries but for the maximum likelihood estimate.
     # σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* Optim.minimizer(result_mle) 
     # σ = sqrt.( σ.^2 .* (2 .* Optim.minimizer(result_mle)).^2 )
-    return  SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
-                                  # sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
-                                  #     Optim.minimizer(result_mle).^2,
-                                  (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
-                                   Optim.minimizer(result_mle)).^2,
-                                  result_mle.trace[end].metadata["~inv(H)"],
-                                  result_mle )
+    mle_obj = SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
+                                    (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                        Optim.minimizer(result_mle)).^2,
+                                    result_mle.trace[end].metadata["~inv(H)"],
+                                    result_mle )
+    return (map = mle_obj, mle = mle_obj) # Temporary placeholder before changing API
 end
 
 # M1 = rand(120,100)
