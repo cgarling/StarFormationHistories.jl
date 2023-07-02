@@ -452,13 +452,15 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
     # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
     # "mle" contains the same entries but for the maximum likelihood estimate.
+    # σ = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .* Optim.minimizer(result_mle) 
+    # σ = sqrt.( σ.^2 .* (2 .* Optim.minimizer(result_mle)).^2 )
     return  SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
-                                       # sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
-                                          #     Optim.minimizer(result_mle).^2,
-                                          (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
-                                           Optim.minimizer(result_mle)).^2,
-                                       result_mle.trace[end].metadata["~inv(H)"],
-                                       result_mle )
+                                  # sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                  #     Optim.minimizer(result_mle).^2,
+                                  (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                   Optim.minimizer(result_mle)).^2,
+                                  result_mle.trace[end].metadata["~inv(H)"],
+                                  result_mle )
 end
 
 # M1 = rand(120,100)
