@@ -446,25 +446,19 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
+    # result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
     # Calculate final result without prior
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    # result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
     # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
     # "mle" contains the same entries but for the maximum likelihood estimate.
-    return  ( map = SqrtTransformFTResult(Optim.minimizer(result_map).^2,
-                                       # sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
-                                       #     Optim.minimizer(result_map).^2,
-                                          (sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
-                                           Optim.minimizer(result_map)).^2,
-                                       result_map.trace[end].metadata["~inv(H)"],
-                                       result_map ),
-              mle = SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
+    return  SqrtTransformFTResult(Optim.minimizer(result_mle).^2,
                                        # sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
                                           #     Optim.minimizer(result_mle).^2,
                                           (sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
                                            Optim.minimizer(result_mle)).^2,
                                        result_mle.trace[end].metadata["~inv(H)"],
-                                       result_mle ) )
+                                       result_mle )
 end
 
 # M1 = rand(120,100)
