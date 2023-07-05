@@ -500,6 +500,21 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, sqrtx)
     # ∇logL = [ ∇loglikelihood(models[i], composite, data) * 2 * sqrtx[i] + 1/sqrtx[i] for i in eachindex(models,x) ]
     return logL, ∇logL
 end
+# function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
+#     composite = problem.composite
+#     models = problem.models
+#     data = problem.data
+#     dims = length(models)
+#     # Transform the provided x
+#     x = [ exp(i) for i in logx ]
+#     # Update the composite model matrix
+#     composite!( composite, x, models )
+#     logL = loglikelihood(composite, data)
+#     ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] for i in eachindex(models,x) ]
+#     # logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
+#     # ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
+#     return logL, ∇logL
+# end
 
 """
     hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer [, nchains::Integer]; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
