@@ -447,11 +447,23 @@ end
 LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
 LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
 
+function (problem::HMCModel)(θ)
+    composite = problem.composite
+    models = problem.models
+    data = problem.data
+    # Transform the provided x
+    x = [ exp(i) for i in θ ]
+    # Update the composite model matrix
+    composite!( composite, x, models )
+    logL = loglikelihood(composite, data) + sum(θ)
+    return logL
+end
+LogDensityProblems.logdensity(problem::HMCModel, θ) = problem(θ)
+
 function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
     composite = problem.composite
     models = problem.models
     data = problem.data
-    dims = length(models)
     # Transform the provided x
     x = [ exp(i) for i in logx ]
     # Update the composite model matrix
