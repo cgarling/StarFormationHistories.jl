@@ -424,6 +424,42 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
                                        result_mle ) )
 end
 
+"""
+    (coeffs::Vector{::eltype(x0)}, result::Optim.MultivariateOptimizationResults) = fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+
+Finds *only* the maximum likelihood estimate (MLE) for the coefficients `coeffs` given the provided `data` such that the best-fit composite Hess diagram model is `sum(models .* coeffs)`. This is a simplification of the main [`fit_templates`](@ref) function, which will return the MLE as well as the maximum a posteriori estimate, and further supports uncertainty quantification. For additional details on arguments to this method, see the documentation for [`fit_templates`](@ref). 
+
+This method optimizes parameters `θ` such that `coeffs = θ.^2` -- this allows for faster convergence than both the [`fit_templates_lbfgsb`](@ref) method, which does not use a variable transformation, and the logarithmic transformation used in [`fit_templates`](@ref). However, the inverse Hessian is not useful for uncertainty estimation under this transformation. As such this method only returns the MLE for `coeffs` as a vector and the result object returned by `Optim.optimize`. While this method offers fewer features than [`fit_templates`](@ref), this method's runtime is typically half as long (or less). As such, this method is recommended for use in performance-sensitive applications like hierarchical models or hyperparameter estimation where the additional features of [`fit_templates`](@ref) are unnecessary. In these applications, the value of the objective function at the derived MLE is typically desired as well; this can be obtained the from `result::Optim.MultivariateOptimizationResults` object as `Optim.minimum(result)`. Note that this will return the *negative* loglikelihood, which is what is minimized in this application.
+
+# Notes
+ 1. By passing additional convergence keyword arguments supported by `Optim.Options` (see [this guide](https://julianlsolvers.github.io/Optim.jl/stable/#user/config/)), it is possible to converge to the MLE in fewer than 30 iterations with fewer than 100 calls to the likelihood and gradient methods. For example, the main convergence criterion is typically the magnitude of the gradient vector, which by default is `g_abstol=1e-8`, terminating the optimization when the magnitude of the gradient is less than 1e-8. We find results are typically sufficiently accurate with `g_abstol=1e-3`, which often uses half as many objective evaluations as the default value.
+"""
+function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
+    # Transform the initial guess vector
+    x0 = sqrt.(x0)
+    # Make scratch array for assessing transformations
+    x = similar(x0)
+    function fg_mle!(F,G,sqrtx)
+        @. x = sqrtx^2
+        logL = fg!(true,G,x,models,data,composite)
+        if G != nothing
+            @. G = G * 2 * sqrtx # Correct for transform
+        end
+        return logL
+    end
+    # Setup for Optim.jl
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # makes it less sensitive to initial x0.
+    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                             linesearch=LineSearches.HagerZhang())
+    # We don't need to save the trace of the optimization here
+    bfgs_options = Optim.Options(; allow_f_increases=true, kws...)
+    # Calculate result
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
+    return  Optim.minimizer(result_mle).^2, result_mle # Optim.minimum(result_mle)
+end
+
 # M1 = rand(120,100)
 # M2 = rand(120, 100)
 # N1 = rand.( Poisson.( (250.0 .* M1))) .+ rand.(Poisson.((500.0 .* M2)))

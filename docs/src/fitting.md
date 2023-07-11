@@ -69,6 +69,11 @@ This method simply minimizes the negative logarithm of the Poisson likelihood ra
 
 where ``m_i`` is bin ``i`` of the complex model and ``n_i`` is bin ``i`` of the observed Hess diagram; this can therefore be thought of as computing the maximum likelihood estimate.
 
+We also provide [`StarFormationHistories.fit_templates_fast`](@ref), which is the fastest method we offer for deriving a maximum likelihood estimate for the type of model described above.
+
+```@docs
+StarFormationHistories.fit_templates_fast
+```
 
 ### Uncertainties and Change of Variables
 
