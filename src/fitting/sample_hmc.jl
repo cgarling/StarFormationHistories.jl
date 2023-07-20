@@ -54,6 +54,7 @@ All other keyword arguments `kws...` will be passed to `DynamicHMC.mcmc_with_war
 
 # Returns
  - If `nchains` is not provided, returns a `NamedTuple` as summarized in DynamicHMC.jl's documentation. In short, the matrix of samples can be extracted and transformed as `exp.( result.posterior_matrix )`. Statistics about the chain can be obtained with `DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)`; you want to see a fairly high acceptance rate (>0.5) and the majority of samples having termination criteria being "turning." See DynamicHMC.jl's documentation for more information.
+ - If `nchains` *is* provided, returns a vector of length `nchains` of the same `NamedTuple`s described above. The samples from each chain in the returned vector can be stacked to a single `(nsamples, nchains, length(models))` matrix with `DynamicHMC.stack_posterior_matrices(result)`. 
 
 # Examples
 ```julia
