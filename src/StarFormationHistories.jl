@@ -19,7 +19,7 @@ import StatsBase: fit, Histogram, Weights, sample, mean
 # Code inclusion
 include("utilities.jl")
 include("simulate.jl")
-include("fitting.jl")
+include("fitting/fitting.jl") # This will include other relevant files
 
 ##################################
 # Isochrone utilities
