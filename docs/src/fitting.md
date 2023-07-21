@@ -75,9 +75,17 @@ We also provide [`StarFormationHistories.fit_templates_fast`](@ref), which is th
 StarFormationHistories.fit_templates_fast
 ```
 
-### Uncertainties and Change of Variables
+## Posterior Sampling: MCMC
 
-[Dolphin 2013](https://ui.adsabs.harvard.edu/abs/2013ApJ...775...76D/abstract) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of Dolphin 2002) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
+For low-dimensional problems, Markov Chain Monte Carlo (MCMC) methods can be an efficient way to sample the posterior and obtain uncertainty estimates on the fitting coefficients ``r_j``. We provide [`StarFormationHistories.mcmc_sample`](@ref) for this purpose. Internally this uses the multi-threaded affine-invariant MCMC sampler from [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl) to perform the sampling, which is based on the same algorithm as Python's [emcee](https://emcee.readthedocs.io/en/stable/) (specifically, their `emcee.moves.StretchMove`). There are other MCMC packages like [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl) that offer additional features like distributed execution. 
+
+```@docs
+StarFormationHistories.mcmc_sample
+```
+
+## Posterior Sampling: Change of Variables and HMC
+
+[Dolphin 2013](https://ui.adsabs.harvard.edu/abs/2013ApJ...775...76D/abstract) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of Dolphin 2002) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution when considering many isochrones in the modelling process. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
 
 While maximum likelihood estimates are invariant under variable transformations, sampling methods like HMC are not, as formally the posterior being sampled from is a *distribution* and therefore must be integrable over the sampling coefficients. We can write the posterior from which we wish to sample as
 
@@ -175,7 +183,7 @@ This indicates we may be able to approximate the posterior in the region surroun
 
 Direct computation of the Hessian and its inverse is expensive, so we'd like another way to obtain it. The first-order, quasi-Newton BFGS optimization algorithm provides such a method as it iteratively builds a dense approximation to the inverse Hessian using the change in the gradient of the objective, which we can compute analytically. It is, however, much less memory efficient than the LBFGS algorithm we use in [`StarFormationHistories.fit_templates_lbfgsb`](@ref). For moderate isochrone grids up to a few hundred model templates, this is not a problem. Beyond this it may be better to use [`StarFormationHistories.fit_templates_lbfgsb`](@ref) to obtain the MLE and [`hmc_sample`](@ref) to obtain posterior samples.
 
-We implement this optimization scheme in [`fit_templates`](@ref), which is our recommended method for unconstrained SFH fitting (i.e., direct fitting of the ``r_j`` coefficients). See the next section for notes on more complicated, hierarchical models that can incorporate things like metallicity distribution functions.
+We implement this optimization scheme in [`fit_templates`](@ref), which is our recommended method for unconstrained SFH fitting (i.e., direct fitting of the ``r_j`` coefficients). See the next section for notes on more complicated, hierarchical models that can incorporate features like metallicity distribution functions.
 
 ```@docs
 StarFormationHistories.fit_templates

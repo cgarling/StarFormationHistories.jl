@@ -5,6 +5,7 @@ import Random
 import StableRNGs: StableRNG
 import StaticArrays: SVector
 import QuadGK: quadgk
+import MCMCChains
 # import Optim
 using Test
 
@@ -449,6 +450,36 @@ end
             let x=rand(rng,N_models).*100, x0=ones(N_models), models=[rand(rng,hist_size...) for i in 1:N_models], data=rand.(rng,Poisson.(sum(x .* models))), C=zeros(hist_size)
                 lbfgsb_result = SFH.fit_templates_lbfgsb(models, data; composite=C, x0=x0, iprint=-1)
                 @test lbfgsb_result[2] ≈ x rtol=tset_rtol
+            end
+        end
+    end
+
+    @testset verbose=true "Sampling" begin
+        @testset "Basic Linear Combinations" begin
+            @testset "MCMC" begin
+                for i in eachindex(float_types, float_type_labels)
+                    label = float_type_labels[i]
+                    @testset "$label" begin
+                        rng = StableRNG(seedval)
+                        T = float_types[i]
+                        kmc_conv = SFH.convert_kissmcmc([[T[1,2,3] for i in 1:5] for i in 1:10])
+                        @test kmc_conv isa Array{T, 3}
+                        coeffs = rand(rng, T, 10) # SFH coefficients we want to sample
+                        models = [rand(rng, T, 100, 100) .* 100 for i in 1:length(coeffs)] # Vector of model Hess diagrams
+                        data = rand.(Poisson.( sum(models .* coeffs) ) ) # Poisson-sample the model `sum(models .* coeffs)`
+                        nwalkers = 100
+                        nsteps = 20
+                        x0 = rand(rng, T, nwalkers, length(coeffs)) # Initial walker positions, matrix
+                        result = SFH.mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps) # Test with Vector{Vector} x0
+                        @test result isa MCMCChains.Chains
+                        @test size(result) == (nsteps, length(coeffs), nwalkers)
+                        @test eltype(result.value) == T
+                        result = SFH.mcmc_sample(models, data, x0, nwalkers, nsteps) # Test with Matrix x0
+                        @test result isa MCMCChains.Chains
+                        @test size(result) == (nsteps, length(coeffs), nwalkers)
+                        @test eltype(result.value) == T
+                    end
+                end
             end
         end
     end

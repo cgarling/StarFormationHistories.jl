@@ -28,7 +28,8 @@ function (problem::MCMCModel)(θ)
         end
     end
     # idx = Threads.threadid()
-    idx = first(axes(problem.composites))[Threads.threadid()] # This should be valid for any vector
+    # This should be valid for vectors with non 1-based indexing
+    idx = first(axes(problem.composites))[Threads.threadid()] 
     composite!( problem.composites[idx], θ, problem.models )
     return loglikelihood(problem.composites[idx], problem.data)
 end
@@ -36,7 +37,7 @@ LogDensityProblems.logdensity(problem::MCMCModel, θ) = problem(θ)
 
 """
     convert_kissmcmc(chains::Vector{Vector{Vector{<:Number}}})
-Converts output `Vector{Vector{Vector{<:Number}}}` from multivariate `KissMCMC.emcee` sample to 3-D matrix with size `(nsteps, npar, nwalkers)` to match `MCMCChains.Chains` API.
+Converts output `Vector{Vector{Vector{<:Number}}}` from multivariate `KissMCMC.emcee` sample to 3-D matrix with size `(nsteps, npar, nwalkers)` to match `MCMCChains.Chains` API. Specifically, the nested vectors output from KissMCMC have lengths `(nwalkers, nsteps, length(models))` in the first, second, and third dimension, respectively. 
 """
 function convert_kissmcmc(chains::AbstractVector{<:AbstractVector{<:AbstractVector{T}}}) where T <: Number
     nwalkers = length(chains)
@@ -57,7 +58,7 @@ end
 """
     result::MCMCChains.Chains = mcmc_sample(models::AbstractVector{<:AbstractMatrix{T}}, data::AbstractMatrix{S}, x0::Union{AbstractVector{<:AbstractVector{<:Number}}, AbstractMatrix{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true)
 
-Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002. Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee](https://emcee.readthedocs.io/en/stable/). Automatically parallelizes over threads; recommend looking into [AdvancedMH.jl](@ref) if you need distributed execution. 
+Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002. Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee.moves.StretchMove](https://emcee.readthedocs.io/en/stable/). This method will automatically parallelize over threads. If you need distributed execution, you may want to look into [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl). 
 
 # Arguments
  - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
@@ -79,6 +80,19 @@ Samples the posterior of the coefficients `coeffs` such that the full model of t
  - When displaying `result` to the terminal it will display summary statistics (`MCMCChains.summarystats`) and quantiles (`MCMCChains.quantile`) by calling the `MCMCChains.describe` method. This can take a second but is nice to have as an option.
  - The highest posterior density interval, which is the narrowest [credible interval](https://en.wikipedia.org/wiki/Credible_interval) that includes the posterior mode, can be calculated with the `MCMCChains.hpd` method. 
  - If you want to extract the array of samples from the `MCMCChains.Chains` object, you can index `result.value` -- this will return an `AxisArray` but can be converted to a normal array with `Array(result.value)`.
+
+# Examples
+```julia
+import Distributions: Poisson
+coeffs = rand(10) # SFH coefficients we want to sample
+models = [rand(100,100) .* 100 for i in 1:length(coeffs)] # Vector of model Hess diagrams
+data = rand.(Poisson.( sum(models .* coeffs) ) ) # Poisson-sample the model `sum(models .* coeffs)`
+nwalkers = 1000
+nsteps = 400
+x0 = rand(nwalkers, length(coeffs)) # Initial walker positions
+result = mcmc_sample(models, data, x0, nwalkers, nsteps) # Sample
+Chains MCMC chain (400×10×1000 Array{Float64, 3}) ...
+```
 """
 function mcmc_sample(models::AbstractVector{<:AbstractMatrix{T}}, data::AbstractMatrix{S}, x0::AbstractVector{<:AbstractVector{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true) where {T <: Number, S <: Number}
     instance = MCMCModel( models,
@@ -102,27 +116,3 @@ function mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::A
         throw(ArgumentError("You provided a misshapen `x0` argument of type `AbstractMatrix{<:Number}` to `mcmc_sample`. When providing a matrix for `x0`, it must be of size `(nwalkers, length(models))` or `(length(models), nwalkers)`."))
     end
 end
-
-# import Random: AbstractRNG, default_rng
-# import Distributions: Poisson
-# import LogDensityProblems
-# import MCMCChains
-# import KissMCMC
-# import StarFormationHistories: loglikelihood, composite!
-
-# rng=default_rng()
-# T=Float64
-# nmodels=10
-# hist_size=(100,100)
-
-# coeffs = rand(rng,nmodels) #.* 100
-# coeffs[begin] = 0 # Set some coeffs to zero to model real applications
-# coeffs[end] = 0
-# models = [rand(rng,T,hist_size) .* 100 for i in 1:nmodels]
-# data = rand.(Ref(rng), Poisson.( sum(models .* coeffs) ) )
-
-# nwalkers=1000
-# nsteps=400
-# x0 = rand(nwalkers,nmodels) #.* 100
-# result = mcmc_sample(models, data, x0, nwalkers, nsteps)
-# display(MCMCChains.hpd(result))
