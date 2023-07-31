@@ -26,6 +26,7 @@ function MCMCModelDistance(models::A,
                                          C <: AbstractVector{<:Number},
                                          D <: Distribution{Univariate, Continuous}}
     V = promote_type(AA, eltype(B), eltype(C))
+    @assert length(xcolors) == length(ymags)
     return MCMCModelDistance(models, [Matrix{V}(undef, size(first(models))) for i in 1:Threads.nthreads()], xcolors, ymags, distance_prior, edges)
 end
 

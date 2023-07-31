@@ -5,7 +5,8 @@ struct MCMCFixedLAMRDistance{A <: AbstractVector{<:AbstractMatrix{<:Number}},
                              E <: Distribution{Univariate, Continuous},
                              F,
                              G <: AbstractVector{<:Number},
-                             H <: AbstractVector{<:Number}}
+                             H <: AbstractVector{<:Number},
+                             I <: Number}
     models::A
     composites::B # Vector of matrices, one per thread
     xcolors::C
@@ -14,8 +15,9 @@ struct MCMCFixedLAMRDistance{A <: AbstractVector{<:AbstractMatrix{<:Number}},
     edges::F
     logAge::G
     metallicities::H
-    σ::F
-    
+    α::I
+    β::I
+    σ::I
 end
 # edges is a 2-tuple; first element is x-bins, second element is y-bins where
 # y-bins are the absolute magnitude bins used to construct the models from isochrones.
@@ -25,35 +27,43 @@ function MCMCFixedLAMRDistance(models::A,
                                ymags::C,
                                distance_prior::D,
                                edges,
-                               logAge,
-                               metallicities) where {AA <: Number,
-                                             A <: AbstractVector{<:AbstractMatrix{AA}},
-                                             B <: AbstractVector{<:Number},
-                                             C <: AbstractVector{<:Number},
-                                             D <: Distribution{Univariate, Continuous}}
-    V = promote_type(AA, eltype(B), eltype(C))
-    return MCMCFixedLAMRDistance(models, [Matrix{V}(undef, size(first(models))) for i in 1:Threads.nthreads()], xcolors, ymags, distance_prior, edges, logAge, metallicities)
+                               logAge::AbstractVector{<:Number},
+                               metallicities::AbstractVector{<:Number},
+                               α::Number,
+                               β::Number,
+                               σ::Number) where {A <: AbstractVector{<:AbstractMatrix{<:Number}},
+                                                 B <: AbstractVector{<:Number},
+                                                 C <: AbstractVector{<:Number},
+                                                 D <: Distribution{Univariate, Continuous}}
+    V = promote_type(eltype(eltype(A)), eltype(B), eltype(C), typeof(α), typeof(β), typeof(σ))
+    @assert length(xcolors) == length(ymags)
+    @assert length(models) == length(logAge) == length(metallicities)
+    @assert σ > 0
+    return MCMCFixedLAMRDistance(models, [Matrix{V}(undef, size(first(models))) for i in 1:Threads.nthreads()], xcolors, ymags, distance_prior, edges, logAge, metallicities, convert.(V,(α, β, σ))...)
 end
 
 # This model will return loglikelihood
 LogDensityProblems.capabilities(::Type{<:MCMCFixedLAMRDistance}) = LogDensityProblems.LogDensityOrder{0}()
-LogDensityProblems.dimension(problem::MCMCFixedLAMRDistance) = length(problem.models)
+LogDensityProblems.dimension(problem::MCMCFixedLAMRDistance) = length(problem.models) + 1
 
 
 
 
 # Make the type callable for the loglikelihood
-function (problem::MCMCModelDistance)(θ)
-    T = promote_type(eltype(first(problem.composites)), eltype(problem.xcolors), eltype(problem.ymags), eltype(first(problem.models)))
+function (problem::MCMCFixedLAMRDistance{A,B,C,D,E,F,G,H,I})(θ)
+    T = I
     new_distance = first(θ)
     for coeff in θ # If any coefficients are negative, return -Inf
         if coeff < zero(T)
             return typemin(T)
         end
     end
-    data = bin_cmd(problem.xcolors, problem.ymags, edges=(problem.edges[1], problem.edges[2] .+ distance_modulus(new_distance * 1000))) # Construct new Hess diagram for the data given the new distance (in kpc)
+    # Construct new Hess diagram for the data given the new distance (in kpc)
+    data = bin_cmd(problem.xcolors, problem.ymags, edges=(problem.edges[1], problem.edges[2] .+ distance_modulus(new_distance * 1000)))
 
-    # idx = Threads.threadid()
+    # Calculate per-model coefficients based on the relative coefficient vector
+    # and the provided θ
+
     # This should be valid for vectors with non 1-based indexing
     idx = first(axes(problem.composites))[Threads.threadid()] 
     composite!( problem.composites[idx], view(θ,2:lastindex(θ)), problem.models )
