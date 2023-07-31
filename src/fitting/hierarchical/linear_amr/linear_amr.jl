@@ -47,7 +47,7 @@ end
                            invH::AbstractMatrix{<:Number},
                            result)
 
-Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) for fixed `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate).
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) for fixed `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate). The linear age-metallicity relation parameters `α` (slope [dex/Gyr]) and `β` (present-day intersect [dex]) are available in the second-to-last and last elements of `μ` and `σ`, respectively. 
 
 `invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
 
@@ -256,7 +256,7 @@ end
                            invH::AbstractMatrix{<:Number},
                            result)
 
-Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) when freely fitting `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate).
+Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) when freely fitting `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate). The linear age-metallicity relation parameters `α` (slope [dex/Gyr]) and `β` (present-day intersect [dex]) are available in the third-to-last and second-to-last elements of `μ` and `σ`, respectively. The static Gaussian width of the MDF at fixed age is provided in the last element of `μ` and `σ`. 
 
 `invH` contains the estimated inverse Hessian of the likelihood / posterior at the maximum point in the logarithmic fitting units. `result` is the full result object returned by the optimization routine.
 
