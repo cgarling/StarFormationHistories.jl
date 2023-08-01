@@ -538,6 +538,8 @@ function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
 end
 
+include("mcmc_fixed_lamr_distance.jl")
+
 # unique_logAge = range(6.6, 10.1; step=0.1)
 # unique_MH = range(-2.2, 0.3; step=0.1)
 # template_logAge = repeat(unique_logAge; inner=length(unique_MH))
