@@ -177,7 +177,7 @@ function fit_templates_mdf(models::AbstractVector{T},
                            metallicities::AbstractVector{<:Number},
                            σ::Number;
                            composite=Matrix{S}(undef,size(data)),
-                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5]),
+                           x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5]),
                            kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+2
@@ -302,8 +302,8 @@ end
 This version of mdf fg! also fits σ
 """
 @inline function fg_mdf!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) where T <: AbstractMatrix{<:Number}
-    # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
-    # entry in logAge, plus α and β to define the MDF at fixed logAge
+    # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
+    # entry in logAge, plus α and β to define the MDF at fixed logAge and σ to define Gaussian width
     @assert axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
     # Compute the coefficients on each model template given the `variables` and the MDF
@@ -362,7 +362,7 @@ end
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number} [, σ::Number];
                       composite=Matrix{S}(undef,size(data)),
-                      x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+                      x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
                       kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, constrained to have a linear mean metallicity evolution with the mean metallicity of element `i` of `unique(logAge)` being `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. `α` is therefore a slope in the units of `metallicities` per Gyr, and `β` is the mean metallicity value of stars being born at present-day. Individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the standard deviation `σ`, which can either be fixed or fit.
@@ -380,7 +380,7 @@ This function is designed to work best with a "grid" of stellar models, defined 
 
 # Keyword Arguments
  - `composite` is the working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
- - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge; normalize_value=1e4), [-0.1,-0.5,0.3])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [-0.1, -0.5, 0.3]`. If the provided `metallicities` are, for example, [M/H] values, then this mean metallicity evolution is μ(t) [dex] = -0.1 [dex/Gyr] * t [Gyr] - 0.5 [dex], and at fixed time, the metallicity distribution function is Gaussian with mean μ(t) and standard deviation σ. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`. 
+ - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [-0.1,-0.5,0.3])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [-0.1, -0.5, 0.3]`. If the provided `metallicities` are, for example, [M/H] values, then this mean metallicity evolution is μ(t) [dex] = -0.1 [dex/Gyr] * t [Gyr] - 0.5 [dex], and at fixed time, the metallicity distribution function is Gaussian with mean μ(t) and standard deviation σ. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`. 
 Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
 
 # Returns
@@ -394,7 +394,7 @@ function fit_templates_mdf(models::AbstractVector{T},
                            logAge::AbstractVector{<:Number},
                            metallicities::AbstractVector{<:Number};
                            composite=Matrix{S}(undef,size(data)),
-                           x0=vcat(construct_x0_mdf(logAge), [-0.1, -0.5, 0.3]),
+                           x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
                            kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
@@ -479,7 +479,7 @@ end
 
 # We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
 # import Distributions: MvNormal
-# result1, std1, fr = fit_templates_mdf(mdf_templates, h.weights, mdf_template_logAge, mdf_template_MH; x0=vcat(construct_x0_mdf(mdf_template_logAge; normalize_value=1e4),[-0.1,-0.5,0.3]))
+# result1, std1, fr = fit_templates_mdf(mdf_templates, h.weights, mdf_template_logAge, mdf_template_MH; x0=vcat(construct_x0_mdf(mdf_template_logAge, 10.13; normalize_value=1e4),[-0.1,-0.5,0.3]))
 # corner.corner(permutedims(rand(MvNormal(result1,LinearAlgebra.Hermitian(fr.trace[end].metadata["~inv(H)"])),10000)[end-2:end,:]))
 # Can we also use this inv(H) estimate as input to HMC? I think that's roughly the M matrix.
 
@@ -538,7 +538,8 @@ function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
 end
 
-include("mcmc_fixed_lamr_distance.jl")
+include("fixed_lamr_distance_mcmc.jl")
+include("fixed_lamr.jl")
 
 # unique_logAge = range(6.6, 10.1; step=0.1)
 # unique_MH = range(-2.2, 0.3; step=0.1)

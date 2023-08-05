@@ -98,3 +98,11 @@ Exponential model for photometric errors of the form
 Reported values for some HST data were `a=1.05, b=10.0, c=32.0, d=0.01`. 
 """
 exp_photerr(m, a, b, c, d) = a^(b * (m-c)) + d
+
+# Numerical utilities
+
+# function estimate_mode(data::AbstractVector{<:Real})
+#     bw = KernelDensity.default_bandwidth(data) / 10
+#     KDE = KernelDensity.kde(data; bandwidth=bw)
+#     return KDE.x[findmax(KDE.density)[2]]
+# end

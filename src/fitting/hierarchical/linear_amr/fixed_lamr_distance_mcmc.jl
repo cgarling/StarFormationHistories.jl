@@ -1,3 +1,6 @@
+# MCMC sampling of SFH and distance for fixed input linear age-metallicity relation
+# and Gaussian spread σ
+
 # struct MCMCFixedLAMRDistance{A <: AbstractVector{<:AbstractMatrix{<:Number}},
 #                              B <: AbstractVector{<:AbstractMatrix{<:Number}},
 #                              C <: AbstractVector{<:Number},
