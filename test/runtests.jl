@@ -470,7 +470,7 @@ end
                         nwalkers = 100
                         nsteps = 20
                         x0 = rand(rng, T, nwalkers, length(coeffs)) # Initial walker positions, matrix
-                        result = SFH.mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps) # Test with Vector{Vector} x0
+                        result = SFH.mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps; use_progress_meter=false) # Test with Vector{Vector} x0
                         @test result isa MCMCChains.Chains
                         @test size(result) == (nsteps, length(coeffs), nwalkers)
                         @test eltype(result.value) == T
@@ -501,7 +501,11 @@ end
             @test SFH.flux2mag(T(10), 1) === T(-3//2)
             @test SFH.Y_from_Z(convert(T,1e-3), 0.2485) ≈ 0.2502800000845455 rtol=rtols[i] # Return type not guaranteed
             @test SFH.X_from_Z(convert(T,1e-3)) ≈ 0.748719999867957 rtol=rtols[i] # Return type not guaranteed
-            @test SFH.MH_from_Z(convert(T,1e-3), 0.01524) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
+            @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed
+            @test SFH.MH_from_Z(convert(T,1e-3), convert(T,0.01524)) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
+            @test SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ 0.00016140865968917453 rtol=rtols[i] # Return type not guaranteed
+            # These two functions should be inverses; test that they are
+            @test SFH.MH_from_Z(SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ -2 rtol=rtols[i] # Return type not guaranteed
             @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) ≈ big"0.9933071490757151444406380196186748196062559910927034697307877569401159160854199" rtol=rtols[i]
             @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) isa T
             @test SFH.exp_photerr(T[20.0, 1.05, 10.0, 32.0, 0.01]...) ≈ big"0.01286605230281143891186877135084309862554426640053421106995766903206843498217022"
