@@ -35,7 +35,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
 end
 
 """
-    hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer [, nchains::Integer]; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer [, nchains::Integer]; composite=Matrix{S}(undef,size(data)), rng::Random.AbstractRNG=Random.default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 Function to sample the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002 along with a logarithmic transformation of the `coeffs` so that the fitting variables are continuous and differentiable over all reals. Sampling is done using the No-U-Turn sampler as implemented in [DynamicHMC.jl](https://github.com/tpapp/DynamicHMC.jl), which is a form of dynamic Hamiltonian Monte Carlo.
 
@@ -49,7 +49,7 @@ Function to sample the posterior of the coefficients `coeffs` such that the full
 
 # Keyword Arguments
  - `composite` is the working matrix (or vector of matrices, if the argument `nchains` is provided) that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
- - `rng::AbstractRNG` is the random number generator that will be passed to DynamicHMC.jl. If `nchains` is provided this method will attempt to sample in parallel, requiring a thread-safe `rng` such as that provided by `Random.default_rng()`. 
+ - `rng::Random.AbstractRNG` is the random number generator that will be passed to DynamicHMC.jl. If `nchains` is provided this method will attempt to sample in parallel, requiring a thread-safe `rng` such as that provided by `Random.default_rng()`. 
 All other keyword arguments `kws...` will be passed to `DynamicHMC.mcmc_with_warmup` or `DynamicHMC.mcmc_keep_warmup` depending on whether `nchains` is provided.
 
 # Returns

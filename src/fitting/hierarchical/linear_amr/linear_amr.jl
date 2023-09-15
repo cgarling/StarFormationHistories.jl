@@ -252,9 +252,9 @@ end
 
 """
     LogTransformMDFResult(μ::AbstractVector{<:Number},
-                           σ::AbstractVector{<:Number},
-                           invH::AbstractMatrix{<:Number},
-                           result)
+                          σ::AbstractVector{<:Number},
+                          invH::AbstractMatrix{<:Number},
+                          result)
 
 Type for containing the maximum likelihood estimate (MLE) and maximum a posteriori (MAP) results from [`fit_templates_mdf`](@ref) when freely fitting `σ`. The fitted coefficients are available in the `μ` field. Estimates of the standard errors are available in the `σ` field. These have both been transformed from the native logarithmic fitting space into natural units (i.e., stellar mass or star formation rate). The linear age-metallicity relation parameters `α` (slope [dex/Gyr]) and `β` (present-day intersect [dex]) are available in the third-to-last and second-to-last elements of `μ` and `σ`, respectively. The static Gaussian width of the MDF at fixed age is provided in the last element of `μ` and `σ`. 
 
@@ -365,7 +365,7 @@ end
                       x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
                       kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
-Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, constrained to have a linear mean metallicity evolution with the mean metallicity of element `i` of `unique(logAge)` being `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. `α` is therefore a slope in the units of `metallicities` per Gyr, and `β` is the mean metallicity value of stars being born at present-day. Individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the standard deviation `σ`, which can either be fixed or fit.
+Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, constrained to have a linear age-metallicity relation with the mean metallicity of element `i` of `unique(logAge)` being `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. `α` is therefore a slope in the units of `metallicities` per Gyr, and `β` is the mean metallicity value of stars being born at present-day. Individual weights for each isochrone template are then determined via Gaussian weighting with the above mean and the standard deviation `σ`, which can either be fixed or fit.
 
 This function is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage. 
 
@@ -531,6 +531,39 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModelMDF, xvec)
 end
 
 # Version with just one chain; no threading
+"""
+    hmc_sample_mdf(models::AbstractVector{T},
+                   data::AbstractMatrix{<:Number},
+                   logAge::AbstractVector{<:Number},
+                   metallicities::AbstractVector{<:Number},
+                   nsteps::Integer;
+                   composite=Matrix{S}(undef,size(data)),
+                   rng::Random.AbstractRNG=Random.default_rng(),
+                   kws...) where {S <: Number, T <: AbstractMatrix{S}}
+
+Method to sample the posterior of the star formation history coefficients constrained to have a linear age-metallicity relation with the mean metallicity of element `i` of `unique(logAge)` being `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. `α` is therefore a slope in the units of `metallicities` per Gyr, and `β` is the mean metallicity value of stars being born at present-day. Individual weights for each isochrone template are then determined via Gaussian weighting with the above mean and the standard deviation `σ`, which can either be fixed or fit. This method is essentially an analog of [`StarFormationHistories.fit_templates_mdf`](@ref) that samples the posterior rather than using optimization methods to find the maximum likelihood estimate. This method uses the No-U-Turn sampler as implemented in [DynamicHMC.jl](https://github.com/tpapp/DynamicHMC.jl), which is a form of dynamic Hamiltonian Monte Carlo.
+ 
+This function is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage.
+
+# Arguments
+ - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
+ - `data::AbstractMatrix{<:Number}` is the Hess diagram for the observed data.
+ - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
+ - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. This is most commonly a logarithmic abundance like [M/H] or [Fe/H], but you could use a linear abundance like the metal mass fraction Z if you wanted to. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful.
+ - `nsteps::Integer` is the number of samples to draw per chain.
+
+# Optional Arguments (NOT YET IMPLEMENTED)
+ - `nchains::Integer`: If this argument is not provided, this method will return a single chain. If this argument is provided, it will sample `nchains` chains using all available threads and will return a vector of the individual chains. If `nchains` is set, `composite` must be a vector of matrices containing a working matrix for each chain. 
+
+# Keyword Arguments
+ - `composite` is the working matrix (or vector of matrices, if the argument `nchains` is provided) that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
+ - `rng::Random.AbstractRNG` is the random number generator that will be passed to DynamicHMC.jl. If `nchains` is provided this method will attempt to sample in parallel, requiring a thread-safe `rng` such as that provided by `Random.default_rng()`. 
+All other keyword arguments `kws...` will be passed to `DynamicHMC.mcmc_with_warmup` or `DynamicHMC.mcmc_keep_warmup` depending on whether `nchains` is provided.
+
+# Returns (NEEDS UPDATED)
+ - If `nchains` is not provided, returns a `NamedTuple` as summarized in DynamicHMC.jl's documentation. In short, the matrix of samples can be extracted and transformed as `exp.( result.posterior_matrix )`. Statistics about the chain can be obtained with `DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)`; you want to see a fairly high acceptance rate (>0.5) and the majority of samples having termination criteria being "turning." See DynamicHMC.jl's documentation for more information.
+ - If `nchains` *is* provided, returns a vector of length `nchains` of the same `NamedTuple`s described above. The samples from each chain in the returned vector can be stacked to a single `(nsamples, nchains, length(models))` matrix with `DynamicHMC.stack_posterior_matrices(result)`.
+"""
 function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     @assert length(logAge) == length(metallicities)
     instance = HMCModelMDF( models, composite, data, logAge, metallicities,

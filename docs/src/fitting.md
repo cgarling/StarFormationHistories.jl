@@ -243,6 +243,12 @@ and [`StarFormationHistories.calculate_coeffs_mdf`](@ref) can be used to calcula
 StarFormationHistories.calculate_coeffs_mdf
 ```
 
+We additionally offer a sampling method for this linear age-metallicity relation using HMC:
+
+```@docs
+StarFormationHistories.hmc_sample_mdf
+```
+
 ### Implementation
 
 While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. We will show that the gradient of this hierarchical model is analytic, allowing us to design an efficient optimization scheme.
