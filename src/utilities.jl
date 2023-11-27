@@ -68,7 +68,7 @@ The present-day solar Z is measured to be 0.01524 ([Caffau et al. 2011](https://
 
 This function is an approximation and may not be suitable for precision calculations.
 """
-MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485) = log10(Z / X_from_Z(Z, Y_p)) - log10(solZ / X_from_Z(solZ))
+MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485) = log10(Z / X_from_Z(Z, Y_p)) - log10(solZ / X_from_Z(solZ, Y_p)) # Originally had X_from_Z(solZ) without passing through the Y_p. Don't remember why
 
 """
     Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485)
@@ -90,7 +90,8 @@ function Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485)
     # Z - 2.78Z * A = (1 - Y_p) * A
     # Z (1 - 2.78A) = (1 - Y_p) * A
     # Z = (1 - Y_p) * A * (1 - 2.78A)
-    zoverx = exp10(MH + log10(solZ / X_from_Z(solZ)))
+    # Originally had X_from_Z(solZ) without passing through the Y_p. Don't remember why
+    zoverx = exp10(MH + log10(solZ / X_from_Z(solZ, Y_p))) 
     return (1 - Y_p) * zoverx * (1 - 2.78 * zoverx)
 end
 
