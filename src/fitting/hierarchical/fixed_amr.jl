@@ -15,9 +15,17 @@ function fixed_amr(models::AbstractVector{T},
     @assert all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
 
     # Loop through all unique logAge entries and ensure sum over relweights = 1
+    # warned_norm = false
     for la in unique_logAge
         good = findall( logAge .== la )
-        relweights[good] ./= sum(relweights[good])
+        goodsum = sum(relweights[good])
+        if !(goodsum ≈ 1)
+            # if !warned_norm
+            @warn "The relative weights for logAge="*string(la)*" provided to `fixed_amr` do not sum to 1 and will be renormalized in place. This warning is suppressed for additional values of logAge." maxlog=1
+                # warned=true
+            # end
+            relweights[good] ./= goodsum
+        end
     end
 
     # Compute the index masks for each unique entry in logAge so we can
