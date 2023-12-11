@@ -453,7 +453,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test lbfgsb_result[2] ≈ x rtol=tset_rtol
                 end
             end
-            @testset "Fixed Linear AMR" begin
+            @testset "Fixed AMR" begin
                 let unique_logAge=8.0:0.1:10.0, unique_MH=-2.5:0.1:0.0
                     # let logAge=repeat(8.0:0.1:10.0;inner=26), metallicities=repeat(-2.5:0.1:0.0;outer=21)
                     logAge = repeat(unique_logAge; inner=length(unique_MH))
@@ -496,11 +496,15 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # Set up SFRs, initial guess, model templates, and data Hess diagram
                     # SFRs are uniformly random; x are the per-model weights based on those SFRs;
                     # x0 is initial guess; models are random matrices; data is sum(x .* models)
-                    @testset "fixed_lamr" begin
+                    @testset "fixed_amr + fixed_lamr" begin
                         let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models), C=zeros(hist_size)
-                            result = SFH.fixed_lamr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
-                            # display([result.mle.μ SFRs])
+                            # Calculate relative weights for input to fixed_amr
+                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
+                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0, composite=C)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
+                            # Now try fixed_lamr that will internally calculate the relweights
+                            result2 = SFH.fixed_lamr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
+                            @test result2.mle.μ ≈ SFRs rtol=1e-5
                         end
                     end
                 end
