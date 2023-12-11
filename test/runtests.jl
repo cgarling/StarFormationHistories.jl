@@ -453,6 +453,58 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test lbfgsb_result[2] ≈ x rtol=tset_rtol
                 end
             end
+            @testset "Fixed Linear AMR" begin
+                let unique_logAge=8.0:0.1:10.0, unique_MH=-2.5:0.1:0.0
+                    # let logAge=repeat(8.0:0.1:10.0;inner=26), metallicities=repeat(-2.5:0.1:0.0;outer=21)
+                    logAge = repeat(unique_logAge; inner=length(unique_MH))
+                    MH = repeat(unique_MH; outer=length(unique_logAge))
+                    α, β, σ = -0.05, -1.0, 0.2
+                    # Form relative weights; calculate_coeffs_mdf is open to API change
+                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
+                    @testset "calculate_coeffs_mdf" begin
+                        for (i, la) in enumerate(unique_logAge)
+                            @test sum(relweights[logAge .== la]) ≈ 1
+                        end
+                    end
+                    
+                    # construct_x0_mdf is open to API change
+                    @testset "construct_x0_mdf" begin
+                        # The input logAge does not need to be in any particular order
+                        # in order to use this method. Test this by shuffling `logAge`.
+                        let logAge = Random.shuffle(logAge) 
+                            x0 = SFH.construct_x0_mdf(logAge, log10(13.7e9))
+                            @test length(x0) == length(unique_logAge)
+                            idxs = sortperm(unique(logAge))
+                            sorted_ul = vcat(unique(logAge)[idxs], log10(13.7e9))
+                            dt = diff(exp10.(sorted_ul))
+                            sfr = [ begin
+                                 idx = findfirst( ==(sorted_ul[i]), unique(logAge) )
+                                 x0[i] / dt[idx]
+                              end for i in eachindex(unique(logAge)) ]
+                            @test all(sfr .≈ first(sfr)) # Test the SFR in each time bin is approximately equal
+                        end
+                        # Test normalize_value
+                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9))) ≈ 1
+                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9); normalize_value=1e5)) ≈ 1e5
+                    end
+
+                    # Now generate models, data, and try to solve
+                    hist_size=(100,100)
+                    rng=StableRNG(seedval)
+                    N_models = length(logAge)
+                    T = Float64
+                    # Set up SFRs, initial guess, model templates, and data Hess diagram
+                    # SFRs are uniformly random; x are the per-model weights based on those SFRs;
+                    # x0 is initial guess; models are random matrices; data is sum(x .* models)
+                    @testset "fixed_lamr" begin
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models), C=zeros(hist_size)
+                            result = SFH.fixed_lamr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
+                            # display([result.mle.μ SFRs])
+                            @test result.mle.μ ≈ SFRs rtol=1e-5
+                        end
+                    end
+                end
+            end
         end
 
         @testset verbose=true "Sampling" begin

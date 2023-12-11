@@ -1,26 +1,27 @@
-# Gradient-based optimization for SFH given a fixed input linear age-metallicity relation
-# and Gaussian spread σ
+# Gradient-based optimization for SFH given a fixed input age-metallicity relation, expressed as a series of relative weights that are applied per-template. For each unique entry in logAge, the sum of all relative weights for isochrones with that logAge but *any* metallicity must equal 1.
 
-function fixed_lamr(models::AbstractVector{T},
-                    data::AbstractMatrix{<:Number},
-                    logAge::AbstractVector{<:Number},
-                    metallicities::AbstractVector{<:Number},
-                    α::Real,
-                    β::Real,
-                    σ::Real;
-                    composite=Matrix{S}(undef,size(data)),
-                    x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
-                    kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function fixed_amr(models::AbstractVector{T},
+                   data::AbstractMatrix{<:Number},
+                   logAge::AbstractVector{<:Number},
+                   metallicities::AbstractVector{<:Number},
+                   relweights::AbstractVector{<:Number};
+                   composite=Matrix{S}(undef,size(data)),
+                   x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                   kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
     unique_logAge = unique(logAge)
     @assert length(x0) == length(unique_logAge)
     @assert length(logAge) == length(metallicities)
-    @assert σ > 0
-    # Pre-calculate relative per-model weights since LAMR is fixed
-    relweights = calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, metallicities, α, β, σ)
+    @assert all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
+
+    # Loop through all unique logAge entries and ensure sum over relweights = 1
+    for la in unique_logAge
+        good = findall( logAge .== la )
+        relweights[good] ./= sum(relweights[good])
+    end
+
     # Compute the index masks for each unique entry in logAge so we can
     # construct the full coefficients vector when evaluating the likelihood
-    # idxlogAge = [logAge .== i for i in unique_logAge]
     idxlogAge = [findall( ==(i), logAge) for i in unique_logAge]
 
     # Perform logarithmic transformation on the provided x0 for all SFH variables
@@ -33,7 +34,7 @@ function fixed_lamr(models::AbstractVector{T},
     coeffs = similar(fullG)
 
     # These closures don't seem to hurt performance much
-    function fg_map_lamr!(F, G, xvec)
+    function fg_map!(F, G, xvec)
         # Transform the provided logarithmic SFH coefficients
         x .= exp.(xvec)
         # Expand the SFH coefficients into per-model coefficients
@@ -60,8 +61,8 @@ function fixed_lamr(models::AbstractVector{T},
             return -logL
         end
     end
-    
-    function fg_mle_lamr!(F, G, xvec)
+
+    function fg_mle!(F, G, xvec)
         # Transform the provided logarithmic SFH coefficients
         x .= exp.(xvec)
         # Expand the SFH coefficients into per-model coefficients
@@ -97,11 +98,8 @@ function fixed_lamr(models::AbstractVector{T},
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     
     # Calculate results
-    result_map = Optim.optimize(Optim.only_fg!( fg_map_lamr! ), x0, bfgs_struct, bfgs_options)
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle_lamr! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
-    # result_mle = Optim.optimize(Optim.only_fg!(
-    #     (F, G, xvec) -> fg_mle_lamr!(F, G, xvec, x, idxlogAge, coeffs, relweights, composite, models, data, fullG)),
-    #                             Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     
     # Transform the resulting variables
     μ_map = exp.(copy( Optim.minimizer(result_map) ))
@@ -113,4 +111,5 @@ function fixed_lamr(models::AbstractVector{T},
 
     return (map = (μ = μ_map, σ = σ_map, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_map),
             mle = (μ = μ_mle, σ = σ_mle, invH = Optim.trace(result_mle)[end].metadata["~inv(H)"], result = result_mle))
+    
 end
