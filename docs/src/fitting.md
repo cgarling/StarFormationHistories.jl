@@ -2,7 +2,7 @@
 
 ## Background
 
-In the classic formulation of star formation history fitting from resolved-star photometry [(Dolphin 2002)](http://adsabs.harvard.edu/abs/2002MNRAS.332...91D), an observed color-magnitude diagram (CMD) is binned into a 2-D histogram known as a Hess diagram. Such a CMD and Hess diagram pair is shown below.
+In the classic formulation of star formation history fitting from resolved-star photometry [(Dolphin 2002)](https://ui.adsabs.harvard.edu/abs/2002MNRAS.332...91D), an observed color-magnitude diagram (CMD) is binned into a 2-D histogram known as a Hess diagram. Such a CMD and Hess diagram pair is shown below.
 
 ![Comparison of CMD and a Hess diagram generated from the same observational data.](figures/cmd_hess.png)
 

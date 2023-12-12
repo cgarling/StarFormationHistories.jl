@@ -489,8 +489,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     end
 
                     # Now generate models, data, and try to solve
-                    hist_size=(100,100)
-                    rng=StableRNG(seedval)
+                    hist_size = (100,100)
+                    rng = StableRNG(seedval)
                     N_models = length(logAge)
                     T = Float64
                     # Set up SFRs, initial guess, model templates, and data Hess diagram
