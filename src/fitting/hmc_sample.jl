@@ -94,6 +94,7 @@ function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, n
 end
 
 function extract_initialization(state)
+    # This unpack is legal in Julia 1.7 but not 1.6; might be worth alteration
     (; Q, κ, ϵ) = state.final_warmup_state
     (; q = Q.q, κ, ϵ)
 end
