@@ -502,6 +502,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
                             result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0, composite=C)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
+                            # Test that improperly normalized relweights results in warning
+                            @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0, composite=C)
                             # Now try fixed_lamr that will internally calculate the relweights
                             result2 = SFH.fixed_lamr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5

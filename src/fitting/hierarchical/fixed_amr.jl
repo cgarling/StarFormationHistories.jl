@@ -1,5 +1,33 @@
 # Gradient-based optimization for SFH given a fixed input age-metallicity relation, expressed as a series of relative weights that are applied per-template. For each unique entry in logAge, the sum of all relative weights for isochrones with that logAge but *any* metallicity must equal 1.
 
+"""
+    fixed_amr(models::AbstractVector{T},
+              data::AbstractMatrix{<:Number},
+              logAge::AbstractVector{<:Number},
+              metallicities::AbstractVector{<:Number},
+              relweights::AbstractVector{<:Number};
+              composite=Matrix{S}(undef,size(data)),
+              x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+              kws...) where {S <: Number, T <: AbstractMatrix{S}}
+
+Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, under an externally-imposed age-metallicity relation (AMR) and/or metallicity distribution function (MDF). As such, a number of coefficients equal to `length(unique(logAge))` are returned; that is, only one coefficient is derived per unique entry in `logAge`.
+
+# Arguments
+ - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
+ - `data::AbstractMatrix{<:Number}` is the Hess diagram for the observed data.
+ - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
+ - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. This is most commonly a logarithmic abundance like [M/H] or [Fe/H], but you could use a linear abundance like the metal mass fraction Z if you wanted to. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful.
+ - `relweights::AbstractVector{<:Number}` is a vector of length equal to that of `models` which contains the relative weights to apply to each model Hess diagram resulting from an externally-imposed age-metallicity relation and/or metallicity distribution function. Additional details on how to create these weights is provided in the notes below and in the online documentation.
+
+# Keyword Arguments
+ - `composite` is the working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
+ - `x0` is the vector of initial guesses for the stellar mass coefficients per unique entry in `logAge`. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess. 
+Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
+
+# Notes
+ - All metallicity-related weighting of the `models` is assumed to be captured in the provided `relweights` vector, which has the same length as the `logAge`, `metallicities`, and `models` vectors. Each entry in `relweights` is assumed to be a relative weight for the corresponding `model`. For example, for the model Hess diagram `models[i]`, with log10(age [yr]) = `logAge[i]` and metallicity `metallicities[i]`, the relative weight due to the model's age and metallicity `w(logAge[i], metallicities[i])` is assumed to be `relweights[i]`. The sum of all `relweights` for each unique entry in `logAge` should be 1; i.e., the following condition should be met: `all( sum(relweights[logAge .== la]) ≈ 1 for la in unique(logAge))`. If this is not the case, this function will issue a warning and attempt to renormalize `relweights` by mutating the vector in place. More information on preparation of the `relweights` for input to this method is provided in our online documentation. 
+ - This function is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage.
+"""
 function fixed_amr(models::AbstractVector{T},
                    data::AbstractMatrix{<:Number},
                    logAge::AbstractVector{<:Number},
@@ -11,7 +39,7 @@ function fixed_amr(models::AbstractVector{T},
 
     unique_logAge = unique(logAge)
     @assert length(x0) == length(unique_logAge)
-    @assert length(logAge) == length(metallicities)
+    @assert length(models) == length(logAge) == length(metallicities) == length(relweights)
     @assert all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
 
     # Loop through all unique logAge entries and ensure sum over relweights = 1
