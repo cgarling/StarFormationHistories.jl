@@ -1,14 +1,14 @@
 # Gradient-based optimization for SFH given a fixed input linear age-metallicity relation
 # and Gaussian spread σ
 
-function fixed_lamr(models::AbstractVector{<:AbstractMatrix{<:Number}},
-                    data::AbstractMatrix{<:Number},
-                    logAge::AbstractVector{<:Number},
-                    metallicities::AbstractVector{<:Number},
-                    α::Number,
-                    β::Number,
-                    σ::Number;
-                    kws...) #where {S <: Number, T <: AbstractMatrix{S}}
+function fixed_linear_amr(models::AbstractVector{<:AbstractMatrix{<:Number}},
+                          data::AbstractMatrix{<:Number},
+                          logAge::AbstractVector{<:Number},
+                          metallicities::AbstractVector{<:Number},
+                          α::Number,
+                          β::Number,
+                          σ::Number;
+                          kws...) #where {S <: Number, T <: AbstractMatrix{S}}
     
     # Calculate relative per-model weights since LAMR is fixed
     relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, α, β, σ)

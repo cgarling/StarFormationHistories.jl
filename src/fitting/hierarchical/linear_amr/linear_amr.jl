@@ -572,7 +572,7 @@ function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number
 end
 
 include("fixed_lamr_distance_mcmc.jl")
-include("fixed_lamr.jl")
+include("fixed_linear_amr.jl")
 
 # unique_logAge = range(6.6, 10.1; step=0.1)
 # unique_MH = range(-2.2, 0.3; step=0.1)
