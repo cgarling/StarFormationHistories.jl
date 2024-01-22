@@ -508,13 +508,13 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             result2 = SFH.fixed_linear_amr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5
                             # Test how removing low-weight models from fixed_amr might impact fit
-                            relweightstol = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin
+                            relweightsmin = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin
                             keep_idx = Int[]
                             for (i, la) in enumerate(unique_logAge)
                                 good = findall(logAge .== la) # Select models with correct logAge
                                 tmp_relweights = relweights[good]
                                 max_relweight = maximum(tmp_relweights) # Find maximum relative weight for this set of models
-                                high_weights = findall(tmp_relweights .>= (relweightstol * max_relweight))
+                                high_weights = findall(tmp_relweights .>= (relweightsmin * max_relweight))
                                 keep_idx = vcat(keep_idx, good[high_weights])
                             end
                             # This takes ~0.5s compared to ~2s for the full result = SFH.fixed_amr ... above
@@ -526,7 +526,10 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # And on average, agreement is pretty good
                             @test median( (result3.mle.μ .- SFRs) ./ SFRs) < 1e-3
                             # Test that truncate_relweights does correct thing
-                            @test SFH.truncate_relweights(relweightstol,relweights,logAge) == keep_idx
+                            @test SFH.truncate_relweights(relweightsmin,relweights,logAge) == keep_idx
+                            # Test that setting relweightsmin keyword to fixed_amr gives same result as result3 above
+                            result4 = SFH.fixed_amr(models, data, logAge, MH, relweights; relweightsmin=relweightsmin, x0=x0, composite=C)
+                            @test isapprox(result3.mle.μ, result4.mle.μ)
                         end
                     end
                 end
