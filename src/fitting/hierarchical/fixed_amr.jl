@@ -1,6 +1,65 @@
 # Gradient-based optimization for SFH given a fixed input age-metallicity relation, expressed as a series of relative weights that are applied per-template. For each unique entry in logAge, the sum of all relative weights for isochrones with that logAge but *any* metallicity must equal 1.
 
 """
+    keep_idx::Vector{Int} = truncate_relweights(relweightstol::Number, relweights::AbstractVector{<:Number}, logAge::AbstractVector{<:Number})
+
+Method to truncate an isochrone grid with log10(age [yr]) values `logAge` and relative weights `relweights` due to an age-metallicity relation to only include models with `relweights` greater than `relweightstol` times the maximum relative weight for each unique entry in `logAge`. The input vectors are the same as those for [`StarFormationHistories.fixed_amr`](@ref), which includes more information. Returns a vector of the indices into `relweights` and `logAge` of the isochrone models whose relative weights are significant given the provided `relweightstol`.
+
+# Examples
+When using a fixed input age-metallicity relation as enabled by, for example, [`StarFormationHistories.fixed_amr`](@ref), only the star formation rate (or total stellar mass) coefficients need to be fit, as the metallicity distribution is no longer a free parameter in the model. As such, the relative weights of each model with identical `logAge` but different `metallicities` only need to be computed once at the start of the optimization. As the metallicity distribution is not a free parameter, it is also possible to truncate the list of models to only those that contribute significantly to the final composite model to improve runtime performance. That is what this method does.
+
+A simple isochrone grid will be two-dimensional, encompassing age and metallicity. Consider a subset of the model grid with the same age such that `unique(logAge) = [10.0]` but a series of different metallicities, `metallicities = -2.5:0.25:0`. If we model the metallicity distribution function for this age as having a mean [M/H] of -2.0 and a Gaussian spread of 0.2 dex, then the relative weights of these models can be approximated as 
+
+```julia
+import Distributions: Normal, pdf
+metallicities = -2.5:0.25:0
+relweights = pdf.(Normal(-2.0, 0.2), metallicities)
+relweights ./= sum(relweights) # Normalize the relative weights to unity sum
+```
+
+```
+11-element Vector{Float64}:
+ 0.021919934465195145
+ 0.2284109622221623
+ 0.4988954088848224
+ 0.2284109622221623
+ 0.021919934465195145
+ 0.0004409368867815243
+ 1.8592101580561089e-6
+ 1.6432188478108614e-9
+ 3.0442281937632026e-13
+ 1.1821534989089337e-17
+ 9.622444440364979e-23
+```
+
+Several of these models with very low relative weights are unlikely to contribute significantly to the final composite model. We can select out only the significant ones with, say, relative weights greater than 10% of the maximum as `StarFormationHistories.truncate_relweights(0.1, relweights, fill(10.0,length(metallicities)))` which yields
+
+```
+3-element Vector{Int64}:
+ 2
+ 3
+ 4
+```
+
+which correspond to `relweights[2,3,4] = [ 0.2284109622221623, 0.4988954088848224, 0.2284109622221623 ]`. 
+"""
+function truncate_relweights(relweightstol::Number,
+                             relweights::AbstractVector{<:Number},
+                             logAge::AbstractVector{<:Number})
+    @assert length(relweights) == length(logAge)
+    relweightstol == 0 && return collect(eachindex(relweights, logAge)) # short circuit for relweightstol = 0
+    keep_idx = Vector{Int}[] # Vector of vectors of integer indices
+    for la in unique(logAge)
+        good = findall(logAge .== la) # Select models with correct logAge
+        tmp_relweights = relweights[good]
+        max_relweight = maximum(tmp_relweights) # Find maximum relative weight for this set of models
+        high_weights = findall(tmp_relweights .>= (relweightstol * max_relweight))
+        push!(keep_idx, good[high_weights])
+    end
+    return reduce(vcat, keep_idx)
+end
+
+"""
     fixed_amr(models::AbstractVector{T},
               data::AbstractMatrix{<:Number},
               logAge::AbstractVector{<:Number},

@@ -331,6 +331,12 @@ Then all we need is
 
 which we can substitute into the above expressions to find ``\frac{\partial \, F}{\partial \, \sigma}``.
 
+## Fixed Age-Metallicity Relations and Metallicity Distribution Functions
+
+```@docs
+StarFormationHistories.fixed_amr
+```
+
 ## Developer Internals
 
 ```@docs
@@ -339,4 +345,5 @@ StarFormationHistories.loglikelihood
 StarFormationHistories.∇loglikelihood
 StarFormationHistories.∇loglikelihood!
 StarFormationHistories.fg!
+StarFormationHistories.truncate_relweights
 ```
