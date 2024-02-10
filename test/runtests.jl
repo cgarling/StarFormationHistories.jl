@@ -534,6 +534,43 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             @test isapprox(result3.mle.μ, result4.mle.μ)
                         end
                     end
+
+                    # Now try fixed_log_amr that uses an AMR that is logarithmic in [M/H]
+                    # or, equivalently, linear in the metal mass fraction Z.
+                    # First test calculate_αβ_logamr, which takes [M/H] at two points in time
+                    # and calculates the α and β coefficients for linear Z AMR.
+                    # The constraints will be [M/H] = -2.5 at lookback time of 13.7 Gyr
+                    # and [M/H] = -1 at present-day.
+                    @testset "fixed_log_amr" begin
+                        low_constraint = (-2.5, 13.7)
+                        high_constraint = (-1.0, 0.0)
+                        α, β = SFH.calculate_αβ_logamr( low_constraint, high_constraint )
+                        σ = 0.2
+                        @testset "calculate_αβ_logamr" begin
+                            @test α ≈ -0.00011345544581771879
+                            @test β ≈ 0.001605402371689971
+                            # Test that passing different function to calculate Z from MH works
+                            @test all(SFH.calculate_αβ_logamr( low_constraint,
+                                                               high_constraint,
+                                                               x -> SFH.Z_from_MH(x, 0.017; Y_p = 0.25) ) .≈
+                                                                   (-0.00012735499210578944, 0.0018021252406963905) )
+                        end
+
+                        # Set up variables for testing 
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models), C=zeros(hist_size)
+                            # Calculate relative weights for input to fixed_amr
+                            relweights = SFH.calculate_coeffs_logamr( ones(length(unique_logAge)), logAge, MH, α, β, σ)
+                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0, composite=C)
+                            @test result.mle.μ ≈ SFRs rtol=1e-5
+                            # Now try fixed_log_amr that will internally calculate the relweights
+                            result2 = SFH.fixed_log_amr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
+                            @test result2.mle.μ ≈ SFRs rtol=1e-5
+                            # Try second call signature that takes low_constraint and high_constraint
+                            result3 = SFH.fixed_log_amr(models, data, logAge, MH, low_constraint, high_constraint, σ; x0=x0, composite=C)
+                            @test result3.mle.μ ≈ SFRs rtol=1e-5
+
+                        end
+                    end
                 end
             end
         end
