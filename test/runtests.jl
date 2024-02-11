@@ -532,6 +532,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # Test that setting relweightsmin keyword to fixed_amr gives same result as result3 above
                             result4 = SFH.fixed_amr(models, data, logAge, MH, relweights; relweightsmin=relweightsmin, x0=x0, composite=C)
                             @test isapprox(result3.mle.μ, result4.mle.μ)
+
+                            @testset "mdf_amr" begin
+                                # @test SFH.mdf_amr(SFRs, logAge, MH, relweights; relweightsmin=0)[1] == unique_MH
+                                # println(SFH.mdf_amr(SFRs, logAge, MH, relweights; relweightsmin=0)[2])
+                                mdf_result1 = SFH.mdf_amr([1.0,2.0,3.0,4.0],[1.0,2.0,1.0,2.0],[-2.0,-2.0,-1.0,-1.0])
+                                @test mdf_result1[1] ≈ [-2.0, -1.0]
+                                @test mdf_result1[2] ≈ [0.3, 0.7]
+                            end
                         end
                     end
 
@@ -568,7 +576,6 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # Try second call signature that takes low_constraint and high_constraint
                             result3 = SFH.fixed_log_amr(models, data, logAge, MH, low_constraint, high_constraint, σ; x0=x0, composite=C)
                             @test result3.mle.μ ≈ SFRs rtol=1e-5
-
                         end
                     end
                 end
