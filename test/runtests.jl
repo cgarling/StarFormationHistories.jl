@@ -282,6 +282,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     C = zeros(T, 3,3)
                     SFH.composite!(C, coeffs, models )
                     @test C == T[0 0 0; 1 1 1; 2 2 2]
+                    # Test second call signature for flattened input
+                    A2 = T[0,1,0,0,1,0,0,1,0]
+                    B2 = T[0,0,1,0,0,1,0,0,1]
+                    models2 = [A2 B2]
+                    @test SFH.stack_models(models) == models2
+                    C2 = zeros(T, 9)
+                    SFH.composite!(C2, coeffs, models2)
+                    @test C2 == T[0,1,2,0,1,2,0,1,2]
                 end
             end
         end
@@ -294,6 +302,11 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     data = Int64[1 1 1; 2 2 2; 2 2 2]
                     @test SFH.loglikelihood( C, data ) ≈ -0.5672093513510137 rtol=rtols[i]
                     @test SFH.loglikelihood( C, data ) isa T
+                    # Test second call signature for flattened input
+                    C2 = T[1,2,3,1,2,3,1,2,3]
+                    data2 = Int64[1,2,2,1,2,2,1,2,2]
+                    @test SFH.loglikelihood( C2, data2 ) ≈ -0.5672093513510137 rtol=rtols[i]
+                    @test SFH.loglikelihood( C2, data2 ) isa T                    
                 end
             end
         end

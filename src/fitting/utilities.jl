@@ -1,3 +1,9 @@
+"
+    stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models))
+Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix. 
+"
+stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models)) # mapreduce(vec, hcat, models)
+
 """
     x0::typeof(logage) = construct_x0(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
 
