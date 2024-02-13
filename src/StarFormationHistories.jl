@@ -5,7 +5,7 @@ import DynamicHMC  # For random uncertainties in SFH fits
 import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw 
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
-import LinearAlgebra: diag, Hermitian, mul! # det, inv # mul! for composite!
+import LinearAlgebra: diag, Hermitian, mul! # det, inv # mul! for composite!, ∇loglikelihood!
 import LogDensityProblems # For interfacing with DynamicHMC
 import LoopVectorization: @turbo
 import Optim

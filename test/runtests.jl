@@ -302,11 +302,25 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     data = Int64[1 1 1; 2 2 2; 2 2 2]
                     @test SFH.loglikelihood( C, data ) ≈ -0.5672093513510137 rtol=rtols[i]
                     @test SFH.loglikelihood( C, data ) isa T
-                    # Test second call signature for flattened input
+                    # Test for 3-argument signature
+                    A = T[1 1 1; 0 0 0; 0 0 0]
+                    B = T[0 0 0; 1 1 1; 1.5 1.5 1.5]
+                    models = [A,B]
+                    coeffs = T[1,2]
+                    @test SFH.loglikelihood(coeffs, models, data) ≈ -0.5672093513510137 rtol=rtols[i]
+                    @test SFH.loglikelihood(coeffs, models, data) isa T
+                    # Test 2-argument call signature for flattened input
                     C2 = T[1,2,3,1,2,3,1,2,3]
                     data2 = Int64[1,2,2,1,2,2,1,2,2]
                     @test SFH.loglikelihood( C2, data2 ) ≈ -0.5672093513510137 rtol=rtols[i]
-                    @test SFH.loglikelihood( C2, data2 ) isa T                    
+                    @test SFH.loglikelihood( C2, data2 ) isa T
+                    # Test 3-argument call signature for flattened input
+                    A2 = T[1,0,0,1,0,0,1,0,0]
+                    B2 = T[0,1,1.5,0,1,1.5,0,1,1.5]
+                    models2 = [A2 B2]
+                    coeffs = T[1,2]
+                    @test SFH.loglikelihood(coeffs, models2, data2) ≈ -0.5672093513510137 rtol=rtols[i]
+                    @test SFH.loglikelihood(coeffs, models2, data2) isa T
                 end
             end
         end
@@ -315,23 +329,43 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 label = float_type_labels[i]
                 @testset "$label" begin
                     T = float_types[i]
+                    # Test method for single model, matrix inputs
                     model = T[0 0 0; 0 0 0; 1 1 1]
                     C = T[1 1 1; 2 2 2; 3 3 3]
                     data = Int64[1 1 1; 2 2 2; 2 2 2]
                     result = SFH.∇loglikelihood( model, C, data )
                     @test result ≈ -1 rtol=rtols[i]
                     @test result isa T
-                    # Test the method for multiple models
+                    # Test method for single model, flattened inputs
+                    model2 = T[0,0,1,0,0,1,0,0,1]
+                    C2 = T[1,2,3,1,2,3,1,2,3]
+                    data2 = Int64[1,2,2,1,2,2,1,2,2]
+                    result = SFH.∇loglikelihood( model2, C2, data2 )
+                    @test result ≈ -1 rtol=rtols[i]
+                    @test result isa T                    
+                    # Test the method for multiple models, matrix inputs
                     result = SFH.∇loglikelihood( [model, model], C, data )
                     @test result ≈ [-1, -1] rtol=rtols[i]
                     @test result isa Vector{T}
                     @test length(result) == 2
-                    # Test the method for multiple models that takes `coeffs` rather than `composite`
+                    # Test the method for multiple models, flattened inputs
+                    result = SFH.∇loglikelihood( [model2 model2], C2, data2 )
+                    @test result ≈ [-1, -1] rtol=rtols[i]
+                    @test result isa Vector{T}
+                    @test length(result) == 2
+                    # Test the method for multiple models that takes `coeffs`, matrix inputs
                     models = [ T[1 1 1; 0 0 0; 0 0 0],
                                T[0 0 0; 1 1 1; 0 0 0],
                                T[0 0 0; 0 0 0; 1 1 1] ]
                     coeffs = T[1.5, 3, 3]
                     result = SFH.∇loglikelihood( coeffs, models, data )
+                    @test result ≈ [-1, -1, -1] rtol=rtols[i]
+                    @test result isa Vector{T}
+                    @test length(result) == 3
+                    # Test the method for multiple models that takes `coeffs`, flattened inputs
+                    models2 = reduce(hcat, vec.(models)) # Flatten above models
+                    coeffs = T[1.5, 3, 3]
+                    result = SFH.∇loglikelihood( coeffs, models2, data2 )
                     @test result ≈ [-1, -1, -1] rtol=rtols[i]
                     @test result isa Vector{T}
                     @test length(result) == 3
@@ -352,6 +386,25 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     grad = Vector{T}(undef,3)
                     SFH.∇loglikelihood!( grad, C, models, data )
                     @test grad ≈ [-1, -1, -1] rtol=rtols[i]
+                    # Test the method for flattened inputs
+                    data2 = vec(data)
+                    models2 = reduce(hcat, vec.(models))
+                    C2 = models2 * coeffs
+                    grad2 = Vector{T}(undef,3)
+                    SFH.∇loglikelihood!( grad2, C2, models2, data2 )
+                    @test grad2 ≈ [-1, -1, -1] rtol=rtols[i]
+                    # Now try with zeros in `data`; standard form first
+                    data3 = Int64[0 0 0; 2 2 2; 2 2 2]
+                    C3 = sum( coeffs .* models )
+                    grad3 = Vector{T}(undef,3)
+                    SFH.∇loglikelihood!( grad3, C3, models, data3 )
+                    @test grad3 ≈ [0, -1, -1] rtol=rtols[i]
+                    # zeros in `data`, flattened inputs
+                    data4 = vec(data3)
+                    C4 = models2 * coeffs
+                    grad4 = Vector{T}(undef,3)
+                    SFH.∇loglikelihood!( grad4, C4, models2, data4 )
+                    @test grad4 ≈ [0, -1, -1] rtol=rtols[i]
                 end
             end
         end
