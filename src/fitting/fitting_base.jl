@@ -1,7 +1,10 @@
 # Contains basic likelihood and gradient functions for SFH analysis
 
 """
-     composite!(composite::AbstractMatrix{<:Number}, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}) where T <: AbstractMatrix{<:Number}
+     composite!(composite::AbstractMatrix{<:Number},
+                coeffs::AbstractVector{<:Number},
+                models::AbstractVector{T})
+                where T <: AbstractMatrix{<:Number}
 
 Updates the `composite` matrix in place with the linear combination of `sum( coeffs .* models )`; this is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
 
@@ -28,9 +31,11 @@ true
     end
 end
 "
-    composite = composite!(composite::AbstractVector{T}, coeffs::AbstractVector{T}, models::AbstractMatrix{T}) where T <: Number
+    composite!(composite::AbstractVector{<:Number},
+               coeffs::AbstractVector{<:Number},
+               models::AbstractMatrix{<:Number})
 
-Updates and returns the `composite` vector with the matrix-vector product of `models * coeffs`. This is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
+Updates the `composite` vector with the matrix-vector product of `models * coeffs`. This is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
 
 # Examples
 ```julia
@@ -44,12 +49,13 @@ true
 ```
 
 # Notes
-While the other call signature for this function more closely mirrors the natural data structure for Hess diagrams (2D matrices for `composite` and each entry in `models`), this method operates on the same data but flattened. Thus `composite` becomes a vector rather than a matrix and `models` becomes a single matrix rather than a vector of matrices. The method [`StarFormationHistories.stack_models`](@ref) is provided to stack the `models` into this format. This data laytout enables us to use the highly optimized `LinearAlgebra.mul!` function to perform the matrix-vector product which typically achieves >30% speedup relative to the more *natural* formulation.
+While the other call signature for this function more closely mirrors the natural data structure for Hess diagrams (2D matrices for `composite` and each entry in `models`), this method operates on the same data but flattened. Thus `composite` becomes a vector rather than a matrix and `models` becomes a single matrix rather than a vector of matrices. The method [`StarFormationHistories.stack_models`](@ref) is provided to stack the `models` into this format. This data layout enables us to use the highly optimized `LinearAlgebra.mul!` function to perform the matrix-vector product which typically achieves >30% speedup relative to the more *natural* formulation. Additionally, as `mul!` will typically call to a BLAS matrix-vector product function like `gemv!` for our use-case, we can switch out Julia's default OpenBLAS at runtime for other BLAS libraries with Julia bindings like MKL and Apple Accelerate, enabling even greater performance improvements.
 "
 @inline function composite!(composite::AbstractVector{<:Number}, coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number})
     @assert axes(composite,1) == axes(models,1)
     @assert axes(coeffs,1) == axes(models,2)
     mul!(composite, models, coeffs)
+    return # mul! will return composite which is not desired
     # mul! is preferrable for small matrices
     # gemv! requires all same numeric types
     # LinearAlgebra.BLAS.gemv!('N',one(T),models,coeffs,zero(T),composite) 

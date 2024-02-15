@@ -1,12 +1,25 @@
 # Methods dealing with direct MLE/MAP solvers
 
+# Input validation methods
+@inline function _check_matrix_input_sizes(coeffs, models, data, composite)
+    # @assert size(composite) == size(data)
+    @assert length(coeffs) == length(models)
+    @assert all(size(model) == size(data) == size(composite) for model in models)
+end
+@inline function _check_flat_input_sizes(coeffs, models, data, composite)
+    @assert axes(coeffs,1) == axes(models,2)
+    @assert axes(models,1) == axes(data,1) == axes(composite,1)
+end
+
 """
     -logL = fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    -logL = fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, composite::AbstractVector{<:Number})
 
-Computes -loglikelihood and its gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). 
+Computes -loglikelihood and its gradient simultaneously for use with Optim.jl and other optimization APIs. See documentation [here](https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/). Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 """
-@inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(eltype(data)), eltype(composite))
+@inline function fg!(F, G, coeffs, models, data, composite)
+# @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data), eltype(composite))
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     composite!(composite, coeffs, models) 
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
@@ -22,9 +35,33 @@ Computes -loglikelihood and its gradient simultaneously for use with Optim.jl an
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
 end
-
+# @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, composite::AbstractVector{<:Number})
+#     S = promote_type(eltype(coeffs), eltype(models), eltype(data), eltype(composite))
+#     # Fill the composite array with the equivalent of sum( coeffs .* models )
+#     composite!(composite, coeffs, models) 
+#     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+#         # Calculate logL before ∇loglikelihood! which will overwrite composite
+#         logL = loglikelihood(composite, data)
+#         ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
+#         G .*= -1 # We want the gradient of the negative log likelihood
+#         return -logL # Return the negative loglikelihood
+#     elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
+#         ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
+#         G .*= -1 # We want the gradient of the negative log likelihood
+#     elseif F != nothing # Optim.optimize wants only objective
+#         return -loglikelihood(composite, data) # Return the negative loglikelihood
+#     end
+# end
 """
-    (-logL, coeffs) = fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    (-logL, coeffs) = 
+    fit_templates_lbfgsb(models::AbstractVector{T},
+                         data::AbstractMatrix{<:Number};
+                         composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
+                         x0::AbstractVector{<:Number} = ones(S,length(models)),
+                         factr::Number=1e-12,
+                         pgtol::Number=1e-5,
+                         iprint::Integer=0,
+                         kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](https://ui.adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the composite Hess diagram model `sum(models .* coeffs)` given the provided templates `models` and the observed Hess diagram `data` using the box-constrained LBFGS method provided by [LBFGSB.jl](https://github.com/Gnimuc/LBFGSB.jl). 
 
@@ -33,7 +70,6 @@ Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (equa
  - `data::AbstractMatrix{<:Number}`: the observed Hess diagram; must match the size of the templates contained in `models`.
 
 # Keyword Arguments
- - `composite`: The working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
  - `x0`: The vector of initial guesses for the stellar mass coefficients. You should basically always be calculating and passing this keyword argument; we provide [`StarFormationHistories.construct_x0`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess.
  - `factr::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the objective function.
  - `pgtol::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the projected gradient of the objective.
@@ -47,11 +83,29 @@ Other `kws...` are passed to `LBFGSB.lbfgsb`.
 # Notes
  - It can be helpful to normalize your `models` to contain realistic total stellar masses to aid convergence stability; for example, if the total stellar mass of your population is 10^7 solar masses, then you might normalize your templates to contain 10^3 solar masses. If you are using [`partial_cmd_smooth`](@ref) to construct the templates, you can specify this normalization via the `normalize_value` keyword. 
 """
-function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
+@inline function fit_templates_lbfgsb(models, data, composite, x0; factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...)
     G = similar(x0)
     fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
-    LBFGSB.lbfgsb(fg, x0; lb=zeros(length(models)), ub=fill(Inf,length(models)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+    LBFGSB.lbfgsb(fg, x0; lb=zeros(size(models,2)), ub=fill(Inf,size(models,2)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
+end
+function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where T <: AbstractMatrix{<:Number}
+    _check_matrix_input_sizes(x0, models, data, composite) # Validate input sizes
+    fit_templates_lbfgsb(models, data, composite, x0; kws...)
+end
+"
+    fit_templates_lbfgsb(models::AbstractMatrix{S},
+                         data::AbstractVector{<:Number};
+                         composite::AbstractVector{<:Number} = Vector{S}(undef,size(data)),
+                         x0::AbstractVector{<:Number} = ones(S,size(models,2)),
+                         factr::Number=1e-12,
+                         pgtol::Number=1e-5,
+                         iprint::Integer=0, kws...) where S <: Number
+
+This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"
+function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+    _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
+    fit_templates_lbfgsb(models, data, composite, x0; kws...)
 end
 
 """
@@ -94,7 +148,11 @@ function _rand!(rng::AbstractRNG, result::LogTransformFTResult, x::Union{Abstrac
 end
 
 """
-    result = fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    result = fit_templates(models::AbstractVector{T},
+                           data::AbstractMatrix{<:Number};
+                           composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
+                           x0::AbstractVector{<:Number} = ones(S,length(models)),
+                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (MAP) for the coefficients `coeffs` such that the composite Hess diagram model is `sum(models .* coeffs)` using the provided templates `models` and the observed Hess diagram `data`. Utilizes the Poisson likelihood ratio (equations 7--10 in [Dolphin 2002](https://ui.adsabs.harvard.edu/abs/2002MNRAS.332...91D)) for the likelihood of the data given the model. See the examples in the documentation for comparisons of the results of this method and [`hmc_sample`](@ref) which samples the posterior via Hamiltonian Monte Carlo. 
 
@@ -123,8 +181,8 @@ The special property of the [`StarFormationHistories.LogTransformFTResult`](@ref
  - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred).
  - The BFGS implementation we use from Optim.jl uses BLAS operations during its iteration. The OpenBLAS that Julia ships with will often default to running on multiple threads even if Julia itself is started with only a single thread. You can check the current number of BLAS threads with `import LinearAlgebra: BLAS; BLAS.get_num_threads()`. For the problem sizes typical of this function we actually see performance regression with larger numbers of BLAS threads. For this reason you may wish to use BLAS in single-threaded mode; you can set this as `import LinearAlgebra: BLAS; BLAS.set_num_threads(1)`.
 """
-function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
+@inline function fit_templates(models, data, composite, x0; kws...) # This signature does no input checking
+# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     # log-transform the initial guess vector
     x0 = log.(x0)
     # Make scratch array for assessing transformations
@@ -170,9 +228,30 @@ function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}
                                        result_mle.trace[end].metadata["~inv(H)"],
                                        result_mle ) )
 end
+function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    _check_matrix_input_sizes(x0, models, data, composite)
+    fit_templates(models, data, composite, x0; kws...)
+end
+"
+    fit_templates(models::AbstractMatrix{S},
+                  data::AbstractVector{<:Number};
+                  composite::AbstractVector{<:Number} = Vector{S}(undef,length(data)),
+                  x0::AbstractVector{<:Number} = ones(S,length(models)),
+                  kws...) where S <: Number
 
+This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"
+function fit_templates(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+    _check_flat_input_sizes(x0, models, data, composite)
+    fit_templates(models, data, composite, x0; kws...)
+end
 """
-    (coeffs::Vector{::eltype(x0)}, result::Optim.MultivariateOptimizationResults) = fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    (coeffs::Vector{::eltype(x0)}, result::Optim.MultivariateOptimizationResults) =
+    fit_templates_fast(models::AbstractVector{T},
+                       data::AbstractMatrix{<:Number};
+                       composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
+                       x0::AbstractVector{<:Number} = ones(S,length(models)), kws...)
+                       where {S <: Number, T <: AbstractMatrix{S}}
 
 Finds *only* the maximum likelihood estimate (MLE) for the coefficients `coeffs` given the provided `data` such that the best-fit composite Hess diagram model is `sum(models .* coeffs)`. This is a simplification of the main [`fit_templates`](@ref) function, which will return the MLE as well as the maximum a posteriori estimate, and further supports uncertainty quantification. For additional details on arguments to this method, see the documentation for [`fit_templates`](@ref). 
 
@@ -181,8 +260,8 @@ This method optimizes parameters `θ` such that `coeffs = θ.^2` -- this allows 
 # Notes
  1. By passing additional convergence keyword arguments supported by `Optim.Options` (see [this guide](https://julianlsolvers.github.io/Optim.jl/stable/#user/config/)), it is possible to converge to the MLE in fewer than 30 iterations with fewer than 100 calls to the likelihood and gradient methods. For example, the main convergence criterion is typically the magnitude of the gradient vector, which by default is `g_abstol=1e-8`, terminating the optimization when the magnitude of the gradient is less than 1e-8. We find results are typically sufficiently accurate with `g_abstol=1e-3`, which often uses half as many objective evaluations as the default value.
 """
-function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    @assert (size(data) == size(composite)) & all(size(i) == size(data) for i in models)
+@inline function fit_templates_fast(models, data, composite, x0; kws...)
+#$ @inline function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
     # Transform the initial guess vector
     x0 = sqrt.(x0)
     # Make scratch array for assessing transformations
@@ -205,6 +284,23 @@ function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Nu
     # Calculate result
     result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
     return  Optim.minimizer(result_mle).^2, result_mle # Optim.minimum(result_mle)
+end
+function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    _check_matrix_input_sizes(x0, models, data, composite)
+    fit_templates_fast(models, data, composite, x0; kws...)
+end
+"
+    fit_templates_fast(models::AbstractMatrix{S},
+                       data::AbstractVector{<:Number};
+                       composite::AbstractVector{<:Number} = Vector{S}(undef,length(data)),
+                       x0::AbstractVector{<:Number} = ones(S,size(models,2)), kws...)
+                       where S <: Number
+
+This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"
+function fit_templates_fast(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+    _check_flat_input_sizes(x0, models, data, composite)
+    fit_templates_fast(models, data, composite, x0; kws...)
 end
 
 # M1 = rand(120,100)

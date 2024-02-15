@@ -47,6 +47,22 @@ partial_cmd_smooth
 
 We note that in many cases it can also be helpful to add in a foreground/background template that models contamination of the Hess diagram from stars not in your population of interest -- this is often done using observations of parallel fields though there are several other possible methods.
 
+## A Note on Array Formatting
+
+It is expected that the user will typically have model templates stored as two-dimensional matrices as these are the obvious choice for representing a binned two-dimensional histogram. We fully support supplying the list of model templates as a list of matrices (e.g., a `Vector{Matrix{<:Number}}`) to the fitting functions discussed below. The important computational kernels [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!) have custom loops for these input types.
+
+However, additional optimizations are possible by flattening the data. By flattening each matrix in the list of model templates into a column vector and concatenating them such that the list of model templates becomes a single matrix, we can compute the complex model Hess diagram as a single matrix-vector product rather than using a custom loop. The same optimization can be made when computing the gradient of the loglikelihood (discussed more below). The majority of all computation for the fitting methods below is spent in these two functions, so optimizing their performance translates directly to improved fitting runtimes. With this flattened memory arrangement we can use the highly optimized `LinearAlgbera.mul!` method to do the in-place matrix-vector product. This will typically be translated into a call to a BLAS function like `gemv!`. As such, we can benefit from Julia's ability to switch BLAS implementations at runtime to use Intel's [Math Kernel Library](https://github.com/JuliaLinearAlgebra/MKL.jl), Apple's [Accelerate](https://github.com/JuliaLinearAlgebra/AppleAccelerate.jl), and [others](https://github.com/JuliaLinearAlgebra/libblastrampoline).
+
+Most of the fitting methods below support both the natural and flattened data layouts. We provide the [`stack_models`](@ref StarFormationHistories.stack_models) method to produce the optimized layout for the list of model templates.
+
+```@docs
+StarFormationHistories.stack_models
+```
+
+### A Note on Threading
+
+While generally the methods using BLAS routines offer significant performance improvements, there is a caveat when multithreading from within Julia. By default Julia will allow BLAS to use multiple threads even if Julia itself is started with a single thread (i.e., by running `julia -t 1`). BLAS threads do not compose with Julia threads. That is, if you start Julia with `N>1` threads (`julia -t N`) and write a threaded workload where each Julia thread is doing BLAS operations concurrently, you can easily oversubscribe the CPU. Specific recommendations vary depending on BLAS vendor (see [this page](https://carstenbauer.github.io/ThreadPinning.jl/dev/explanations/blas/) and the linked discourse threads), but generally this package is in the regime of doing many small calculations that do not individually benefit much from BLAS threading (e.g., performance for OpenBLAS with 8 threads is only ~2x the 1 thread performance). As such it is often sufficient to set BLAS to use a single thread (via `LinearAlgbera.BLAS.set_num_threads(1)` or environment variables; see above link). 
+
 ## High-Level Methods for Unconstrained Fitting
 
 Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio (Dolphin 2002). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
@@ -346,5 +362,4 @@ StarFormationHistories.∇loglikelihood
 StarFormationHistories.∇loglikelihood!
 StarFormationHistories.fg!
 StarFormationHistories.truncate_relweights
-StarFormationHistories.stack_models
 ```
