@@ -1,6 +1,13 @@
 "
     stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models))
-Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix. 
+Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix.
+
+# Examples
+```julia-repl
+julia> stack_models([rand(5,5) for i in 1:10])
+25×10 Matrix{Float64}:
+...
+```
 "
 stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models)) # mapreduce(vec, hcat, models)
 
