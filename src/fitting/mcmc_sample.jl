@@ -56,9 +56,23 @@ function convert_kissmcmc(chains::AbstractVector{<:AbstractVector{<:AbstractVect
 end
 
 """
-    result::MCMCChains.Chains = mcmc_sample(models::AbstractVector{<:AbstractMatrix{T}}, data::AbstractMatrix{S}, x0::Union{AbstractVector{<:AbstractVector{<:Number}}, AbstractMatrix{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true)
+    result::MCMCChains.Chains =
+    mcmc_sample(models::AbstractVector{<:AbstractMatrix{T}},
+                data::AbstractMatrix{S},
+                x0::Union{AbstractVector{<:AbstractVector{<:Number}}, AbstractMatrix{<:Number}},
+                nwalkers::Integer,
+                nsteps::Integer;
+                nburnin::Integer=0,
+                nthin::Integer=1,
+                a_scale::Number=2.0,
+                use_progress_meter::Bool=true)
+    mcmc_sample(models::AbstractMatrix{<:Number},
+                data::AbstractVector{<:Number},
+                args...; kws...)
 
-Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002. Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee.moves.StretchMove](https://emcee.readthedocs.io/en/stable/). This method will automatically parallelize over threads. If you need distributed execution, you may want to look into [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl). 
+Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002. Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee.moves.StretchMove](https://emcee.readthedocs.io/en/stable/). This method will automatically parallelize over threads. If you need distributed execution, you may want to look into [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl).
+
+The second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 
 # Arguments
  - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
@@ -113,8 +127,7 @@ function mcmc_sample(models::AbstractMatrix{<:Number}, data::AbstractVector{<:Nu
     elseif size(x0) == (size(models,2), nwalkers)
         mcmc_sample(models, data, [copy(i) for i in eachcol(x0)], nwalkers, nsteps; kws...)
     else
-        throw(ArgumentError("You provided a misshapen `x0` argument of type `AbstractMatrix{<:Number}` to `mcmc_sample`. When providing a matrix for `x0`, it must be of size `(nwalkers, length(models))` or `(length(models), nwalkers)`."))
+        throw(ArgumentError("You provided a misshapen `x0` argument of type `AbstractMatrix{<:Number}` to `mcmc_sample`. When providing a matrix for `x0`, it must be of size `(nwalkers, Nmodels)` or `(Nmodels, nwalkers)`, where `Nmodels` is the number of model templates you are providing (`Nmodels = size(models,2)` if you are passing `models` as a single flattened matrix, or `Nmodels = length(models)` if you are passing `models` as a vector of matrices)."))
     end
 end
-# Method for matrix inputs rather than flattened vectors
 mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, args...; kws...) = mcmc_sample(stack_models(models), vec(data), args...; kws...)

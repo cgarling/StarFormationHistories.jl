@@ -748,8 +748,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     for i in eachindex(float_types, float_type_labels)
                         label = float_type_labels[i]
                         @testset "$label" begin
-                            rng = StableRNG(seedval)
                             T = float_types[i]
+                            rng = StableRNG(seedval)
                             kmc_conv = SFH.convert_kissmcmc([[T[1,2,3] for i in 1:5] for i in 1:10])
                             @test kmc_conv isa Array{T, 3}
                             coeffs = rand(rng, T, 10) # SFH coefficients we want to sample
