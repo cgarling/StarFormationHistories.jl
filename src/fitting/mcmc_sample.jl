@@ -1,6 +1,6 @@
-struct MCMCModel{T <: AbstractVector{<:AbstractMatrix{<:Number}},
-                 S <: AbstractVector{<:AbstractMatrix{<:Number}},
-                 V <: AbstractMatrix{<:Number}}
+struct MCMCModel{T <: AbstractMatrix{<:Number},
+                 S <: AbstractVector{<:AbstractVector{<:Number}},
+                 V <: AbstractVector{<:Number}}
     models::T
     composites::S # Vector of matrices, one per thread
     data::V
@@ -9,15 +9,15 @@ end
 # Function to construct the above type when provided with just models and data
 function MCMCModel(models::T, data::S) where {A <: Number,
                                               B <: Number,
-                                              T <: AbstractVector{<:AbstractMatrix{A}},
-                                              S <: AbstractMatrix{B}}
+                                              T <: AbstractMatrix{A},
+                                              S <: AbstractVector{B}}
     V = promote_type(A,B)
-    return MCMCModel(models, [Matrix{V}(undef, size(data)) for i in 1:Threads.nthreads()], data)
+    return MCMCModel(models, [Vector{V}(undef, length(data)) for i in 1:Threads.nthreads()], data)
 end
 
 # This model will return loglikelihood only
 LogDensityProblems.capabilities(::Type{<:MCMCModel}) = LogDensityProblems.LogDensityOrder{0}()
-LogDensityProblems.dimension(problem::MCMCModel) = length(problem.models)
+LogDensityProblems.dimension(problem::MCMCModel) = size(problem.models,2)
 
 # Make the type callable for the loglikelihood
 function (problem::MCMCModel)(θ)
@@ -94,9 +94,9 @@ result = mcmc_sample(models, data, x0, nwalkers, nsteps) # Sample
 Chains MCMC chain (400×10×1000 Array{Float64, 3}) ...
 ```
 """
-function mcmc_sample(models::AbstractVector{<:AbstractMatrix{T}}, data::AbstractMatrix{S}, x0::AbstractVector{<:AbstractVector{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true) where {T <: Number, S <: Number}
+function mcmc_sample(models::AbstractMatrix{T}, data::AbstractVector{S}, x0::AbstractVector{<:AbstractVector{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true) where {T <: Number, S <: Number}
     instance = MCMCModel( models,
-                          [Matrix{promote_type(T,S)}(undef, size(data)) for i in 1:Threads.nthreads()],
+                          [Vector{promote_type(T,S)}(undef, length(data)) for i in 1:Threads.nthreads()],
                           data )
     samples, _ = KissMCMC.emcee(instance, x0; niter=nwalkers*nsteps, nburnin=nburnin*nwalkers, nthin=nthin, a_scale=a_scale, use_progress_meter=use_progress_meter)
     return MCMCChains.Chains(convert_kissmcmc(samples))
@@ -107,12 +107,14 @@ end
 # - logdensities: the value of the log-density for each sample, same shape as `samples`
 
 # Method for x0 as a Matrix rather than vector of vectors
-function mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, x0::AbstractMatrix{<:Number}, nwalkers::Integer, nsteps::Integer; kws...)
-    if size(x0) == (nwalkers, length(models))
+function mcmc_sample(models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, x0::AbstractMatrix{<:Number}, nwalkers::Integer, nsteps::Integer; kws...)
+    if size(x0) == (nwalkers, size(models,2))
         mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps; kws...)
-    elseif size(x0) == (length(models), nwalkers)
+    elseif size(x0) == (size(models,2), nwalkers)
         mcmc_sample(models, data, [copy(i) for i in eachcol(x0)], nwalkers, nsteps; kws...)
     else
         throw(ArgumentError("You provided a misshapen `x0` argument of type `AbstractMatrix{<:Number}` to `mcmc_sample`. When providing a matrix for `x0`, it must be of size `(nwalkers, length(models))` or `(length(models), nwalkers)`."))
     end
 end
+# Method for matrix inputs rather than flattened vectors
+mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, args...; kws...) = mcmc_sample(stack_models(models), vec(data), args...; kws...)
