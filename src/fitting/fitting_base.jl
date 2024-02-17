@@ -193,7 +193,9 @@ Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@r
  - `data::AbstractMatrix{<:Number}` contains the observed Hess diagram that is being fit.
 """
 function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
-    T = eltype(G) 
+    C = eltype(composite)
+    D = eltype(data)
+    GT = eltype(G)
     @assert axes(composite) == axes(data) 
     @assert axes(G,1) == axes(models,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
@@ -201,19 +203,19 @@ function ∇loglikelihood!(G::AbstractVector, composite::AbstractMatrix{<:Number
     @turbo for idx in eachindex(composite, data)
         # Setting eps() as minimum of composite greatly improves stability of convergence
         # and prevents divide by zero errors.
-        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds ci = max( composite[idx], eps(C) )
         @inbounds ni = data[idx]
-        @inbounds composite[idx] = one(T) - ni/ci
+        @inbounds composite[idx] = one(C) - convert(C,ni/ci)
     end
     for k in eachindex(G, models)
         @inbounds model = models[k]
         @assert axes(model) == axes(data) == axes(composite)
-        result = zero(T)
+        result = zero(GT)
         @turbo thread=false for idx in eachindex(model, data, composite)
             @inbounds mi = model[idx]
             @inbounds ni = data[idx]
             @inbounds nici = composite[idx]
-            result += ifelse( ni > zero(T), -mi * nici, zero(T) )
+            result += ifelse( ni > zero(D), convert(GT,-mi * nici), zero(GT) )
         end
         @inbounds G[k] = result
     end
@@ -224,19 +226,20 @@ end
 Updates and returns `G` with the gradient of the loglikelihood with respect to all coefficients. This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 "
 function ∇loglikelihood!(G::AbstractVector, composite::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
-    T = eltype(G) 
+    C = eltype(composite)
+    D = eltype(data)
     @assert axes(G,1) == axes(models,2)
     @assert axes(models,1) == axes(data,1) == axes(composite,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
     @turbo for idx in eachindex(composite, data)
         # Setting eps() as minimum of composite greatly improves stability of convergence
         # and prevents divide by zero errors.
-        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds ci = max( composite[idx], eps(C) )
         @inbounds ni = data[idx]
         # @inbounds composite[idx] = one(T) - ni/ci
         # Moved this ifelse from the matrix-vector product into this loop.
         # Shouldn't make a difference; tests indicate same results.
-        @inbounds composite[idx] = ifelse( ni > zero(T), one(T) - ni/ci, zero(T) )
+        @inbounds composite[idx] = ifelse( ni > zero(D), one(C) - convert(C,ni/ci), zero(C) )
     end
     # mul!(G, -models', composite)
     # For some reason, -models allocates, but setting α=-1 does not

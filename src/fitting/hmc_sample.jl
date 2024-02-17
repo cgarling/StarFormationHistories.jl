@@ -6,7 +6,7 @@ end
 
 # This model will return loglikelihood and gradient
 LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
-LogDensityProblems.dimension(problem::HMCModel) = length(problem.models)
+LogDensityProblems.dimension(problem::HMCModel) = size(problem.models,2)
 
 function (problem::HMCModel)(θ)
     composite = problem.composite
@@ -27,17 +27,32 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
     data = problem.data
     # Transform the provided x
     x = [ exp(i) for i in logx ]
-    # Update the composite model matrix
-    composite!( composite, x, models )
-    logL = loglikelihood(composite, data) + sum(logx) # + sum(logx) is the Jacobian correction
-    ∇logL = [ ∇loglikelihood(models[i], composite, data) * x[i] + 1 for i in eachindex(models,x) ] # The `* x[i] + 1` is the Jacobian correction
-    return logL, ∇logL
+    # Temp vector for gradient
+    G = similar(x)
+    # fg! constructs composite and computes -logL and -∇logL performantly
+    # returns -logL and writes -∇logL to second arg
+    logL = -fg!(true, G, x, models, data, composite) + sum(logx) # The `+ sum(logx)` is the Jacobian correction
+    @. G = -G * x + 1 # The `* x[i] + 1` is the Jacobian correction
+    return logL, G
 end
 
 """
-    hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer [, nchains::Integer]; composite=Matrix{S}(undef,size(data)), rng::Random.AbstractRNG=Random.default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    hmc_sample(models::AbstractVector{T},
+               data::AbstractMatrix{<:Number},
+               nsteps::Integer [, nchains::Integer];
+               rng::Random.AbstractRNG=Random.default_rng(),
+               kws...)
+               where {S <: Number, T <: AbstractMatrix{S}}
+    hmc_sample(models::AbstractMatrix{S},
+               data::AbstractVector{<:Number},
+               nsteps::Integer;
+               rng::AbstractRNG=default_rng(),
+               kws...)
+               where S <: Number
 
 Function to sample the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002 along with a logarithmic transformation of the `coeffs` so that the fitting variables are continuous and differentiable over all reals. Sampling is done using the No-U-Turn sampler as implemented in [DynamicHMC.jl](https://github.com/tpapp/DynamicHMC.jl), which is a form of dynamic Hamiltonian Monte Carlo.
+
+The second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 
 # Arguments
  - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
@@ -45,10 +60,9 @@ Function to sample the posterior of the coefficients `coeffs` such that the full
  - `nsteps::Integer` is the number of samples to draw per chain.
 
 # Optional Arguments
- - `nchains::Integer`: If this argument is not provided, this method will return a single chain. If this argument is provided, it will sample `nchains` chains using all available threads and will return a vector of the individual chains. If `nchains` is set, `composite` must be a vector of matrices containing a working matrix for each chain. 
+ - `nchains::Integer`: If this argument is not provided, this method will return a single chain. If this argument is provided, it will sample `nchains` chains using all available Julia threads and will return a vector of the individual chains.
 
 # Keyword Arguments
- - `composite` is the working matrix (or vector of matrices, if the argument `nchains` is provided) that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
  - `rng::Random.AbstractRNG` is the random number generator that will be passed to DynamicHMC.jl. If `nchains` is provided this method will attempt to sample in parallel, requiring a thread-safe `rng` such as that provided by `Random.default_rng()`. 
 All other keyword arguments `kws...` will be passed to `DynamicHMC.mcmc_with_warmup` or `DynamicHMC.mcmc_keep_warmup` depending on whether `nchains` is provided.
 
@@ -88,10 +102,14 @@ t_result = hmc_sample( models, data, 1000, Threads.nthreads(); reporter=DynamicH
 mc_matrix = exp.( DynamicHMC.pool_posterior_matrices(t_result) )
 ```
 """
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer; rng::AbstractRNG=default_rng(), kws...) where S <: Number
+    @assert size(models,1) == length(data)
+    composite = Vector{S}(undef,length(data))
     instance = HMCModel( models, composite, data )
+    # return instance
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
 end
+hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; kws...) where T <: AbstractMatrix{<:Number} = hmc_sample( stack_models(models), vec(data), nsteps; kws...)
 
 function extract_initialization(state)
     # This unpack is legal in Julia 1.7 but not 1.6; might be worth alteration
@@ -100,12 +118,13 @@ function extract_initialization(state)
 end
 
 # Version with multiple chains and multithreading
-function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; composite=[ Matrix{S}(undef,size(data)) for i in 1:Threads.nthreads() ], rng::AbstractRNG=default_rng(), initialization=(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer, nchains::Integer; rng::AbstractRNG=default_rng(), initialization=(), kws...) where S <: Number
     @assert nchains >= 1
-    instances = [ HMCModel( models, composite[i], data ) for i in 1:Threads.nthreads() ]
+    instances = [ HMCModel( models, Vector{S}(undef,length(data)), data ) for i in 1:Threads.nthreads() ]
     # Do the warmup
     warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
-                                         warmup_stages=DynamicHMC.default_warmup_stages(), initialization=initialization, kws...)
+                                         warmup_stages=DynamicHMC.default_warmup_stages(),
+                                         initialization=initialization, kws...)
     final_init = extract_initialization(warmup)
     # Do the MCMC
     result_arr = []
@@ -117,3 +136,4 @@ function hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, n
     end
     return result_arr
 end
+hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; kws...) where {S <: Number, T <: AbstractMatrix{S}} = hmc_sample( stack_models(models), vec(data), nsteps, nchains; kws...)

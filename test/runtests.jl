@@ -6,6 +6,7 @@ import StableRNGs: StableRNG
 import StaticArrays: SVector
 import QuadGK: quadgk
 import MCMCChains
+import DynamicHMC
 # import Optim
 using Test
 
@@ -787,11 +788,17 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             nsteps = 20
                             result = SFH.hmc_sample(models, data, nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
                             @test size(result.posterior_matrix) == (length(coeffs), nsteps)
+                            # Test flattened input
+                            result = SFH.hmc_sample(SFH.stack_models(models), vec(data), nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
+                            @test size(result.posterior_matrix) == (length(coeffs), nsteps)
                             # DynamicHMC returns Float64 even for 32 bit input
                             # @test eltype(result.posterior_matrix) == T
                             # Test multiple chains
                             nchains = 2
                             result = SFH.hmc_sample(models, data, nsteps, nchains; rng=rng, reporter=DynamicHMC.NoProgressReport())
+                            @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(coeffs), nchains*nsteps)
+                            # Test flattened input
+                            result = SFH.hmc_sample(SFH.stack_models(models), vec(data), nsteps, nchains; rng=rng, reporter=DynamicHMC.NoProgressReport())
                             @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(coeffs), nchains*nsteps)
                         end
                     end
