@@ -9,8 +9,18 @@
               relweightsmin::Number=0, 
               x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
               kws...) where {S <: Number, T <: AbstractMatrix{S}}
+    fixed_amr(models::AbstractMatrix{S},
+              data::AbstractVector{<:Number},
+              logAge::AbstractVector{<:Number},
+              metallicities::AbstractVector{<:Number},
+              relweights::AbstractVector{<:Number};
+              relweightsmin::Number=0, # By default, do not truncate input model template list
+              x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+              kws...) where S <: Number
 
 Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, under an externally-imposed age-metallicity relation (AMR) and/or metallicity distribution function (MDF). As such, a number of coefficients equal to `length(unique(logAge))` are returned; that is, only one coefficient is derived per unique entry in `logAge`.
+
+The second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 
 # Arguments
  - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
