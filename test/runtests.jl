@@ -658,17 +658,17 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # SFRs are uniformly random; x are the per-model weights based on those SFRs;
                     # x0 is initial guess; models are random matrices; data is sum(x .* models)
                     @testset "fixed_amr + fixed_linear_amr" begin
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models), C=zeros(hist_size)
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
                             # Calculate relative weights for input to fixed_amr
                             relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
-                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0, composite=C)
+                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
                             # Test that improperly normalized relweights results in warning
                             # Test currently fails on julia 1.7, I think due to a difference
                             # in the way that the warnings are logged so, remove
-                            VERSION >= v"1.8" && @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0, composite=C)
+                            VERSION >= v"1.8" && @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0)
                             # Now try fixed_linear_amr that will internally calculate the relweights
-                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
+                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, α, β, σ; x0=x0)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5
                             # Test how removing low-weight models from fixed_amr might impact fit
                             relweightsmin = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin
@@ -681,7 +681,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                                 keep_idx = vcat(keep_idx, good[high_weights])
                             end
                             # This takes ~0.5s compared to ~2s for the full result = SFH.fixed_amr ... above
-                            result3 = SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0, composite=C)
+                            result3 = SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
                             # Not accurate to the same level as tested above with `result`
                             @test ~isapprox(result3.mle.μ, SFRs; rtol=1e-5)
                             # Is accurate to a lower level of precision
@@ -691,7 +691,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # Test that truncate_relweights does correct thing
                             @test SFH.truncate_relweights(relweightsmin,relweights,logAge) == keep_idx
                             # Test that setting relweightsmin keyword to fixed_amr gives same result as result3 above
-                            result4 = SFH.fixed_amr(models, data, logAge, MH, relweights; relweightsmin=relweightsmin, x0=x0, composite=C)
+                            result4 = SFH.fixed_amr(models, data, logAge, MH, relweights; relweightsmin=relweightsmin, x0=x0)
                             @test isapprox(result3.mle.μ, result4.mle.μ)
 
                             @testset "mdf_amr" begin
@@ -726,16 +726,16 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                         end
 
                         # Set up variables for testing 
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models), C=zeros(hist_size)
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
                             # Calculate relative weights for input to fixed_amr
                             relweights = SFH.calculate_coeffs_logamr( ones(length(unique_logAge)), logAge, MH, α, β, σ)
-                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0, composite=C)
+                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
                             # Now try fixed_log_amr that will internally calculate the relweights
-                            result2 = SFH.fixed_log_amr(models, data, logAge, MH, α, β, σ; x0=x0, composite=C)
+                            result2 = SFH.fixed_log_amr(models, data, logAge, MH, α, β, σ; x0=x0)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5
                             # Try second call signature that takes low_constraint and high_constraint
-                            result3 = SFH.fixed_log_amr(models, data, logAge, MH, low_constraint, high_constraint, σ; x0=x0, composite=C)
+                            result3 = SFH.fixed_log_amr(models, data, logAge, MH, low_constraint, high_constraint, σ; x0=x0)
                             @test result3.mle.μ ≈ SFRs rtol=1e-5
                         end
                     end
