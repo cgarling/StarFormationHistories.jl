@@ -2,8 +2,8 @@
 # which becomes a logarithmic age-[M/H] relation.
 # Uses a fixed Gaussian spread σ in [M/H]. 
 
-function fixed_log_amr(models::AbstractVector{<:AbstractMatrix{<:Number}},
-                       data::AbstractMatrix{<:Number},
+function fixed_log_amr(models, #::AbstractVector{<:AbstractMatrix{<:Number}},
+                       data,   #::AbstractMatrix{<:Number},
                        logAge::AbstractVector{<:Number},
                        metallicities::AbstractVector{<:Number},
                        α::Number,

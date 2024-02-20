@@ -1,8 +1,8 @@
 # Gradient-based optimization for SFH given a fixed input linear age-metallicity relation
 # and Gaussian spread σ
 
-function fixed_linear_amr(models::AbstractVector{<:AbstractMatrix{<:Number}},
-                          data::AbstractMatrix{<:Number},
+function fixed_linear_amr(models, # ::AbstractVector{<:AbstractMatrix{<:Number}},
+                          data,   #::AbstractMatrix{<:Number},
                           logAge::AbstractVector{<:Number},
                           metallicities::AbstractVector{<:Number},
                           α::Number,
