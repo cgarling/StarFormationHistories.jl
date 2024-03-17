@@ -244,6 +244,7 @@ const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444
     result = 0.0
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
     @inbounds @turbo for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
+    # @inbounds @fastmath @simd ivdep for idx in CartesianIndices( (axes(legendre_x_halfpix,1), axes(legendre_x_halfpix,1)) ); i = idx[1]; j = idx[2]
         δx = x-x0+legendre_x_halfpix[i]
         δy = y-y0+legendre_x_halfpix[j]
         # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
