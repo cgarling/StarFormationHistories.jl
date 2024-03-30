@@ -396,6 +396,10 @@ function fit_templates_mdf(models::AbstractVector{T},
                            metallicities::AbstractVector{<:Number};
                            composite=Matrix{S}(undef,size(data)),
                            x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
+                           # logσ_prior::Distribution{Univariate, Continuous} = Uniform(-4,0),
+                           α_prior::Distribution{Univariate, Continuous} = Normal(-0.2, 0.2), # Uniform(-0.2,0.0), 
+                           β_prior::Distribution{Univariate, Continuous} = Uniform(-4,-1), 
+                           σ_prior::Distribution{Univariate, Continuous} = Uniform(0.01,0.5),
                            kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
@@ -419,12 +423,18 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
         logL = fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
+        logL -= logpdf( α_prior, x[end-2] ) # Account for prior on α
+        logL -= logpdf( β_prior, x[end-1] ) # Account for prior on β
+        logL -= logpdf( σ_prior, x[end] ) # Account for prior on σ
         logL -= sum( @view xvec[begin:end-3] ) + xvec[end] # This is the Jacobian correction
         # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
         for i in eachindex(G)[begin:end-3]
             G[i] = G[i] * x[i] - 1
         end
         G[end] = G[end] * x[end] - 1
+        G[end-2] -= gradlogpdf( α_prior, x[end-2] ) # Account for prior on α
+        G[end-1] -= gradlogpdf( β_prior, x[end-1] ) # Account for prior on α
+        G[end] -= gradlogpdf( σ_prior, x[end] ) # Account for prior on σ
         return logL
     end
     function fg_mdf!_mle(F, G, xvec)
@@ -435,10 +445,16 @@ function fit_templates_mdf(models::AbstractVector{T},
         x[end-1] = xvec[end-1]  # β
         x[end] = exp(xvec[end]) # σ
         logL = fg_mdf!(F, G, x, models, data, composite, logAge, metallicities)
+        logL -= logpdf( α_prior, x[end-2] ) # Account for prior on α
+        logL -= logpdf( β_prior, x[end-1] ) # Account for prior on β
+        logL -= logpdf( σ_prior, x[end] ) # Account for prior on σ
         for i in eachindex(G)[begin:end-3]
             G[i] = G[i] * x[i]
         end
         G[end] = G[end] * x[end]
+        G[end-2] -= gradlogpdf( α_prior, x[end-2] ) # Account for prior on α
+        G[end-1] -= gradlogpdf( β_prior, x[end-1] ) # Account for prior on α
+        G[end] -= gradlogpdf( σ_prior, x[end] ) # Account for prior on σ
         return logL
     end
     # Set up options for the optimization
