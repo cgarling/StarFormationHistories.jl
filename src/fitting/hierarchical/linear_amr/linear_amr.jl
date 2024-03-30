@@ -171,6 +171,7 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     end
 end
 
+# for fixed σ
 function fit_templates_mdf(models::AbstractVector{T},
                            data::AbstractMatrix{<:Number},
                            logAge::AbstractVector{<:Number},
