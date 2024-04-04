@@ -19,7 +19,13 @@ makedocs(
     authors = "Chris Garling",
     pages = ["index.md",
              "simulate.md",
-             "fitting.md",
+             "Deriving Star Formation Histories from Hess Diagrams" =>
+                 ["fitting/fitting_intro.md",
+                  "fitting/unconstrained.md",
+                  "Constrained Metallicity Evolution" => 
+                      ["fitting/linear_amr.md",
+                       "fitting/log_amr.md"],
+                  "fitting/internals.md"],
              "binaries.md",
              "helpers.md",
              "doc_index.md"],

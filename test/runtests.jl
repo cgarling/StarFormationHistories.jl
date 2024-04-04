@@ -8,7 +8,7 @@ import QuadGK: quadgk
 import MCMCChains
 import DynamicHMC
 # import Optim
-using Test
+using Test, SafeTestsets
 
 const seedval = 58392 # Seed to use when instantiating new StableRNG objects
 const float_types = (Float32, Float64) # Float types to test most functions with
@@ -502,6 +502,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         # end
 
         @testset verbose=true "Solving" begin
+            @safetestset "Linear AMR" include("fitting/linear_amr_test.jl")
+            @safetestset "Logarithmic AMR" include("fitting/log_amr_test.jl")
             @testset "Basic Linear Combinations" begin
                 # Try an easy example with an exact result and only one model
                 T=Float64# LBFGSB.jl wants Float64s so it can pass doubles to the Fortran subroutine
@@ -824,10 +826,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test SFH.Y_from_Z(convert(T,1e-3), 0.2485) ≈ 0.2502800000845455 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.X_from_Z(convert(T,1e-3)) ≈ 0.748719999867957 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed
+                @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25), convert(T,1.78)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.MH_from_Z(convert(T,1e-3), convert(T,0.01524)) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ 0.00016140865968917453 rtol=rtols[i] # Return type not guaranteed
                 # These two functions should be inverses; test that they are
-                @test SFH.MH_from_Z(SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ -2 rtol=rtols[i] # Return type not guaranteed
+                @test SFH.MH_from_Z(SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485), γ=convert(T,1.78)), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ -2 rtol=rtols[i] # Return type not guaranteed
+                @test SFH.dMH_dZ(convert(T,1e-3), convert(T,0.01524); Y_p = convert(T,0.2485), γ = convert(T,1.78)) ≈ 435.9070188458886 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) ≈ big"0.9933071490757151444406380196186748196062559910927034697307877569401159160854199" rtol=rtols[i]
                 @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) isa T
                 @test SFH.exp_photerr(T[20.0, 1.05, 10.0, 32.0, 0.01]...) ≈ big"0.01286605230281143891186877135084309862554426640053421106995766903206843498217022"

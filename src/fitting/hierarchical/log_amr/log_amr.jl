@@ -34,6 +34,67 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
     calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-3),
                          logAge, metallicities, variables[end-2], variables[end-1], variables[end]; kws...)
 
+# Calculate loglikelihood and gradient with respect to SFR parameters and logarithmic AMR parameters
+@inline function fg_log_amr!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, MH_func, MH_deriv_Z) where T <: AbstractMatrix{<:Number}
+    # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
+    # entry in logAge, plus α and β to define the MDF at fixed logAge and σ to define Gaussian width
+    @assert axes(data) == axes(composite)
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
+    # Compute the coefficients on each model template given the `variables` and the MDF
+    α, β, σ = variables[end-2], variables[end-1], variables[end]
+    unique_logAge = unique(logAge)
+    # Calculate the per-template coefficents and normalization values
+    coeffs = calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, α, β, σ; MH_func=MH_func)
+
+    # Fill the composite array with the equivalent of sum( coeffs .* models )
+    # composite = sum( coeffs .* models )
+    # return -loglikelihood(composite, data)
+    composite!(composite, coeffs, models)
+    logL = loglikelihood(composite, data) # Need to do this before ∇loglikelihood! because it will overwrite composite
+    if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+        @assert axes(G) == axes(variables)
+        # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
+        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
+        fullG = Vector{eltype(G)}(undef,length(models))
+        ∇loglikelihood!(fullG, composite, models, data)
+        # Now need to do the transformation to the `variables` rather than model coefficients
+        G[end-2] = zero(eltype(G))
+        G[end-1] = zero(eltype(G))
+        G[end] = zero(eltype(G))
+        dZdβ = 1 # Derivative of metal mass fraction with respect to β
+        for i in axes(G,1)[begin:end-3] 
+            la = unique_logAge[i]
+            age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
+            meanZ = α * age + β # Mean metal mass fraction
+            μ = MH_func(meanZ) # Find the mean metallicity [M/H] of this age bin
+            idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+            tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+            A = sum(tmp_coeffs)
+            # This should be correct for any MDF model at fixed logAge
+            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            # βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
+            βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
+            dAdμ = -sum( fullG[idxs[j]] * variables[i] *
+                ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
+                         for j in eachindex(idxs)) / A / σ^2
+            dμdZ = MH_deriv_Z(meanZ) # Derivative of MH_func(Z) with respect to Z
+            dZdα = age # Derivative of metal mass fraction with respect to α
+            dLdβ = dAdμ * dμdZ * dZdβ
+            dLdα = dLdβ * age
+            σsum = sum( tmp_coeffs[j] *
+                (metallicities[idxs[j]]-μ)^2 / σ^3 for j in eachindex(idxs))
+            dLdσ = -sum( fullG[idxs[j]] * variables[i] *
+                (tmp_coeffs[j] * (metallicities[idxs[j]]-μ)^2 / σ^3 -
+                tmp_coeffs[j] / A * σsum) for j in eachindex(idxs)) / A
+            G[end-2] += dLdα
+            G[end-1] += dLdβ
+            G[end] += dLdσ
+        end
+        return -logL
+    elseif F != nothing # Optim.optimize wants only objective
+        return -logL
+    end
+end
 
 # function fit_templates_logamr()
 
