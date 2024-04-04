@@ -17,7 +17,12 @@ makedocs(
                              size_threshold_warn = 409600, # v1.0.0 default: 102400 (bytes)
                              size_threshold = 819200),     # v1.0.0 default: 204800 (bytes)
     authors = "Chris Garling",
-    pages = ["index.md","simulate.md","fitting.md","binaries.md","helpers.md","doc_index.md"],
+    pages = ["index.md",
+             "simulate.md",
+             "fitting.md",
+             "binaries.md",
+             "helpers.md",
+             "doc_index.md"],
     doctest = true,
     linkcheck = true,
     warnonly = [:missing_docs, :linkcheck]
