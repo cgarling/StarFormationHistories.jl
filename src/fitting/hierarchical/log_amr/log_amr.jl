@@ -1,23 +1,29 @@
-# """
-#     coeffs = calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number} [, α::Number, β::Number, σ::Number]; MH_func=StarFormationHistories.MH_from_Z)
+"""
+    coeffs = calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, [, α::Number, β::Number, σ::Number]; MH_func=StarFormationHistories.MH_from_Z, max_logAge::Number=maximum(logAge))
 
-# Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_logamr`](@ref) and [`StarFormationHistories.hmc_sample_logamr`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean metal mass fraction Z for element `i` of `unique(logAge)` is `μ_Z[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. This is converted to a mean metallicity in [M/H] via the provided callable keyword argument `MH_func` which defaults to [`StarFormationHistories.MH_from_Z`](@ref). The individual weights per each isochrone are then determined via Gaussian weighting with the above mean [M/H] and the provided `σ` in dex. The provided `metallicities` vector should be in [M/H]. 
+Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_logamr`](@ref) and [`StarFormationHistories.hmc_sample_logamr`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean metal mass fraction Z for element `i` of `unique(logAge)` is `μ_Z[i] = α * (exp10(max_logAge) - exp10(unique(logAge)[i])) / 1e9 + β`. This is converted to a mean metallicity in [M/H] via the provided callable keyword argument `MH_func` which defaults to [`StarFormationHistories.MH_from_Z`](@ref). The individual weights per each isochrone are then determined via Gaussian weighting with the above mean [M/H] and the provided `σ` in dex. The provided `metallicities` vector should be in [M/H]. 
 
-# # Notes
-#  - If the provided AMR coefficients cause the mean metal mass fraction Z to be negative for any entry in `logAge`, this function will throw an error as a negative Z cannot be converted to an [M/H]. 
-# """
-function calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number; MH_func=MH_from_Z)
+# Notes
+ - Physically, the metal mass fraction `Z` must always be positive. Under the above model, this means α and β must be positive. With σ being a Gaussian width, it too must be positive. 
+ - 
+"""
+function calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number; MH_func=MH_from_Z, max_logAge=maximum(logAge))
+    @assert (α > 0) & (β > 0) & (σ > 0)
+    if maximum(logAge) > max_logAge
+        @warn "We recommend that the keyword argument `max_logAge` to `StarFormationHistories.calculate_coeffs_logamr` be set equal to or greater than the maximum of the `logAge` argument. The provided `max_logAge` is less than `maximum(logAge)`, such that it is possible the metal mass fraction may become negative in the model, which would be unphysical."
+    end
     S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(α), typeof(β), typeof(σ))
     # Compute the coefficients on each model template given the `variables` and the MDF
     unique_logAge = unique(logAge)
+    max_age = exp10(max_logAge) # Lookback time in yr at which Z = β
     @assert length(variables) == length(unique_logAge)
     coeffs = Vector{S}(undef,length(logAge))
     norm_vals = Vector{S}(undef,length(unique_logAge))
     for i in eachindex(unique_logAge)
         la = unique_logAge[i]
-        μZ = α * exp10(la) / 1e9 + β # Find the mean Z of this age bin
+        μZ = α * (max_age - exp10(la)) / 1e9 + β # Find the mean Z of this age bin
         # Test that the mean Z is greater than 0
-        if μZ < 0
+        if μZ < 0 # Keep this for now
             throw(DomainError(μZ, "The provided coefficients to `calculate_coeffs_logamr` resulted in a mean metal mass fraction Z for `logAge` entry "*string(la)*" less than 0."))
         end
         idxs = findall( ==(la), logAge) # Find all entries that match this logAge
