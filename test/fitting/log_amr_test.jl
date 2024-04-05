@@ -17,12 +17,12 @@ using Test
         let SFRs=rand(rng,T,length(unique_logAge)), MH_func=x-> SFH.MH_from_Z(x, 0.01524; Y_p=0.2485, γ=1.78), dMH_dZ_func=x->SFH.dMH_dZ(x,0.01524; Y_p=0.2485, γ=1.78), x=SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ; MH_func=MH_func), x0=vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=rand.(rng, Poisson.(sum(x .* models)))
             G = Vector{T}(undef, length(unique_logAge) + 3)
             C = sum(x .* models) # Composite model
-            # @btime SFH.fg_log_amr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $MH_func, $dMH_dZ_func) # 5.2 ms 
-            SFH.fg_log_amr!(true, G, x0, models, data, C, logAge, MH, MH_func, dMH_dZ_func)
+            # @btime SFH.fg_logamr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $MH_func, $dMH_dZ_func) # 5.2 ms 
+            SFH.fg_logamr!(true, G, x0, models, data, C, logAge, MH, MH_func, dMH_dZ_func)
             # println(ForwardDiff.gradient(X -> SFH.fg_log_amr!(nothing, nothing, X, models, data, sum(models .* x), logAge, MH, MH_func, dMH_dZ_func), x0))
             fd_result = [-7881.60440592152, -10396.247482331686, -7817.8251615474, -10143.132995266222, -5132.489651065174, -6620.526559309652, -8908.339497847246, -9790.650862697417, -6723.021989013198, -6072.055618913932, -5484.847019764899, -6020.580335153412, -6140.713253710487, -7151.1894445527105, -4660.953571900758, -3432.5666327797203, -3951.2652741859206, -1294.149159827791, -3675.669038945043, -1748.2505946022573, 7709.374688671554, 1.3442805896094717e7, 1.4580865807653132e6, -149692.47742731686] # from ForwardDiff.gradient
             @test G ≈ fd_result rtol=1e-5
-            # result = SFH.fit_templates_mdf(models, data, logAge, MH; x0=x0)
+            result = SFH.fit_templates_logamr(models, data, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ)
             # @test result.map.μ ≈ vcat(SFRs, α, β, σ) rtol=0.1
             # @test result.mle.μ ≈ vcat(SFRs, α, β, σ) rtol=0.05
         end
