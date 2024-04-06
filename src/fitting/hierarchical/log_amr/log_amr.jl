@@ -174,8 +174,8 @@ function fit_templates_logamr(models::AbstractVector{T},
     σ_mle .*= μ_mle
     # return (map = LogTransformMDFResult(μ_map, σ_map, Optim.trace(result_map)[end].metadata["~inv(H)"], result_map),
     #         mle = LogTransformMDFResult(μ_mle, σ_mle, Optim.trace(result_mle)[end].metadata["~inv(H)"], result_mle))
-    return (map = (μ = μ_map, σ = σ_map, result = result_map),
-            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+    return (map = (μ = μ_map, σ = σ_map, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_map),
+            mle = (μ = μ_mle, σ = σ_mle, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_mle))
 end
 
 # function hmc_sample_logamr()
