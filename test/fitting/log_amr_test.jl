@@ -85,30 +85,61 @@ end
 end
 
 
-# @testset "Logarithmic AMR, Free σ" begin
-#     T = Float64
-#     rng = StableRNG(94823)
-#     let unique_logAge=8.0:0.1:10.0, unique_MH=-2.5:0.1:0.0
-#         logAge = repeat(unique_logAge; inner=length(unique_MH))
-#         MH = repeat(unique_MH; outer=length(unique_logAge))
-#         α, β, σ = -0.0001, 0.02, 0.2
-#         # Now generate models, data, and try to solve
-#         hist_size = (100,100)
-#         N_models = length(logAge)
-#         let SFRs=rand(rng,T,length(unique_logAge)), MH_func=x-> SFH.MH_from_Z(x, 0.01524; Y_p=0.2485, γ=1.78), dMH_dZ_func=x->SFH.dMH_dZ(x,0.01524; Y_p=0.2485, γ=1.78), x=SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ; MH_func=MH_func), x0=vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=rand.(rng, Poisson.(sum(x .* models)))
-#             G = Vector{T}(undef, length(unique_logAge) + 3)
-#             C = sum(x .* models) # Composite model
-#             # @btime SFH.fg_logamr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $MH_func, $dMH_dZ_func) # 5.2 ms 
-#             SFH.fg_logamr!(true, G, x0, models, data, C, logAge, MH, MH_func, dMH_dZ_func)
-#             # println(ForwardDiff.gradient(X -> SFH.fg_log_amr!(nothing, nothing, X, models, data, sum(models .* x), logAge, MH, MH_func, dMH_dZ_func), x0))
-#             fd_result = [-7881.60440592152, -10396.247482331686, -7817.8251615474, -10143.132995266222, -5132.489651065174, -6620.526559309652, -8908.339497847246, -9790.650862697417, -6723.021989013198, -6072.055618913932, -5484.847019764899, -6020.580335153412, -6140.713253710487, -7151.1894445527105, -4660.953571900758, -3432.5666327797203, -3951.2652741859206, -1294.149159827791, -3675.669038945043, -1748.2505946022573, 7709.374688671554, 1.3442805896094717e7, 1.4580865807653132e6, -149692.47742731686] # from ForwardDiff.gradient
-#             @test G ≈ fd_result rtol=1e-5
-#             result = SFH.fit_templates_logamr(models, data, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ)
-#             # @test result.map.μ ≈ vcat(SFRs, α, β, σ) rtol=0.1
-#             # @test result.mle.μ ≈ vcat(SFRs, α, β, σ) rtol=0.05
-#         end
-#     end
-# end
+@testset "Logarithmic AMR, Free σ" begin
+    T = Float64
+    rng = StableRNG(94823)
+    # Metallicity evolution parameters
+    α = 0.00011345544581771879
+    β = 5.106276398722378e-5
+    σ = 0.2
+    # Set logAge and metallicity grid
+    unique_logAge = 8.0:0.1:10.0
+    unique_MH = -2.5:0.1:0.0
+    max_age = exp10(maximum(unique_logAge)) / 1e9 # Earliest time to normalize β in Gyr
+    logAge = repeat(unique_logAge; inner=length(unique_MH))
+    MH = repeat(unique_MH; outer=length(unique_logAge))
+    # Now generate models, data, and try to solve
+    hist_size = (100,100)
+    N_models = length(logAge)
+    SFRs = rand(rng,T,length(unique_logAge))
+    true_params = vcat(SFRs, α, β, σ)
+    MH_func= x -> SFH.MH_from_Z(x, 0.01524; Y_p=0.2485, γ=1.78)
+    dMH_dZ_func = x -> SFH.dMH_dZ(x, 0.01524; Y_p=0.2485, γ=1.78)
+    x = SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ; MH_func=MH_func)
+    x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ)
+    models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
+    # data = sum(x .* models) # Perfect data, no noise
+    data=rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
+
+    @testset "fg_logamr!" begin
+        # Test gradient function fg_logamr!
+        G = Vector{T}(undef, length(unique_logAge) + 3) # Gradient Vector
+        C = sum(x .* models) # Composite model
+        # @btime SFH.composite!($C,$x,$models) # 2 ms
+        # @btime SFH.fg_logamr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $max_age, $MH_func, $dMH_dZ_func) # 5 ms 
+        SFH.fg_logamr!(true, G, x0, models, data, C, logAge, MH, max_age, MH_func, dMH_dZ_func)
+        # println(ForwardDiff.gradient(X -> SFH.fg_logamr!(nothing, nothing, X, models, data, sum(models .* x), logAge, MH, max_age, MH_func, dMH_dZ_func), x0))
+        # Gradient result from ForwardDiff.gradient
+        fd_result = [-4692.208596423888, -5709.440777267078, -4602.609442611384, -5659.5098733236055, -3482.5058046214494, -3911.1622798110625, -5203.138639495843, -5350.369874122347, -4199.566624544723, -4168.199959414579, -3637.9308920671747, -4100.023107334878, -3947.721902465209, -4586.3902128262025, -3436.4973114511427, -2756.6349289625155, -3077.966938787887, -1918.1569818089802, -2667.8394811694516, -1988.1042593286616, 6854.680232369424, 1.394019545321506e6, -3.12416814882545e8, -84926.32704239819] 
+        @test G ≈ fd_result rtol=1e-5
+    end
+
+    @testset "fit_templates_logamr" begin
+        # Test fitting
+        result = SFH.fit_templates_logamr(models, data, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
+        # Test that MLE and MAP results are within 3σ of the true answer for all parameters
+        @test all(isapprox(result.mle.μ[i], true_params[i]; atol=3 * result.mle.σ[i]) for i in eachindex(true_params))
+        @test all(isapprox(result.map.μ[i], true_params[i]; atol=3 * result.map.σ[i]) for i in eachindex(true_params))
+        # @test result.map.μ ≈ vcat(SFRs, α, β, σ) rtol=0.1
+        # @test result.mle.μ ≈ vcat(SFRs, α, β, σ) rtol=0.05
+
+        # Now test under perfect data
+        data2 = sum(x .* models) # Perfect data, no noise
+        result2 = SFH.fit_templates_logamr(models, data2, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
+        @test result2.mle.μ ≈ true_params rtol=1e-5
+        @test result2.map.μ ≈ true_params rtol=1e-2
+    end
+end
 
 # @testset "Linear AMR, Fixed σ" begin
 #     T = Float64

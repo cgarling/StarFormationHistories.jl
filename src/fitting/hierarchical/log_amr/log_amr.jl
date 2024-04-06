@@ -40,17 +40,20 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
     calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-3),
                          logAge, metallicities, variables[end-2], variables[end-1], variables[end]; kws...)
 
+
+
 # Calculate loglikelihood and gradient with respect to SFR parameters and logarithmic AMR parameters
-@inline function fg_logamr!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, MH_func, MH_deriv_Z) where T <: AbstractMatrix{<:Number}
+@inline function fg_logamr!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, max_age::Number, MH_func, MH_deriv_Z) where T <: AbstractMatrix{<:Number}
     # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge and σ to define Gaussian width
     @assert axes(data) == axes(composite)
-    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities))
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities), typeof(max_age))
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β, σ = variables[end-2], variables[end-1], variables[end]
     unique_logAge = unique(logAge)
+    max_logAge = log10(max_age) + 9
     # Calculate the per-template coefficents and normalization values
-    coeffs = calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, α, β, σ; MH_func=MH_func)
+    coeffs = calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, α, β, σ; MH_func=MH_func, max_logAge=max_logAge)
 
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
@@ -71,7 +74,8 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
         for i in axes(G,1)[begin:end-3] 
             la = unique_logAge[i]
             age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
-            meanZ = α * age + β # Mean metal mass fraction
+            # meanZ = α * age + β # Mean metal mass fraction
+            meanZ = α * (max_age - age) + β # Mean metal mass fraction
             μ = MH_func(meanZ) # Find the mean metallicity [M/H] of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
@@ -84,9 +88,9 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
                 ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
                          for j in eachindex(idxs)) / A / σ^2
             dμdZ = MH_deriv_Z(meanZ) # Derivative of MH_func(Z) with respect to Z
-            dZdα = age # Derivative of metal mass fraction with respect to α
+            dZdα = (max_age - age) # Derivative of metal mass fraction with respect to α
             dLdβ = dAdμ * dμdZ * dZdβ
-            dLdα = dLdβ * age
+            dLdα = dLdβ * dZdα
             σsum = sum( tmp_coeffs[j] *
                 (metallicities[idxs[j]]-μ)^2 / σ^3 for j in eachindex(idxs))
             dLdσ = -sum( fullG[idxs[j]] * variables[i] *
@@ -106,53 +110,45 @@ function fit_templates_logamr(models::AbstractVector{T},
                               data::AbstractMatrix{<:Number},
                               logAge::AbstractVector{<:Number},
                               metallicities::AbstractVector{<:Number};
-                              composite=Matrix{S}(undef,size(data)),
-                              x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-1e-3, 1e-2, 0.2]),
-                              MH_func=MH_from_Z,
-                              MH_deriv_Z=dMH_dZ,
+                              composite = Matrix{S}(undef,size(data)),
+                              x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                        [1e-4, 5e-5, 0.2]),
+                              MH_func = MH_from_Z,
+                              MH_deriv_Z = dMH_dZ,
+                              max_logAge = maximum(logAge),
                               kws...) where {S <: Number, T <: AbstractMatrix{S}}
     unique_logage = unique(logAge)
+    max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
     @assert length(x0) == length(unique_logage)+3
-    # All variables but α must be positive, and since Z = α * t + β with t being positive lookback time,
-    # α must always be negative for an increasing AMR. Perform logarithmic transformation on the provided
-    # x0 for all variables; we will optimize effectively -α rather than α directly. 
-    for i in eachindex(x0)[begin:end-3]
-        x0[i] = log(x0[i])
-    end
-    x0[end-2] = log(-x0[end-2])
-    x0[end-1] = log(x0[end-1])
-    x0[end] = log(x0[end])
+    # All variables must be positive  since Z = α * (max_age - age) + β with age being
+    # positive lookback time, α must always be positive for an increasing AMR.
+    # Perform logarithmic transformation on the provided x0 for all variables.
+    x0 = log.(x0)
     # Make scratch array for assessing transformations
     x = similar(x0)
     # Define wrapper function to pass to Optim.only_fg!
     # It looks like you don't need the Jacobian correction to arrive at the maximum likelihood
-    # result, and if you remove the Jacobian corrections it actually converges to the non-log-transformed case.
-    # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
-    # Jacobian corrections.
+    # result, and if you remove the Jacobian corrections it actually converges to the
+    # non-log-transformed case. However, the uncertainty estimates from the inverse Hessian
+    # don't seem reliable without the Jacobian corrections.
     function fg_logamr!_map(F, G, xvec)
-        for i in eachindex(xvec) # All variables are log-transformed
-            x[i] = exp(xvec[i])
-        end
-        x[end-2] = -x[end-2] # but α we need to reverse the sign of α
-        logL = fg_logamr!(F, G, x, models, data, composite, logAge, metallicities, MH_func, MH_deriv_Z)
+        # All variables are log-transformed
+        x .= exp.(xvec) 
+        logL = fg_logamr!(F, G, x, models, data, composite,
+                          logAge, metallicities, max_age, MH_func, MH_deriv_Z)
         # Appy Jacobian correction to logL; α should be the same as
         # D[Log[x],x] = D[Log[-x],x] = 1/x, Log[1/x] = -Log[x]
         logL -= sum( xvec ) 
-        # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
-        for i in eachindex(G)
-            G[i] = G[i] * x[i] - 1
-        end
+        # Add the Jacobian correction for every element of G
+        G .= G .* x .- 1
         return logL
     end
     function fg_logamr!_mle(F, G, xvec)
-        for i in eachindex(xvec) # All variables are log-transformed
-            x[i] = exp(xvec[i])
-        end
-        x[end-2] = -x[end-2]  # but α we need to reverse the sign of α
-        logL = fg_logamr!(F, G, x, models, data, composite, logAge, metallicities, MH_func, MH_deriv_Z)
-        for i in eachindex(G)
-            G[i] = G[i] * x[i]
-        end
+        # All variables are log-transformed
+        x .= exp.(xvec) 
+        logL = fg_logamr!(F, G, x, models, data, composite,
+                          logAge, metallicities, max_age, MH_func, MH_deriv_Z)
+        G .= G .* x 
         return logL
     end
     # Set up options for the optimization
@@ -164,34 +160,22 @@ function fit_templates_logamr(models::AbstractVector{T},
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_mle = Optim.optimize(Optim.only_fg!( fg_logamr!_map ), x0, bfgs_struct, bfgs_options)
-    # result_map = Optim.optimize(Optim.only_fg!( fg_logamr!_map ), x0, bfgs_struct, bfgs_options)
-    # result_mle = Optim.optimize(Optim.only_fg!( fg_logamr!_mle ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
-    return result_mle
-    # # Transform the resulting variables
-    # μ_map = deepcopy( Optim.minimizer(result_map) )
-    # μ_mle = deepcopy( Optim.minimizer(result_mle) )
-    # for i in eachindex(μ_map,μ_mle)[begin:end-3]
-    #     μ_map[i] = exp(μ_map[i])
-    #     μ_mle[i] = exp(μ_mle[i])
-    # end
-    # μ_map[end] = exp(μ_map[end])
-    # μ_mle[end] = exp(μ_mle[end])
+    result_map = Optim.optimize(Optim.only_fg!( fg_logamr!_map ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_logamr!_mle ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    # Transform the resulting variables
+    μ_map = exp.(deepcopy( Optim.minimizer(result_map) ))
+    μ_mle = exp.(deepcopy( Optim.minimizer(result_mle) ))
 
-    # # Estimate parameter uncertainties from the inverse Hessian approximation
-    # σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
-    # σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
-    # # Need to account for the logarithmic transformation
-    # for i in eachindex(σ_map,σ_mle)[begin:end-3]
-    #     σ_map[i] = μ_map[i] * σ_map[i]
-    #     σ_mle[i] = μ_mle[i] * σ_mle[i]
-    # end
-    # σ_map[end] = μ_map[end] * σ_map[end]
-    # σ_mle[end] = μ_mle[end] * σ_mle[end]
+    # Estimate parameter uncertainties from the inverse Hessian approximation
+    σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
+    # Need to account for the logarithmic transformation
+    σ_map .*= μ_map
+    σ_mle .*= μ_mle
     # return (map = LogTransformMDFResult(μ_map, σ_map, Optim.trace(result_map)[end].metadata["~inv(H)"], result_map),
     #         mle = LogTransformMDFResult(μ_mle, σ_mle, Optim.trace(result_mle)[end].metadata["~inv(H)"], result_mle))
-    # # return (map = (μ = μ_map, σ = σ_map, result = result_map),
-    # #         mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+    return (map = (μ = μ_map, σ = σ_map, result = result_map),
+            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
 end
 
 # function hmc_sample_logamr()
