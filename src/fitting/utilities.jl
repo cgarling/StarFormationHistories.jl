@@ -1,6 +1,6 @@
 "
     stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models))
-Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix.
+Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix. This data layout enables more efficient calculations in some of our internal functions like [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!).
 
 # Examples
 ```julia-repl

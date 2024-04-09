@@ -11,7 +11,11 @@ This model differs from the [linear age-metallicity relation (AMR)](@ref linear_
 \end{aligned}
 ```
 
-with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z (T_\text{max}) \rangle=\beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities.
+with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z (T_\text{max}) \rangle=\beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, shown below, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities. The per-model coefficients implied by a such a logarithmic AMR can be calculated with [`calculate_coeffs_logamr`](@ref StarFormationHistories.calculate_coeffs_logamr).
+
+```@docs
+StarFormationHistories.calculate_coeffs_logamr
+```
 
 ```@example
 include("../../../examples/log_amr/log_amr_example.jl") # hide
@@ -19,7 +23,7 @@ include("../../../examples/log_amr/log_amr_example.jl") # hide
 
 ## Fitting Functions
 
-The main function we provide to fit star formation histories to Hess diagrams under the logarithmic age-metallicity relation is [`StarFormationHistories.fit_templates_logamr`](@ref). This function operates similarly to the fitting function for the linear AMR model, [`StarFormationHistories.fit_templates_mdf`](@ref). 
+The main function we provide to fit star formation histories to Hess diagrams under the logarithmic age-metallicity relation is [`fit_templates_logamr`](@ref StarFormationHistories.fit_templates_logamr). This function operates similarly to the fitting function for the linear AMR model, [`fit_templates_mdf`](@ref StarFormationHistories.fit_templates_mdf). 
 
 ```@docs
 StarFormationHistories.fit_templates_logamr
@@ -27,9 +31,13 @@ StarFormationHistories.fit_templates_logamr
 
 ## Sampling Functions
 
+```@docs
+StarFormationHistories.hmc_sample_logamr
+```
+
 ## Fixed Logarithmic Age-Metallicity Relation
 
-We support fitting only the star formation parameters by adopting fixed values for ``\alpha``, ``\beta``, and ``\sigma`` through the [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr) method,
+We support fitting only the star formation parameters by adopting fixed values for ``\alpha``, ``\beta``, and ``\sigma`` through the [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr) method.
 
 ```@docs
 StarFormationHistories.fixed_log_amr

@@ -49,7 +49,7 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
 
 
 # Calculate loglikelihood and gradient with respect to SFR parameters and logarithmic AMR parameters
-@inline function fg_logamr!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, max_age::Number, MH_func, MH_deriv_Z) where T <: AbstractMatrix{<:Number}
+@inline function fg_logamr!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, max_age::Number, MH_func, MH_deriv_Z)
     # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge and σ to define Gaussian width
     @assert axes(data) == axes(composite)
@@ -69,8 +69,7 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
-        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
-        fullG = Vector{eltype(G)}(undef,length(models))
+        fullG = Vector{eltype(G)}(undef,length(coeffs)) # length(models))
         ∇loglikelihood!(fullG, composite, models, data)
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-2] = zero(eltype(G))
@@ -88,7 +87,6 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
             A = sum(tmp_coeffs)
             # This should be correct for any MDF model at fixed logAge
             @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
-            # βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
             βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
             dAdμ = -sum( fullG[idxs[j]] * variables[i] *
                 ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
@@ -113,19 +111,52 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
 end
 
 """
-blah
+    result = fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}},
+                                                AbstractMatrix{S}},
+                                  data::Union{AbstractVector{<:Number},
+                                              AbstractMatrix{<:Number}},
+                                  logAge::AbstractVector{<:Number},
+                                  metallicities::AbstractVector{<:Number} [, σ::Number];
+                                  composite = Array{S,ndims(data)}(undef,size(data)),
+                                  x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                            [1e-4, 5e-5, 0.2]),
+                                  MH_func = StarFormationHistories.MH_from_Z,
+                                  MH_deriv_Z = StarFormationHistories.dMH_dZ,
+                                  max_logAge = maximum(logAge),
+                                  kws...) where {S <: Number}
+
+Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, constrained to have a logarithmic age-metallicity relation with the mean metal mass fraction `μ_Z` of element `i` of `unique(logAge)` being `μ_Z[i] = α * (exp10(max_logAge) - exp10(unique(logAge)[i])) / 1e9 + β`. This is converted to a mean metallicity in [M/H] via the provided callable keyword argument `MH_func` which defaults to [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z). `α` is therefore a slope in the units of inverse Gyr, and `β` is the mean metal mass fraction of stars born at the earliest valid lookback time, determined by keyword argument `max_logAge`. Individual weights for each isochrone template are then determined via Gaussian weighting with the above mean [M/H] and the standard deviation `σ` in dex, which can either be fixed or fit.
+
+This function is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage.
+
+# Arguments
+ - `models` are the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram. This method supports both the natural `AbstractVector{<:AbstractMatrix{<:Number}}` data layout and the more optimized `AbstractMatrix{<:Number}` layout; see the notes of [`composite!`](@ref StarFormationHistories.composite!) and [`stack_models`](@ref StarFormationHistories.stack_models) for more information. 
+ - `data` is the Hess diagram for the observed data. If you provide models in the natural data layout `models::AbstractVector{<:AbstractMatrix{<:Number}}` then you should provide `data::AbstractMatrix{<:Number}`. If you use the optimized layout `models::AbstractMatrix{<:Number}`, you should provide `data::AbstractVector{<:Number}`. 
+ - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
+ - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. This should be a logarithmic abundance like [M/H] or [Fe/H].
+
+# Optional Arguments
+ - If provided, `σ::Number` is the fixed width of the Gaussian the defines the metallicity distribution function (MDF) at fixed `logAge`. If this argument is omitted, `σ` will be a free parameter in the fit. 
+
+# Keyword Arguments
+ - `composite` is the working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size the observed Hess diagram `data`.
+ - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [1e-4, 5e-5, 0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [1e-4, 5e-5, 0.2]`. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
+ - `MH_func` is a callable that takes a metal mass fraction `Z` and returns the logarithmic abundance [M/H]; by default uses [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z).
+ - `MH_deriv_Z` is a callable that takes a metal mass fraction `Zj` and returns the derivative of `MH_func` with respect to the metal mass fraction `Z` evaluated at `Zj`. For the default value of `MH_func`, [`dMH_dZ`](@ref StarFormationHistories.dMH_dZ) provides the correct derivative. You only need to change this if you use an alternate `MH_func`.
+ - `max_logAge` is the maximum `log10(age [Gyr])` for which the age-metallicity relation is to be valid. In most cases this should just be the maximum of the `logAge` vector argument: `maximum(logAge)`. By definition, this is the `logAge` at which `μ_Z = β`. 
+ - Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
 """
-function fit_templates_logamr(models::AbstractVector{T},
-                              data::AbstractMatrix{<:Number},
+function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
+                              data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                               logAge::AbstractVector{<:Number},
                               metallicities::AbstractVector{<:Number};
-                              composite = Matrix{S}(undef,size(data)),
+                              composite = Array{S,ndims(data)}(undef,size(data)),
                               x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
                                         [1e-4, 5e-5, 0.2]),
                               MH_func = MH_from_Z,
                               MH_deriv_Z = dMH_dZ,
                               max_logAge = maximum(logAge),
-                              kws...) where {S <: Number, T <: AbstractMatrix{S}}
+                              kws...) where {S <: Number}
     unique_logage = unique(logAge)
     max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
     @assert length(x0) == length(unique_logage)+3
@@ -187,7 +218,8 @@ function fit_templates_logamr(models::AbstractVector{T},
             mle = (μ = μ_mle, σ = σ_mle, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_mle))
 end
 
-# function hmc_sample_logamr()
-
+" Not yet implemented "
+function hmc_sample_logamr()
+end
 
 include("fixed_log_amr.jl")

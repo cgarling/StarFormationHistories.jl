@@ -42,8 +42,8 @@ Calculates linear Z (log [M/H]) age-metallicity relation slope α and intercept 
 """
 function calculate_αβ_logamr(low_constraint,
                              high_constraint,
-                             Z_func=Z_from_MH;
-                             max_age=max(last(low_constraint),last(high_constraint)))
+                             Z_func = Z_from_MH;
+                             max_age = max(last(low_constraint), last(high_constraint)))
     # Written so that order of the constraints doesn't actually matter...
     times = (last(low_constraint), last(high_constraint))
     t_max = maximum(times)

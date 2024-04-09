@@ -2,6 +2,7 @@ import Distributions: Poisson
 # import ForwardDiff
 import StarFormationHistories as SFH
 import StableRNGs: StableRNG
+import Random: rand!
 using Test
 
 # Now try fixed_log_amr that uses an AMR that is logarithmic in [M/H]
@@ -112,18 +113,26 @@ end
     x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ)
     models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # data = sum(x .* models) # Perfect data, no noise
-    data=rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
+    data = rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
 
     @testset "fg_logamr!" begin
         # Test gradient function fg_logamr!
         G = Vector{T}(undef, length(unique_logAge) + 3) # Gradient Vector
         C = sum(x .* models) # Composite model
-        # @btime SFH.composite!($C,$x,$models) # 2 ms
-        # @btime SFH.fg_logamr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $max_age, $MH_func, $dMH_dZ_func) # 5 ms 
+        # @btime SFH.composite!($C,$x,$models) # 1.4 ms
+        # let models2 = SFH.stack_models(models), C2=vec(C); @btime SFH.composite!($C2,$x,$models2); end # 650 μs
+        # @btime SFH.fg_logamr!(true, $G, $x0, $models, $data, $C, $logAge, $MH, $max_age, $MH_func, $dMH_dZ_func) # 4.2 ms
+        # let models2 = SFH.stack_models(models), C2=vec(C), data2=vec(data)
+        #     @btime SFH.fg_logamr!(true, $G, $x0, $models2, $data2, $C2, $logAge, $MH, $max_age, $MH_func, $dMH_dZ_func)
+        # end # 1.6 ms
         SFH.fg_logamr!(true, G, x0, models, data, C, logAge, MH, max_age, MH_func, dMH_dZ_func)
         # println(ForwardDiff.gradient(X -> SFH.fg_logamr!(nothing, nothing, X, models, data, sum(models .* x), logAge, MH, max_age, MH_func, dMH_dZ_func), x0))
         # Gradient result from ForwardDiff.gradient
         fd_result = [-4692.208596423888, -5709.440777267078, -4602.609442611384, -5659.5098733236055, -3482.5058046214494, -3911.1622798110625, -5203.138639495843, -5350.369874122347, -4199.566624544723, -4168.199959414579, -3637.9308920671747, -4100.023107334878, -3947.721902465209, -4586.3902128262025, -3436.4973114511427, -2756.6349289625155, -3077.966938787887, -1918.1569818089802, -2667.8394811694516, -1988.1042593286616, 6854.680232369424, 1.394019545321506e6, -3.12416814882545e8, -84926.32704239819] 
+        @test G ≈ fd_result rtol=1e-5
+        # Test stacked models / data
+        rand!(rng, G) # Fill G with random numbers so we aren't reusing last correct result
+        SFH.fg_logamr!(true, G, x0, SFH.stack_models(models), vec(data), vec(C), logAge, MH, max_age, MH_func, dMH_dZ_func)
         @test G ≈ fd_result rtol=1e-5
     end
 
@@ -139,8 +148,15 @@ end
         # Now test under perfect data
         data2 = sum(x .* models) # Perfect data, no noise
         result2 = SFH.fit_templates_logamr(models, data2, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
+        # @btime SFH.fit_templates_logamr($models, $data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=$log10(max_age*1e9)) $ 1.6 s
         @test result2.mle.μ ≈ true_params rtol=1e-5
         @test result2.map.μ ≈ true_params rtol=1e-2
+
+        # Now test with stacked models / data
+        result3 = SFH.fit_templates_logamr(SFH.stack_models(models), vec(data2), logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
+        # let models2 = SFH.stack_models(models), Data2=vec(data2); @btime SFH.fit_templates_logamr($models2, $Data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=$log10(max_age*1e9)); end # 729 ms
+        @test result3.mle.μ ≈ true_params rtol=1e-5
+        @test result3.map.μ ≈ true_params rtol=1e-2
     end
 end
 
