@@ -18,8 +18,12 @@ StarFormationHistories.calculate_coeffs_logamr
 ```
 
 ```@example
+ENV["GKSwstype"] = "100" # https://discourse.julialang.org/t/generation-of-documentation-fails-qt-qpa-xcb-could-not-connect-to-display/60988 # hide
 include("../../../examples/log_amr/log_amr_example.jl") # hide
+savefig("log_amr_plot.svg"); nothing # hide
 ```
+
+![Visualization of the relative weights across a grid of logAge and metallicity under a logarithmic age-metallicity relation.](log_amr_plot.svg)
 
 ## Fitting Functions
 

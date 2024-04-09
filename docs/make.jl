@@ -15,7 +15,8 @@ makedocs(
     modules = [StarFormationHistories],
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true",
                              size_threshold_warn = 409600, # v1.0.0 default: 102400 (bytes)
-                             size_threshold = 819200),     # v1.0.0 default: 204800 (bytes)
+                             size_threshold = 819200,      # v1.0.0 default: 204800 (bytes)
+                             example_size_threshold=0),    # Write all @example to file
     authors = "Chris Garling",
     pages = ["index.md",
              "simulate.md",
