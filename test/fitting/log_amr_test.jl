@@ -82,6 +82,9 @@ end
     # Try second call signature that takes low_constraint and high_constraint
     result3 = SFH.fixed_log_amr(models, data, logAge, MH, low_constraint, high_constraint, σ; x0=x0)
     @test result3.mle.μ ≈ SFRs rtol=1e-5
+    # Try stacked models / data
+    result4 = SFH.fixed_log_amr(SFH.stack_models(models), vec(data), logAge, MH, low_constraint, high_constraint, σ; x0=x0)
+    @test result4.mle.μ ≈ SFRs rtol=1e-5
 end
 
 

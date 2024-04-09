@@ -6,15 +6,39 @@ This model differs from the [linear age-metallicity relation (AMR)](@ref linear_
 
 ```math
 \begin{aligned}
-\langle Z (t) \rangle &= \alpha \, t_j + \beta \\
+\langle Z (t) \rangle &= \alpha \, \left( T_\text{max} - t \right) + \beta \\
 \langle [\text{M}/\text{H}]\rangle (t) &\equiv \text{log} \left( \frac{\langle Z\left(t\right) \rangle}{X} \right) - \text{log} \left( \frac{Z_\odot}{X_\odot} \right)
 \end{aligned}
 ```
 
-We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities.
+with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z (T_\text{max}) \rangle=\beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities.
 
 ```@example
 include("../../../examples/log_amr/log_amr_example.jl") # hide
+```
+
+## Fitting Functions
+
+The main function we provide to fit star formation histories to Hess diagrams under the logarithmic age-metallicity relation is [`StarFormationHistories.fit_templates_logamr`](@ref). This function operates similarly to the fitting function for the linear AMR model, [`StarFormationHistories.fit_templates_mdf`](@ref). 
+
+```@docs
+StarFormationHistories.fit_templates_logamr
+```
+
+## Sampling Functions
+
+## Fixed Logarithmic Age-Metallicity Relation
+
+We support fitting only the star formation parameters by adopting fixed values for ``\alpha``, ``\beta``, and ``\sigma`` through the [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr) method,
+
+```@docs
+StarFormationHistories.fixed_log_amr
+```
+
+We provide the [calculate\_αβ\_logamr](@ref StarFormationHistories.calculate_αβ_logamr) convenience function to calculate the slope ``\alpha`` and intercept ``\beta`` from two points on the age-metallicity relation.
+
+```@docs
+StarFormationHistories.calculate_αβ_logamr
 ```
 
 ## Implementation
@@ -23,9 +47,10 @@ As the only part of the model that differs from the linear AMR case is the mean 
 
 ```math
 \begin{aligned}
-Z_j &\equiv \langle Z \left(t_j\right) \rangle = \alpha \, t_j + \beta \\
+Z_j &\equiv \langle Z \left(t_j\right) \rangle = \alpha \, \left( T_\text{max} - t_j \right) + \beta \\
+ \\
 \mu_j &\equiv \langle [\text{M}/\text{H}] \rangle \left(t_j\right) = \text{log} \left( \frac{\langle Z\left(t_j\right) \rangle}{X_j} \right) - \text{log} \left( \frac{Z_\odot}{X_\odot} \right) \\
-&= \text{log} \left( \frac{\alpha \, t_j + \beta}{X_j} \right) - \text{log} \left( \frac{Z_\odot}{X_\odot} \right)
+&= \text{log} \left[ \frac{ \alpha \, \left( T_\text{max} - t_j \right) + \beta}{X_j} \right] - \text{log} \left( \frac{Z_\odot}{X_\odot} \right)
 \end{aligned}
 ```
 
@@ -54,13 +79,13 @@ and we can further expand the partial derivatives of ``\mu_j`` as
 \end{aligned} \\
 ```
 
-such that the model-dependent portion ``\left( \frac{\partial Z_j}{\partial \beta} \right)`` can be separated from what is essentially a calibration defining how [M/H] is calculated from ``Z`` ``\left( \frac{\partial \mu_j}{\partial Z_j} \right)``. Given our model ``Z_j = \alpha \, t_j + \beta`` and the PARSEC calibration for conversion between ``Z_j`` and ``\mu_j`` (i.e., [M/H]), we have
+such that the model-dependent portion ``\left( \frac{\partial Z_j}{\partial \beta} \right)`` can be separated from what is essentially a calibration defining how [M/H] is calculated from ``Z`` ``\left( \frac{\partial \mu_j}{\partial Z_j} \right)``. Given our model ``Z_j = \alpha \, \left( T_\text{max} - t_j \right) + \beta`` and the PARSEC calibration for conversion between ``Z_j`` and ``\mu_j`` (i.e., [M/H]), we have
 
 ```math
 \begin{aligned}
 \frac{\partial \mu_j}{\partial Z_j} &= \frac{Y_p - 1}{\text{ln}10 \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \\
-\frac{\partial Z_j}{\partial \beta} &= \frac{\partial \left(\alpha \, t_j \, + \, \beta \right)}{\partial \beta} = 1 \\
-\frac{\partial Z_j}{\partial \alpha} &= \frac{\partial \left(\alpha \, t_j \, + \, \beta \right)}{\partial \alpha} = t_j \\
+\frac{\partial Z_j}{\partial \beta} &= \frac{\partial \left[\alpha \, \left( T_\text{max} - t_j \right) + \beta \right]}{\partial \beta} = 1 \\
+\frac{\partial Z_j}{\partial \alpha} &= \frac{\partial \left[ \alpha \, \left( T_\text{max} - t_j \right) + \beta \right]}{\partial \alpha} = T_\text{max} - t_j \\
 \end{aligned}
 ```
 
@@ -73,7 +98,7 @@ Which gives us final results
 \begin{aligned}
 \frac{\partial \, A_{j,k}}{\partial \, \mu_j} &= \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\sigma^2} \\
 \frac{\partial \mu_j}{\partial \beta} &= \frac{\partial \mu_j}{\partial Z_j} \, \frac{\partial Z_j}{\partial \beta} = \left( \frac{Y_p - 1}{\text{ln}(10) \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \ \left( 1 \right) \\
-\frac{\partial \mu_j}{\partial \alpha} &= \frac{\partial \mu_j}{\partial Z_j} \, \frac{\partial Z_j}{\partial \alpha} = \left( \frac{Y_p - 1}{\text{ln}(10) \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \ \left( t_j \right) \\
+\frac{\partial \mu_j}{\partial \alpha} &= \frac{\partial \mu_j}{\partial Z_j} \, \frac{\partial Z_j}{\partial \alpha} = \left( \frac{Y_p - 1}{\text{ln}(10) \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \ \left( T_\text{max} - t_j \right) \\
 
 %% \frac{\partial \mu_j}{\partial \beta} &= \frac{1}{\left( t_j \, \alpha + \beta \right) \, \text{ln}(10)} \\
 %% \frac{\partial \mu_j}{\partial \alpha} &= \frac{t}{\left( t_j \, \alpha + \beta \right) \, \text{ln}(10)} = t \, \frac{\partial \mu_j}{\partial \beta} \\
@@ -87,7 +112,8 @@ such that
 \frac{\partial \, A_{j,k}}{\partial \, \beta} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \, \frac{\partial \mu_j}{\partial \beta} = \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \, \frac{\partial \mu_j}{\partial Z_j} \, \frac{\partial Z_j}{\partial \beta} \\
 &= \left( \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\sigma^2} \right) \ \left( \frac{Y_p - 1}{\text{ln}10 \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \\
 \frac{\partial \, A_{j,k}}{\partial \, \alpha} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \, \frac{\partial \mu_j}{\partial \alpha} = \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \, \frac{\partial \mu_j}{\partial Z_j} \, \frac{\partial Z_j}{\partial \alpha} \\
-&= \left( \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\sigma^2} \right) \ \left( \frac{Y_p - 1}{\text{ln}10 \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \ \left( t_j \right) = t_j \ \frac{\partial \, A_{j,k}}{\partial \, \beta} \\
+&= \left( \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\sigma^2} \right) \ \left( \frac{Y_p - 1}{\text{ln}10 \, Z_j \, \left( Y_p + Z_j + \gamma \, Z_j - 1 \right)} \right) \ \left( T_\text{max} - t_j \right) \\
+&= \left( T_\text{max} - t_j \right)\ \frac{\partial \, A_{j,k}}{\partial \, \beta} \\
 
 %% \frac{\partial \, A_{j,k}}{\partial \, \beta} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \, \frac{\partial \mu_j}{\partial \beta} = \left( \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\sigma^2} \right) \, \left( \frac{1}{\left( t_j \, \alpha + \beta \right) \, \text{ln}(10)} \right) \\
 %% &= \frac{A_{j,k} \, \left( [\text{M}/\text{H}]_k - \mu_j \right)}{\text{ln}(10) \, \sigma^2 \, \left( t_j \, \alpha + \beta \right)} \\

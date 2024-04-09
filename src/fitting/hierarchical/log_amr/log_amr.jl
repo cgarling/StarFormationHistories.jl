@@ -1,11 +1,17 @@
 """
-    coeffs = calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, [, α::Number, β::Number, σ::Number]; MH_func=StarFormationHistories.MH_from_Z, max_logAge::Number=maximum(logAge))
+    calculate_coeffs_logamr(variables::AbstractVector{<:Number},
+                            logAge::AbstractVector{<:Number},
+                            metallicities::AbstractVector{<:Number}
+                            [, α::Number, β::Number, σ::Number];
+                            MH_func = StarFormationHistories.MH_from_Z,
+                            max_logAge = maximum(logAge))
 
 Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_logamr`](@ref) and [`StarFormationHistories.hmc_sample_logamr`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean metal mass fraction Z for element `i` of `unique(logAge)` is `μ_Z[i] = α * (exp10(max_logAge) - exp10(unique(logAge)[i])) / 1e9 + β`. This is converted to a mean metallicity in [M/H] via the provided callable keyword argument `MH_func` which defaults to [`StarFormationHistories.MH_from_Z`](@ref). The individual weights per each isochrone are then determined via Gaussian weighting with the above mean [M/H] and the provided `σ` in dex. The provided `metallicities` vector should be in [M/H]. 
 
 # Notes
- - Physically, the metal mass fraction `Z` must always be positive. Under the above model, this means α and β must be positive. With σ being a Gaussian width, it too must be positive. 
- - 
+ - Physically, the metal mass fraction `Z` must always be positive. Under the above model, this means α and β must be positive. With σ being a Gaussian width, it too must be positive.
+ - If you manually set the keyword argument `max_logAge` to something lower than the maximum of the `logAge` argument you provide, a warning will be raised which may be ignored if it does not result in any of the mean metal mass fractions Z being less than 0 for any of the provided `logAge`.
+ - An error will be thrown if the provided age-metallicity relation variables (α, β) and `max_logAge` keyword argument result in a mean metal mass fraction less than 0 for any time in the provided `logAge` vector. 
 """
 function calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number; MH_func=MH_from_Z, max_logAge=maximum(logAge))
     @assert (α > 0) & (β > 0) & (σ > 0)
@@ -106,6 +112,9 @@ calculate_coeffs_logamr(variables, logAge, metallicities; kws...) =
     end
 end
 
+"""
+blah
+"""
 function fit_templates_logamr(models::AbstractVector{T},
                               data::AbstractMatrix{<:Number},
                               logAge::AbstractVector{<:Number},
