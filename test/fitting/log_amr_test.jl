@@ -89,7 +89,7 @@ end
 end
 
 
-@testset "Logarithmic AMR, Free σ" begin
+@testset "Logarithmic AMR Fitting" begin
     T = Float64
     rng = StableRNG(94823)
     # Metallicity evolution parameters
@@ -114,6 +114,7 @@ end
     models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # data = sum(x .* models) # Perfect data, no noise
     data = rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
+    data2 = sum(x .* models) # Perfect data, no noise
 
     @testset "fg_logamr!" begin
         # Test gradient function fg_logamr!
@@ -146,7 +147,6 @@ end
         # @test result.mle.μ ≈ vcat(SFRs, α, β, σ) rtol=0.05
 
         # Now test under perfect data
-        data2 = sum(x .* models) # Perfect data, no noise
         result2 = SFH.fit_templates_logamr(models, data2, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
         # @btime SFH.fit_templates_logamr($models, $data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=$log10(max_age*1e9)) $ 1.6 s
         @test result2.mle.μ ≈ true_params rtol=1e-5

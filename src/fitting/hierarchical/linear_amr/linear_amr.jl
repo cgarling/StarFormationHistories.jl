@@ -183,6 +183,7 @@ function fit_templates_mdf(models::AbstractVector{T},
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+2
     # Perform logarithmic transformation on the provided x0 for all variables except α and β
+    x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
     for i in eachindex(x0)[begin:end-2]
         x0[i] = log(x0[i])
     end
@@ -400,6 +401,7 @@ function fit_templates_mdf(models::AbstractVector{T},
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
     # Perform logarithmic transformation on the provided x0 for all variables except α and β
+    x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
     for i in eachindex(x0)[begin:end-3]
         x0[i] = log(x0[i])
     end
