@@ -159,7 +159,7 @@ function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}},
                               kws...) where {S <: Number}
     unique_logage = unique(logAge)
     max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
-    @assert length(x0) == length(unique_logage)+3
+    @assert length(x0) == length(unique_logage) + 3
     # All variables must be positive  since Z = α * (max_age - age) + β with age being
     # positive lookback time, α must always be positive for an increasing AMR.
     # Perform logarithmic transformation on the provided x0 for all variables.
@@ -188,6 +188,135 @@ function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}},
         x .= exp.(xvec) 
         logL = fg_logamr!(F, G, x, models, data, composite,
                           logAge, metallicities, max_age, MH_func, MH_deriv_Z)
+        G .= G .* x 
+        return logL
+    end
+    # Set up options for the optimization
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # makes it less sensitive to initial x0.
+    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
+                             linesearch=LineSearches.HagerZhang())
+    # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+    # covariance matrix, which we can use to make parameter uncertainty estimates
+    bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
+    # Calculate result
+    result_map = Optim.optimize(Optim.only_fg!( fg_logamr!_map ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!( fg_logamr!_mle ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    # Transform the resulting variables
+    μ_map = exp.(deepcopy( Optim.minimizer(result_map) ))
+    μ_mle = exp.(deepcopy( Optim.minimizer(result_mle) ))
+
+    # Estimate parameter uncertainties from the inverse Hessian approximation
+    σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
+    # Need to account for the logarithmic transformation
+    σ_map .*= μ_map
+    σ_mle .*= μ_mle
+    # return (map = LogTransformMDFResult(μ_map, σ_map, Optim.trace(result_map)[end].metadata["~inv(H)"], result_map),
+    #         mle = LogTransformMDFResult(μ_mle, σ_mle, Optim.trace(result_mle)[end].metadata["~inv(H)"], result_mle))
+    return (map = (μ = μ_map, σ = σ_map, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_map),
+            mle = (μ = μ_mle, σ = σ_mle, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_mle))
+end
+
+
+# Calculate loglikelihood and gradient with respect to SFR parameters and logarithmic AMR parameters
+@inline function fg_logamr_fixedσ!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, max_age::Number, MH_func, MH_deriv_Z, σ::Number)
+    # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
+    # entry in logAge, plus α and β to define the MDF at fixed logAge; σ is provided as a separate fixed argument
+    @assert axes(data) == axes(composite)
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)), eltype(composite), eltype(logAge), eltype(metallicities), typeof(max_age))
+    # Compute the coefficients on each model template given the `variables` andthe MDF
+    α, β = variables[end-1], variables[end]
+    unique_logAge = unique(logAge)
+    max_logAge = log10(max_age) + 9
+    # Calculate the per-template coefficents and normalization values
+    coeffs = calculate_coeffs_logamr(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, α, β, σ; MH_func=MH_func, max_logAge=max_logAge)
+
+    # Fill the composite array with the equivalent of sum( coeffs .* models )
+    # composite = sum( coeffs .* models )
+    # return -loglikelihood(composite, data)
+    composite!(composite, coeffs, models)
+    logL = loglikelihood(composite, data) # Need to do this before ∇loglikelihood! because it will overwrite composite
+    if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+        @assert axes(G) == axes(variables)
+        # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
+        fullG = Vector{eltype(G)}(undef,length(coeffs)) # length(models))
+        ∇loglikelihood!(fullG, composite, models, data)
+        # Now need to do the transformation to the `variables` rather than model coefficients
+        G[end-1] = zero(eltype(G))
+        G[end] = zero(eltype(G))
+        dZdβ = 1 # Derivative of metal mass fraction with respect to β
+        for i in axes(G,1)[begin:end-2] 
+            la = unique_logAge[i]
+            age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
+            # meanZ = α * age + β # Mean metal mass fraction
+            meanZ = α * (max_age - age) + β # Mean metal mass fraction
+            μ = MH_func(meanZ) # Find the mean metallicity [M/H] of this age bin
+            idxs = findall( ==(la), logAge) # Find all entries that match this logAge
+            tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
+            A = sum(tmp_coeffs)
+            # This should be correct for any MDF model at fixed logAge
+            @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
+            βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
+            dAdμ = -sum( fullG[idxs[j]] * variables[i] *
+                ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
+                         for j in eachindex(idxs)) / A / σ^2
+            dμdZ = MH_deriv_Z(meanZ) # Derivative of MH_func(Z) with respect to Z
+            dZdα = (max_age - age) # Derivative of metal mass fraction with respect to α
+            dLdβ = dAdμ * dμdZ * dZdβ
+            dLdα = dLdβ * dZdα
+            G[end-1] += dLdα
+            G[end] += dLdβ
+        end
+        return -logL
+    elseif F != nothing # Optim.optimize wants only objective
+        return -logL
+    end
+end
+
+function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
+                              data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+                              logAge::AbstractVector{<:Number},
+                              metallicities::AbstractVector{<:Number},
+                              σ::Number;
+                              composite = Array{S,ndims(data)}(undef,size(data)),
+                              x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                        [1e-4, 5e-5]),
+                              MH_func = MH_from_Z,
+                              MH_deriv_Z = dMH_dZ,
+                              max_logAge = maximum(logAge),
+                              kws...) where {S <: Number}
+    unique_logage = unique(logAge)
+    max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
+    @assert length(x0) == length(unique_logage) + 2
+    # All variables must be positive  since Z = α * (max_age - age) + β with age being
+    # positive lookback time, α must always be positive for an increasing AMR.
+    # Perform logarithmic transformation on the provided x0 for all variables.
+    x0 = log.(x0)
+    # Make scratch array for assessing transformations
+    x = similar(x0)
+    # Define wrapper function to pass to Optim.only_fg!
+    # It looks like you don't need the Jacobian correction to arrive at the maximum likelihood
+    # result, and if you remove the Jacobian corrections it actually converges to the
+    # non-log-transformed case. However, the uncertainty estimates from the inverse Hessian
+    # don't seem reliable without the Jacobian corrections.
+    function fg_logamr!_map(F, G, xvec)
+        # All variables are log-transformed
+        x .= exp.(xvec) 
+        logL = fg_logamr_fixedσ!(F, G, x, models, data, composite,
+                          logAge, metallicities, max_age, MH_func, MH_deriv_Z, σ)
+        # Appy Jacobian correction to logL; α should be the same as
+        # D[Log[x],x] = D[Log[-x],x] = 1/x, Log[1/x] = -Log[x]
+        logL -= sum( xvec ) 
+        # Add the Jacobian correction for every element of G
+        G .= G .* x .- 1
+        return logL
+    end
+    function fg_logamr!_mle(F, G, xvec)
+        # All variables are log-transformed
+        x .= exp.(xvec) 
+        logL = fg_logamr_fixedσ!(F, G, x, models, data, composite,
+                          logAge, metallicities, max_age, MH_func, MH_deriv_Z, σ)
         G .= G .* x 
         return logL
     end
