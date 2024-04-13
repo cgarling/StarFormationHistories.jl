@@ -120,12 +120,11 @@ calculate_coeffs_mdf(variables, logAge, metallicities) =
                          logAge, metallicities, variables[end-2], variables[end-1], variables[end])
 
 
-"""
-variables[begin:end-2] are stellar mass coefficients
-variables[end-1] is the slope of the age-MH relation in [MH] / [10Gyr; (lookback)], e.g. -1.0
-variables[end] is the intercept of the age-MH relation in MH at present-day, e.g. -0.4
-"""
-@inline function fg_mdf_fixedσ!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number) where T <: AbstractMatrix{<:Number}
+
+# variables[begin:end-2] are stellar mass coefficients
+# variables[end-1] is the slope of the age-MH relation in [MH] / [10Gyr; (lookback)], e.g. -1.0
+# variables[end] is the intercept of the age-MH relation in MH at present-day, e.g. -0.4
+@inline function fg_mdf_fixedσ!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
     # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge
     @assert axes(data) == axes(composite)
@@ -142,8 +141,7 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
-        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
-        fullG = Vector{eltype(G)}(undef,length(models))
+        fullG = Vector{eltype(G)}(undef, length(coeffs)) # length(models))
         ∇loglikelihood!(fullG, composite, models, data)
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-1] = zero(eltype(G))
@@ -172,16 +170,17 @@ variables[end] is the intercept of the age-MH relation in MH at present-day, e.g
 end
 
 # for fixed σ
-function fit_templates_mdf(models::AbstractVector{T},
-                           data::AbstractMatrix{<:Number},
+function fit_templates_mdf(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
+                           data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                            logAge::AbstractVector{<:Number},
                            metallicities::AbstractVector{<:Number},
                            σ::Number;
-                           composite=Matrix{S}(undef,size(data)),
+                           composite=Array{S,ndims(data)}(undef,size(data)),
                            x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5]),
-                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
+                           kws...) where {S <: Number}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+2
+    @assert size(data) == size(composite)
     # Perform logarithmic transformation on the provided x0 for all variables except α and β
     x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
     for i in eachindex(x0)[begin:end-2]
@@ -300,10 +299,8 @@ function _rand!(rng::AbstractRNG, result::LogTransformMDFResult, x::Union{Abstra
     return x
 end
 
-"""
-This version of mdf fg! also fits σ
-"""
-@inline function fg_mdf!(F, G, variables::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) where T <: AbstractMatrix{<:Number}
+# fits σ as free parameter
+@inline function fg_mdf!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number})
     # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge and σ to define Gaussian width
     @assert axes(data) == axes(composite)
@@ -322,8 +319,7 @@ This version of mdf fg! also fits σ
     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients; we will need all of these
-        # fullG = [ ∇loglikelihood(models[i], composite, data) for i in axes(models,1) ]
-        fullG = Vector{eltype(G)}(undef,length(models))
+        fullG = Vector{eltype(G)}(undef, length(coeffs)) # length(models))
         ∇loglikelihood!(fullG, composite, models, data)
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-2] = zero(eltype(G))
@@ -359,21 +355,24 @@ This version of mdf fg! also fits σ
 end
 
 """
-    fit_templates_mdf(models::AbstractVector{T},
-                      data::AbstractMatrix{<:Number},
+    fit_templates_mdf(models::Union{AbstractVector{<:AbstractMatrix{S}},
+                                    AbstractMatrix{S}},
+                      data::Union{AbstractVector{<:Number},
+                                  AbstractMatrix{<:Number}},
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number} [, σ::Number];
-                      composite=Matrix{S}(undef,size(data)),
-                      x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
-                      kws...) where {S <: Number, T <: AbstractMatrix{S}}
+                      composite = Array{S,ndims(data)}(undef,size(data)),
+                      x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                [-0.1, -0.5, 0.3]),
+                      kws...) where {S <: Number}
 
 Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, constrained to have a linear age-metallicity relation with the mean metallicity of element `i` of `unique(logAge)` being `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. `α` is therefore a slope in the units of `metallicities` per Gyr, and `β` is the mean metallicity value of stars being born at present-day. Individual weights for each isochrone template are then determined via Gaussian weighting with the above mean and the standard deviation `σ`, which can either be fixed or fit.
 
 This function is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage. 
 
 # Arguments
- - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is a vector of equal-sized matrices that represent the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram.
- - `data::AbstractMatrix{<:Number}` is the Hess diagram for the observed data.
+ - `models` are the template Hess diagrams for the simple stellar populations that compose the observed Hess diagram. This method supports both the natural `AbstractVector{<:AbstractMatrix{<:Number}}` data layout and the more optimized `AbstractMatrix{<:Number}` layout; see the notes of [`composite!`](@ref StarFormationHistories.composite!) and [`stack_models`](@ref StarFormationHistories.stack_models) for more information. 
+ - `data` is the Hess diagram for the observed data. If you provide models in the natural data layout `models::AbstractVector{<:AbstractMatrix{<:Number}}` then you should provide `data::AbstractMatrix{<:Number}`. If you use the optimized layout `models::AbstractMatrix{<:Number}`, you should provide `data::AbstractVector{<:Number}`. 
  - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
  - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. This is most commonly a logarithmic abundance like [M/H] or [Fe/H], but you could use a linear abundance like the metal mass fraction Z if you wanted to. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful. 
 
@@ -381,7 +380,7 @@ This function is designed to work best with a "grid" of stellar models, defined 
  - If provided, `σ::Number` is the fixed width of the Gaussian the defines the metallicity distribution function (MDF) at fixed `logAge`. If this argument is omitted, `σ` will be a free parameter in the fit. 
 
 # Keyword Arguments
- - `composite` is the working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
+ - `composite` is the working array that will be used to store the composite Hess diagram model during computation; must be of the same size as the observed Hess diagram `data`.
  - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [-0.1,-0.5,0.3])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [-0.1, -0.5, 0.3]`. If the provided `metallicities` are, for example, [M/H] values, then this mean metallicity evolution is μ(t) [dex] = -0.1 [dex/Gyr] * t [Gyr] - 0.5 [dex], and at fixed time, the metallicity distribution function is Gaussian with mean μ(t) and standard deviation σ. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
  - Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
 
@@ -391,15 +390,16 @@ This function is designed to work best with a "grid" of stellar models, defined 
 # Notes
  - `α` and `β` are not optimized under a logarithmic transform, but `σ` is since it must be positive. This method also uses the `BFGS` method from `Optim.jl` internally just like [`fit_templates`](@ref); please see the notes section of that method. 
 """
-function fit_templates_mdf(models::AbstractVector{T},
-                           data::AbstractMatrix{<:Number},
+function fit_templates_mdf(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
+                           data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                            logAge::AbstractVector{<:Number},
                            metallicities::AbstractVector{<:Number};
-                           composite=Matrix{S}(undef,size(data)),
-                           x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
-                           kws...) where {S <: Number, T <: AbstractMatrix{S}}
+                           composite = Array{S,ndims(data)}(undef,size(data)),
+                           x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5, 0.3]),
+                           kws...) where {S <: Number}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
+    @assert size(data) == size(composite)
     # Perform logarithmic transformation on the provided x0 for all variables except α and β
     x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
     for i in eachindex(x0)[begin:end-3]
@@ -567,8 +567,16 @@ All other keyword arguments `kws...` will be passed to `DynamicHMC.mcmc_with_war
  - If `nchains` is not provided, returns a `NamedTuple` as summarized in DynamicHMC.jl's documentation. In short, the matrix of samples can be extracted and transformed as `exp.( result.posterior_matrix )`. Statistics about the chain can be obtained with `DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)`; you want to see a fairly high acceptance rate (>0.5) and the majority of samples having termination criteria being "turning." See DynamicHMC.jl's documentation for more information.
  - If `nchains` *is* provided, returns a vector of length `nchains` of the same `NamedTuple`s described above. The samples from each chain in the returned vector can be stacked to a single `(nsamples, nchains, length(models))` matrix with `DynamicHMC.stack_posterior_matrices(result)`.
 """
-function hmc_sample_mdf(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, nsteps::Integer; composite=Matrix{S}(undef,size(data)), rng::AbstractRNG=default_rng(), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+function hmc_sample_mdf(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
+                        data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+                        logAge::AbstractVector{<:Number},
+                        metallicities::AbstractVector{<:Number},
+                        nsteps::Integer;
+                        composite=Array{S,ndims(data)}(undef,size(data)),
+                        rng::AbstractRNG=default_rng(),
+                        kws...) where {S <: Number}
     @assert length(logAge) == length(metallicities)
+    @assert size(data) == size(composite)
     instance = HMCModelMDF( models, composite, data, logAge, metallicities,
                             Vector{S}(undef, length(unique(logAge)) + 3) )
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)

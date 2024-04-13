@@ -14,7 +14,7 @@
               logAge::AbstractVector{<:Number},
               metallicities::AbstractVector{<:Number},
               relweights::AbstractVector{<:Number};
-              relweightsmin::Number=0, # By default, do not truncate input model template list
+              relweightsmin::Number=0,
               x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
               kws...) where S <: Number
 

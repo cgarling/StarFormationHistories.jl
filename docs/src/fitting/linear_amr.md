@@ -27,6 +27,8 @@ Below we show a fit using this hierarchical model to the same data as above.
 
 ![Example of a SFH fit with a linear metallicity evolution.](figures/mdf_model.png)
 
+## Fitting Functions
+
 We provide the method [`StarFormationHistories.fit_templates_mdf`](@ref) to fit this model to an observed Hess diagram.
 
 ```@docs
@@ -46,6 +48,8 @@ and [`StarFormationHistories.calculate_coeffs_mdf`](@ref) can be used to calcula
 ```@docs
 StarFormationHistories.calculate_coeffs_mdf
 ```
+
+## Sampling Methods
 
 We additionally offer a sampling method for this linear age-metallicity relation using HMC:
 
@@ -134,11 +138,3 @@ Then all we need is
 ```
 
 which we can substitute into the above expressions to find ``\frac{\partial \, F}{\partial \, \sigma}``.
-
-## Fitting a Fixed Age-Metallicity Relation
-
-It is often the case that one may want to fit for star formation rates under a fixed age-metallicity relation or other metallicity evolution model with no degrees of freedom. Such functionality is provided by [`fixed_amr`](@ref StarFormationHistories.fixed_amr), which takes as input the relative weights (`relweights` in the function call, equivalently the ``r_{j,k}`` in the above derivation) on each template due to a predetermined metallicity model and fits only the per-age-bin coefficients ($R_j$ in the above derivation). 
-
-```@docs
-StarFormationHistories.fixed_amr
-```

@@ -25,7 +25,8 @@ makedocs(
                   "fitting/unconstrained.md",
                   "Constrained Metallicity Evolution" => 
                       ["fitting/linear_amr.md",
-                       "fitting/log_amr.md"],
+                       "fitting/log_amr.md",
+                       "fitting/fixed_amr.md"],
                   "fitting/internals.md"],
              "binaries.md",
              "helpers.md",

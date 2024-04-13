@@ -9,12 +9,12 @@
 Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_logamr`](@ref) and [`StarFormationHistories.hmc_sample_logamr`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean metal mass fraction Z for element `i` of `unique(logAge)` is `μ_Z[i] = α * (exp10(max_logAge) - exp10(unique(logAge)[i])) / 1e9 + β`. This is converted to a mean metallicity in [M/H] via the provided callable keyword argument `MH_func` which defaults to [`StarFormationHistories.MH_from_Z`](@ref). The individual weights per each isochrone are then determined via Gaussian weighting with the above mean [M/H] and the provided `σ` in dex. The provided `metallicities` vector should be in [M/H]. 
 
 # Notes
- - Physically, the metal mass fraction `Z` must always be positive. Under the above model, this means α and β must be positive. With σ being a Gaussian width, it too must be positive.
+ - Physically, the metal mass fraction `Z` must always be positive. Under the above model, this means α and β must be greater than or equal to 0. With σ being a Gaussian width, it must be positive.
  - If you manually set the keyword argument `max_logAge` to something lower than the maximum of the `logAge` argument you provide, a warning will be raised which may be ignored if it does not result in any of the mean metal mass fractions Z being less than 0 for any of the provided `logAge`.
  - An error will be thrown if the provided age-metallicity relation variables (α, β) and `max_logAge` keyword argument result in a mean metal mass fraction less than 0 for any time in the provided `logAge` vector. 
 """
 function calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number; MH_func=MH_from_Z, max_logAge=maximum(logAge))
-    @assert (α > 0) & (β > 0) & (σ > 0)
+    @assert (α >= 0) & (β >= 0) & (σ > 0)
     if maximum(logAge) > max_logAge
         @warn "We recommend that the keyword argument `max_logAge` to `StarFormationHistories.calculate_coeffs_logamr` be set equal to or greater than the maximum of the `logAge` argument. The provided `max_logAge` is less than `maximum(logAge)`, such that it is possible the metal mass fraction may become negative in the model, which would be unphysical."
     end
@@ -139,7 +139,7 @@ This function is designed to work best with a "grid" of stellar models, defined 
  - If provided, `σ::Number` is the fixed width of the Gaussian the defines the metallicity distribution function (MDF) at fixed `logAge`. If this argument is omitted, `σ` will be a free parameter in the fit. 
 
 # Keyword Arguments
- - `composite` is the working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size the observed Hess diagram `data`.
+ - `composite` is the working array that will be used to store the composite Hess diagram model during computation; must be of the same size the observed Hess diagram `data`.
  - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`construct_x0_mdf`](@ref StarFormationHistories.construct_x0_mdf) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [1e-4, 5e-5, 0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [1e-4, 5e-5, 0.2]`. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
  - `MH_func` is a callable that takes a metal mass fraction `Z` and returns the logarithmic abundance [M/H]; by default uses [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z).
  - `MH_deriv_Z` is a callable that takes a metal mass fraction `Zj` and returns the derivative of `MH_func` with respect to the metal mass fraction `Z` evaluated at `Zj`. For the default value of `MH_func`, [`dMH_dZ`](@ref StarFormationHistories.dMH_dZ) provides the correct derivative. You only need to change this if you use an alternate `MH_func`.
@@ -160,6 +160,7 @@ function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}},
     unique_logage = unique(logAge)
     max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
     @assert length(x0) == length(unique_logage) + 3
+    @assert size(data) == size(composite)
     # All variables must be positive  since Z = α * (max_age - age) + β with age being
     # positive lookback time, α must always be positive for an increasing AMR.
     # Perform logarithmic transformation on the provided x0 for all variables.
@@ -274,6 +275,7 @@ end
     end
 end
 
+# for fixed σ
 function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}}, AbstractMatrix{S}},
                               data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                               logAge::AbstractVector{<:Number},
@@ -289,6 +291,7 @@ function fit_templates_logamr(models::Union{AbstractVector{<:AbstractMatrix{S}},
     unique_logage = unique(logAge)
     max_age = exp10(max_logAge) / 1e9 # Lookback time at which to normalize β in Gyr
     @assert length(x0) == length(unique_logage) + 2
+    @assert size(data) == size(composite)
     # All variables must be positive  since Z = α * (max_age - age) + β with age being
     # positive lookback time, α must always be positive for an increasing AMR.
     # Perform logarithmic transformation on the provided x0 for all variables.
