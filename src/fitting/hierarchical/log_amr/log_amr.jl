@@ -227,7 +227,7 @@ function fit_templates_logamr(models::AbstractMatrix{S},
     return (map = (μ = μ_map, σ = σ_map, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_map),
             mle = (μ = μ_mle, σ = σ_mle, invH = Optim.trace(result_map)[end].metadata["~inv(H)"], result = result_mle))
 end
-fit_templates_logamr(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, args...; kws...) = fit_templates_logamr(stack_models(models), vec(data), args...; kws...)
+fit_templates_logamr(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_templates_logamr(stack_models(models), vec(data), logAge, metallicities; kws...)
 
 
 # Calculate loglikelihood and gradient with respect to SFR parameters and logarithmic AMR parameters
