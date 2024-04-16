@@ -50,6 +50,7 @@ function fixed_amr(models::AbstractMatrix{S},
     composite = Vector{S}(undef,length(data)) # Scratch matrix for storing complex Hess model
     unique_logAge = unique(logAge)
     @assert length(x0) == length(unique_logAge)
+    @assert size(models,1) == length(data)
     @assert size(models,2) == length(logAge) == length(metallicities) == length(relweights)
     @assert all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
     @assert relweightsmin >= 0 # By definition relweightsmin must be greater than or equal to 0

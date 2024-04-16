@@ -148,13 +148,13 @@ end
 
         # Now test under perfect data
         result2 = SFH.fit_templates_logamr(models, data2, logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
-        # @btime SFH.fit_templates_logamr($models, $data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=$log10(max_age*1e9)) $ 1.6 s
+        # @btime SFH.fit_templates_logamr($models, $data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=log10($max_age*1e9)) # 1.6 s
         @test result2.mle.μ ≈ true_params rtol=1e-5
         @test result2.map.μ ≈ true_params rtol=1e-2
 
         # Now test with stacked models / data
         result3 = SFH.fit_templates_logamr(SFH.stack_models(models), vec(data2), logAge, MH; x0=x0, MH_func=SFH.MH_from_Z, MH_deriv_Z=SFH.dMH_dZ, max_logAge=log10(max_age*1e9))
-        # let models2 = SFH.stack_models(models), Data2=vec(data2); @btime SFH.fit_templates_logamr($models2, $Data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=$log10(max_age*1e9)); end # 729 ms
+        # let models2 = SFH.stack_models(models), Data2=vec(data2); @btime SFH.fit_templates_logamr($models2, $Data2, $logAge, $MH; x0=$x0, MH_func=$SFH.MH_from_Z, MH_deriv_Z=$SFH.dMH_dZ, max_logAge=log10($max_age*1e9)); end # 729 ms
         @test result3.mle.μ ≈ true_params rtol=1e-5
         @test result3.map.μ ≈ true_params rtol=1e-2
     end
