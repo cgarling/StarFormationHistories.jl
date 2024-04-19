@@ -74,11 +74,12 @@ fit_templates_lbfgsb(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::A
                          x0::AbstractVector{<:Number} = ones(S,size(models,2)),
                          factr::Number=1e-12,
                          pgtol::Number=1e-5,
-                         iprint::Integer=0, kws...) where S <: Number
+                         iprint::Integer=0,
+                         kws...) where S <: Number
 
 This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 "
-@inline function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where S <: Number
+function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where S <: Number
     composite = Vector{S}(undef,length(data))
     _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
     G = similar(x0)
@@ -128,7 +129,6 @@ end
 """
     result = fit_templates(models::AbstractVector{T},
                            data::AbstractMatrix{<:Number};
-                           composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
                            x0::AbstractVector{<:Number} = ones(S,length(models)),
                            kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
@@ -139,7 +139,6 @@ Finds both maximum likelihood estimate (MLE) and maximum a posteriori estimate (
  - `data::AbstractMatrix{<:Number}`: the observed Hess diagram; must match the size of the templates contained in `models`.
 
 # Keyword Arguments
- - `composite`: The working matrix that will be used to store the composite Hess diagram model during computation; must be of the same size as the templates contained in `models` and the observed Hess diagram `data`.
  - `x0`: The vector of initial guesses for the stellar mass coefficients. You should basically always be calculating and passing this keyword argument; we provide [`StarFormationHistories.construct_x0`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess.
 Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization. 
 
@@ -159,8 +158,18 @@ The special property of the [`StarFormationHistories.LogTransformFTResult`](@ref
  - This method uses the `BFGS` method from `Optim.jl` internally because it builds and tracks the inverse Hessian matrix approximation which can be used to estimate parameter uncertainties. BFGS is much more memory-intensive than LBFGS (as used for [`StarFormationHistories.fit_templates_lbfgsb`](@ref)) for large numbers of parameters (equivalently, many `models`), so you should consider LBFGS to solve for the MLE along with [`hmc_sample`](@ref) to sample the posterior if you are using a large grid of models (greater than a few hundred).
  - The BFGS implementation we use from Optim.jl uses BLAS operations during its iteration. The OpenBLAS that Julia ships with will often default to running on multiple threads even if Julia itself is started with only a single thread. You can check the current number of BLAS threads with `import LinearAlgebra: BLAS; BLAS.get_num_threads()`. For the problem sizes typical of this function we actually see performance regression with larger numbers of BLAS threads. For this reason you may wish to use BLAS in single-threaded mode; you can set this as `import LinearAlgebra: BLAS; BLAS.set_num_threads(1)`.
 """
-@inline function fit_templates(models, data, composite, x0; kws...) # This signature does no input checking
-# function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+@inline fit_templates(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}; kws...) = fit_templates(stack_models(models), vec(data); kws...) # Calls to method below
+"""
+    fit_templates(models::AbstractMatrix{S},
+                  data::AbstractVector{<:Number};
+                  x0::AbstractVector{<:Number} = ones(S,length(models)),
+                  kws...) where S <: Number
+
+This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"""
+function fit_templates(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+    composite = Vector{S}(undef,length(data))
+    _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
     # log-transform the initial guess vector
     x0 = log.(x0)
     # Make scratch array for assessing transformations
@@ -196,39 +205,23 @@ The special property of the [`StarFormationHistories.LogTransformFTResult`](@ref
     # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
     # "mle" contains the same entries but for the maximum likelihood estimate.
     return  ( map = LogTransformFTResult(exp.(Optim.minimizer(result_map)),
-                                       sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
+                                         sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"])) .*
                                            exp.(Optim.minimizer(result_map)),
-                                       result_map.trace[end].metadata["~inv(H)"],
-                                       result_map ),
+                                         result_map.trace[end].metadata["~inv(H)"],
+                                         result_map ),
               mle = LogTransformFTResult(exp.(Optim.minimizer(result_mle)),
-                                       sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
+                                         sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"])) .*
                                            exp.(Optim.minimizer(result_mle)),
-                                       result_mle.trace[end].metadata["~inv(H)"],
-                                       result_mle ) )
+                                         result_mle.trace[end].metadata["~inv(H)"],
+                                         result_mle ) )
 end
-function fit_templates(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    _check_matrix_input_sizes(x0, models, data, composite)
-    fit_templates(models, data, composite, x0; kws...)
-end
-"
-    fit_templates(models::AbstractMatrix{S},
-                  data::AbstractVector{<:Number};
-                  composite::AbstractVector{<:Number} = Vector{S}(undef,length(data)),
-                  x0::AbstractVector{<:Number} = ones(S,length(models)),
-                  kws...) where S <: Number
 
-This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
-"
-function fit_templates(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
-    _check_flat_input_sizes(x0, models, data, composite)
-    fit_templates(models, data, composite, x0; kws...)
-end
 """
     (coeffs::Vector{::eltype(x0)}, result::Optim.MultivariateOptimizationResults) =
     fit_templates_fast(models::AbstractVector{T},
                        data::AbstractMatrix{<:Number};
-                       composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
-                       x0::AbstractVector{<:Number} = ones(S,length(models)), kws...)
+                       x0::AbstractVector{<:Number} = ones(S,length(models)),
+                       kws...)
                        where {S <: Number, T <: AbstractMatrix{S}}
 
 Finds *only* the maximum likelihood estimate (MLE) for the coefficients `coeffs` given the provided `data` such that the best-fit composite Hess diagram model is `sum(models .* coeffs)`. This is a simplification of the main [`fit_templates`](@ref) function, which will return the MLE as well as the maximum a posteriori estimate, and further supports uncertainty quantification. For additional details on arguments to this method, see the documentation for [`fit_templates`](@ref). 
@@ -238,8 +231,19 @@ This method optimizes parameters `θ` such that `coeffs = θ.^2` -- this allows 
 # Notes
  1. By passing additional convergence keyword arguments supported by `Optim.Options` (see [this guide](https://julianlsolvers.github.io/Optim.jl/stable/#user/config/)), it is possible to converge to the MLE in fewer than 30 iterations with fewer than 100 calls to the likelihood and gradient methods. For example, the main convergence criterion is typically the magnitude of the gradient vector, which by default is `g_abstol=1e-8`, terminating the optimization when the magnitude of the gradient is less than 1e-8. We find results are typically sufficiently accurate with `g_abstol=1e-3`, which often uses half as many objective evaluations as the default value.
 """
-@inline function fit_templates_fast(models, data, composite, x0; kws...)
-#$ @inline function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite=Matrix{S}(undef,size(data)), x0=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
+fit_templates_fast(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}; kws...) = fit_templates_fast(stack_models(models), vec(data); kws...) # Calls to method below
+"""
+    fit_templates_fast(models::AbstractMatrix{S},
+                       data::AbstractVector{<:Number};
+                       x0::AbstractVector{<:Number} = ones(S,size(models,2)),
+                       kws...)
+                       where S <: Number
+
+This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"""
+@inline function fit_templates_fast(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+    composite = Vector{S}(undef,length(data))
+    _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
     # Transform the initial guess vector
     x0 = sqrt.(x0)
     # Make scratch array for assessing transformations
@@ -256,29 +260,12 @@ This method optimizes parameters `θ` such that `coeffs = θ.^2` -- this allows 
     # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
     # makes it less sensitive to initial x0.
     bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0,true),
-                             linesearch=LineSearches.HagerZhang())
+                               linesearch=LineSearches.HagerZhang())
     # We don't need to save the trace of the optimization here
     bfgs_options = Optim.Options(; allow_f_increases=true, kws...)
     # Calculate result
     result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
-    return  Optim.minimizer(result_mle).^2, result_mle # Optim.minimum(result_mle)
-end
-function fit_templates_fast(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,length(models)), kws...) where {S <: Number, T <: AbstractMatrix{S}}
-    _check_matrix_input_sizes(x0, models, data, composite)
-    fit_templates_fast(models, data, composite, x0; kws...)
-end
-"
-    fit_templates_fast(models::AbstractMatrix{S},
-                       data::AbstractVector{<:Number};
-                       composite::AbstractVector{<:Number} = Vector{S}(undef,length(data)),
-                       x0::AbstractVector{<:Number} = ones(S,size(models,2)), kws...)
-                       where S <: Number
-
-This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
-"
-function fit_templates_fast(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
-    _check_flat_input_sizes(x0, models, data, composite)
-    fit_templates_fast(models, data, composite, x0; kws...)
+    return Optim.minimizer(result_mle).^2, result_mle # Optim.minimum(result_mle)
 end
 
 # M1 = rand(120,100)
