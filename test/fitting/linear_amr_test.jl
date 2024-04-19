@@ -1,7 +1,7 @@
 import Distributions: Poisson
 import DynamicHMC
-import StarFormationHistories as SFH
 import StableRNGs: StableRNG
+import StarFormationHistories as SFH
 
 import LinearAlgebra: Diagonal
 import Random: rand!

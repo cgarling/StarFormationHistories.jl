@@ -19,6 +19,7 @@ Computes -loglikelihood and its gradient simultaneously for use with Optim.jl an
 """
 @inline function fg!(F, G, coeffs, models, data, composite)
 # @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}, composite::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+# @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, composite::AbstractVector{<:Number})
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data), eltype(composite))
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     composite!(composite, coeffs, models) 
@@ -35,28 +36,11 @@ Computes -loglikelihood and its gradient simultaneously for use with Optim.jl an
         return -loglikelihood(composite, data) # Return the negative loglikelihood
     end
 end
-# @inline function fg!(F, G, coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, composite::AbstractVector{<:Number})
-#     S = promote_type(eltype(coeffs), eltype(models), eltype(data), eltype(composite))
-#     # Fill the composite array with the equivalent of sum( coeffs .* models )
-#     composite!(composite, coeffs, models) 
-#     if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
-#         # Calculate logL before ∇loglikelihood! which will overwrite composite
-#         logL = loglikelihood(composite, data)
-#         ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
-#         G .*= -1 # We want the gradient of the negative log likelihood
-#         return -logL # Return the negative loglikelihood
-#     elseif G != nothing # Optim.optimize wants only gradient (Does this ever happen?)
-#         ∇loglikelihood!(G, composite, models, data) # Fill the gradient array
-#         G .*= -1 # We want the gradient of the negative log likelihood
-#     elseif F != nothing # Optim.optimize wants only objective
-#         return -loglikelihood(composite, data) # Return the negative loglikelihood
-#     end
-# end
+
 """
     (-logL, coeffs) = 
     fit_templates_lbfgsb(models::AbstractVector{T},
                          data::AbstractMatrix{<:Number};
-                         composite::AbstractMatrix{<:Number} = Matrix{S}(undef,size(data)),
                          x0::AbstractVector{<:Number} = ones(S,length(models)),
                          factr::Number=1e-12,
                          pgtol::Number=1e-5,
@@ -83,19 +67,10 @@ Other `kws...` are passed to `LBFGSB.lbfgsb`.
 # Notes
  - It can be helpful to normalize your `models` to contain realistic total stellar masses to aid convergence stability; for example, if the total stellar mass of your population is 10^7 solar masses, then you might normalize your templates to contain 10^3 solar masses. If you are using [`partial_cmd_smooth`](@ref) to construct the templates, you can specify this normalization via the `normalize_value` keyword. 
 """
-@inline function fit_templates_lbfgsb(models, data, composite, x0; factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...)
-    G = similar(x0)
-    fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
-    LBFGSB.lbfgsb(fg, x0; lb=zeros(size(models,2)), ub=fill(Inf,size(models,2)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
-end
-function fit_templates_lbfgsb(models::AbstractVector{T}, data::AbstractMatrix{<:Number}; composite::AbstractMatrix{<:Number}=Matrix{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where T <: AbstractMatrix{<:Number}
-    _check_matrix_input_sizes(x0, models, data, composite) # Validate input sizes
-    fit_templates_lbfgsb(models, data, composite, x0; kws...)
-end
+fit_templates_lbfgsb(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}; kws...) = fit_templates_lbfgsb(stack_models(models), vec(data); kws...) # Calls to method below
 "
     fit_templates_lbfgsb(models::AbstractMatrix{S},
                          data::AbstractVector{<:Number};
-                         composite::AbstractVector{<:Number} = Vector{S}(undef,size(data)),
                          x0::AbstractVector{<:Number} = ones(S,size(models,2)),
                          factr::Number=1e-12,
                          pgtol::Number=1e-5,
@@ -103,9 +78,12 @@ end
 
 This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 "
-function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; composite::AbstractVector{<:Number}=Vector{S}(undef,size(data)), x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
+@inline function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where S <: Number
+    composite = Vector{S}(undef,length(data))
     _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
-    fit_templates_lbfgsb(models, data, composite, x0; kws...)
+    G = similar(x0)
+    fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
+    LBFGSB.lbfgsb(fg, x0; lb=zeros(size(models,2)), ub=fill(Inf,size(models,2)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
 end
 
 """
