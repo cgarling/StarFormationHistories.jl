@@ -34,7 +34,7 @@ function construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normali
     unique_logAge = unique(logAge)
     idxs = sortperm(unique_logAge)
     sorted_ul = vcat(unique_logAge[idxs], max_logAge)
-    dt = diff( vcat(exp10.(sorted_ul), exp10(max_logAge)) )
+    dt = diff(exp10.(sorted_ul))
     return [ begin
                 idx = findfirst( ==(sorted_ul[i]), unique_logAge )
                 sfr * dt[idx]
