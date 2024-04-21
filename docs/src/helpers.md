@@ -19,6 +19,7 @@ StarFormationHistories.X_from_Z
 StarFormationHistories.MH_from_Z
 StarFormationHistories.dMH_dZ
 StarFormationHistories.Z_from_MH
+StarFormationHistories.mdf_amr
 ```
 
 ## Photometric Error and Completeness Models

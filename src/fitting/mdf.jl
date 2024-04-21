@@ -1,6 +1,25 @@
 # Ways to derive integrated metallicity distribution functions from
 # the results of SFH fits.
+"""
+    (unique_MH, mass_mdf) =
+    mdf_amr(coeffs::AbstractVector{<:Number},
+            logAge::AbstractVector{<:Number},
+            metallicities::AbstractVector{<:Number})
 
+Calculates the mass-weighted metallicity distribution function given a set of *stellar mass coefficients* `coeffs` for stellar populations with logarithmic ages `logAge=log10(age [yr])` and metallicities given by `metallicities`. This is calculated as
+
+```math
+P_j = \\frac{ \\sum_k r_{j,k} \\, [\\text{M} / \\text{H}]_k}{\\sum_{j,k} r_{j,k} \\, [\\text{M} / \\text{H}]_k}
+```
+
+where ``r_{j,k}`` are the elements of `coeffs` where ``j`` indexes over unique entries in `logAge` and ``k`` indexes over unique entries in `metallicities.` This is the same nomenclature used in the [the documentation on constrained metallicity evolutions](@ref metal_evo_intro).
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: mdf_amr)
+julia> mdf_amr([1.0, 2.0, 1.0], [10, 10, 10], [-2, -1.5, -1])
+([-2.0, -1.5, -1.0], [0.25, 0.5, 0.25])
+```
+"""
 function mdf_amr(coeffs::AbstractVector{<:Number}, # Stellar mass coefficients
                  logAge::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number})

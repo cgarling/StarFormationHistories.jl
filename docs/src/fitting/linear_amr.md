@@ -1,6 +1,6 @@
 # [Linear Age-Metallicity Relation](@id linear_amr_section)
 
-## Why Should Metallicity Evolutions Be Constrained?
+## [Why Should Metallicity Evolutions Be Constrained?](@id metal_evo_intro)
 
 While the above methods work well for optimizing the per-template ``r_j`` as a means for fitting SFHs, these methods can produce metallicity evolutions that could be considered unphysical, with large changes in the mean metallicity over small changes in time. An example of this type of behavior is shown in the SFH fit below.
 
