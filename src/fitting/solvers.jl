@@ -57,7 +57,7 @@ Finds the coefficients `coeffs` that maximize the Poisson likelihood ratio (equa
  - `x0`: The vector of initial guesses for the stellar mass coefficients. You should basically always be calculating and passing this keyword argument; we provide [`StarFormationHistories.construct_x0`](@ref) to prepare `x0` assuming constant star formation rate, which is typically a good initial guess.
  - `factr::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the objective function.
  - `pgtol::Number`: Keyword argument passed to `LBFGSB.lbfgsb`; essentially a relative tolerance for convergence based on the inter-iteration change in the projected gradient of the objective.
- - `iprint::Integer`: Keyword argument passed to `LBFGSB.lbfgsb` controlling how much information is printed to the terminal; setting to `1` can sometimes be helpful to diagnose convergence issues.
+ - `iprint::Integer`: Keyword argument passed to `LBFGSB.lbfgsb` controlling how much information is printed to the terminal. Setting to `1` can sometimes be helpful to diagnose convergence issues. Setting to `-1` will disable printing.
 Other `kws...` are passed to `LBFGSB.lbfgsb`.
 
 # Returns
