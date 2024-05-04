@@ -260,7 +260,7 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
         total += sum(masses)                           # Add to accumulator
         # if (first(masses) < mmin2) | (first(masses) > mmax)
         if first(masses) < mmin2 # Primary by itself would be fainter than `mag_lim` so continue
-            continue             
+            continue
         end
         flux = zero(eltype(mags))
         for mass in masses

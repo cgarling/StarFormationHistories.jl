@@ -1,5 +1,5 @@
 import StarFormationHistories as SFH
-import InitialMassFunctions: Salpeter1955
+import InitialMassFunctions: Salpeter1955, Kroupa2001
 import Distributions: Poisson, Uniform, pdf, median
 import Random
 import StableRNGs: StableRNG
@@ -101,10 +101,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 label = float_type_labels[i]
                 @testset "$label" begin
                     T = float_types[i]
-                    imf = Salpeter1955(T(0.1), T(100))
-                    @test SFH.sample_system(imf, rng, SFH.NoBinaries()) isa SVector{1,T}
-                    @test SFH.sample_system(imf, rng, SFH.RandomBinaryPairs(T(4//10))) isa SVector{2,T}
-                    @test SFH.sample_system(imf, rng, SFH.BinaryMassRatio(T(4//10), Uniform(T(0), T(1)))) isa SVector{2,T}
+                    for imf in (Salpeter1955(T(0.1), T(100)), Kroupa2001(T(0.1), T(100)))
+                        # Salpeter1955 is just a truncated Pareto distribution which always has eltype Float64
+                        # while Kroupa2001 is a custom distribution whose eltype is based on its arguments
+                        S = eltype(imf) 
+                        @test SFH.sample_system(imf, rng, SFH.NoBinaries()) isa SVector{1,S}
+                        @test SFH.sample_system(imf, rng, SFH.RandomBinaryPairs(T(4//10))) isa SVector{2,S}
+                        @test SFH.sample_system(imf, rng, SFH.BinaryMassRatio(T(4//10), Uniform(T(0), T(1)))) isa SVector{2,S}
+                    end
                 end
             end
         end
@@ -115,25 +119,26 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @testset "$label" begin
                     T = float_types[i]
                     imf = Salpeter1955(T(0.1), T(100))
+                    S = eltype(imf) # Type of rand(imf) for sampled stellar masses
                     total_mass = T(10^5)
                     dmod = T(20)
                     # Use some masses in the 0.1 -> 0.8 solar mass range
                     m_ini = range(T(1//10), T(4//5); step=T(1//10))
                     # Mags interpolated from an old-metal poor isochrone for order-of-magnitude scaling
                     f606w_mags = T[ 12.73830341586291, 10.017833567325411, 9.041398536300997, 8.331313172834694, 7.3892413746605765, 6.227971374447669, 4.93799980882831, -3.026]
-                    f814w_mags = T[11.137576129331675, 8.951605387408511, 8.064408199510426, 7.424658866406447, 6.6025729402403, 5.584714238650148, 4.448999828801471, -4.107]
+                    f814w_mags = T[ 11.137576129331675, 8.951605387408511, 8.064408199510426, 7.424658866406447, 6.6025729402403, 5.584714238650148, 4.448999828801471, -4.107]
                     mags = [f606w_mags, f814w_mags]
                     mag_names = ["F606W", "F814W"]
                     # Figure out the percentage of total mass represented
                     # by stars between miniumum(m_ini) and maximum(m_ini).
                     # See the notes in the `generate_stars_mass` for more details.
-                    mass_frac = (quadgk(x->x*pdf(imf,x), minimum(m_ini), maximum(m_ini))[1] / quadgk(x->x*pdf(imf,x), minimum(imf), imf.upper)[1]) # maximum(imf))[1] )
+                    mass_frac = (quadgk(x->x*pdf(imf,x), minimum(m_ini), maximum(m_ini))[1] / quadgk(x->x*pdf(imf,x), minimum(imf), maximum(imf))[1]) # maximum(imf))[1] )
 
                     ###################################
                     ####### Testing generate_stars_mass
                     # Test with NoBinaries() model
                     result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
-                    @test result[1] isa Vector{SVector{1,T}}
+                    @test result[1] isa Vector{SVector{1,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     # Test total mass of the returned stars
@@ -142,7 +147,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     
                     # Test with RandomBinaryPairs() model
                     result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
-                    @test result[1] isa Vector{SVector{2,T}}
+                    @test result[1] isa Vector{SVector{2,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     # println((reduce(+,reduce(+,result[1])) .- total_mass * mass_frac * 14//10) / total_mass / mass_frac / 14//10)
@@ -150,7 +155,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
                     # Test with BinaryMassRatio() model
                     result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1))))
-                    @test result[1] isa Vector{SVector{2,T}}
+                    @test result[1] isa Vector{SVector{2,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     @test reduce(+,reduce(+,result[1])) ≈ total_mass * mass_frac rtol=5e-2
@@ -163,7 +168,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     absmaglim = T(-7)
                     # Test with NoBinaries() model
                     result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
-                    @test result[1] isa Vector{SVector{1,T}}
+                    @test result[1] isa Vector{SVector{1,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     # Test that total magnitude of sampled population is (slightly)
@@ -174,7 +179,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
                     # Test with RandomBinaryPairs() model
                     result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
-                    @test result[1] isa Vector{SVector{2,T}}
+                    @test result[1] isa Vector{SVector{2,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     # Test that total magnitude of sampled population is (slightly)
@@ -185,7 +190,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
                     # Test with BinaryMassRatio() model
                     result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
-                    @test result[1] isa Vector{SVector{2,T}}
+                    @test result[1] isa Vector{SVector{2,S}}
                     @test result[2] isa Vector{SVector{2,T}}
                     @test length(result[1]) == length(result[2])
                     # Test that total magnitude of sampled population is (slightly)
@@ -213,7 +218,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test length(result[2]) == length(composite_masses) # Number of isochrones
                     for i in eachindex(composite_masses, composite_mags) # Isochrone i 
                         @test length(result[1][i]) == length(result[2][i]) # Number of masses equals number of mags
-                        @test result[1][i] isa Vector{SVector{1,T}} # Masses
+                        @test result[1][i] isa Vector{SVector{1,S}} # Masses
                         @test result[2][i] isa Vector{SVector{2,T}} # Magnitudes
                     end
                     # Test total mass of the returned stars
@@ -230,7 +235,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test length(result[1]) == length(result[2]) == length(composite_masses)
                     for i in eachindex(composite_masses, composite_mags) # Isochrone i 
                         @test length(result[1][i]) == length(result[2][i]) # Number of masses equals number of mags
-                        @test result[1][i] isa Vector{SVector{1,T}} # Masses
+                        @test result[1][i] isa Vector{SVector{1,S}} # Masses
                         @test result[2][i] isa Vector{SVector{2,T}} # Magnitudes
                     end
                     # Test that total magnitude of sampled population is (slightly)
