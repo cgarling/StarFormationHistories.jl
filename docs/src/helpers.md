@@ -11,7 +11,16 @@ StarFormationHistories.distance_modulus_to_distance
 
 ## Magnitudes and Luminosities
 
-## Metallicities
+## [Metallicities](@id metallicity_helpers)
+
+```@docs
+StarFormationHistories.Y_from_Z
+StarFormationHistories.X_from_Z
+StarFormationHistories.MH_from_Z
+StarFormationHistories.dMH_dZ
+StarFormationHistories.Z_from_MH
+StarFormationHistories.mdf_amr
+```
 
 ## Photometric Error and Completeness Models
 

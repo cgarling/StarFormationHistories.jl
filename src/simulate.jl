@@ -260,7 +260,7 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
         total += sum(masses)                           # Add to accumulator
         # if (first(masses) < mmin2) | (first(masses) > mmax)
         if first(masses) < mmin2 # Primary by itself would be fainter than `mag_lim` so continue
-            continue             
+            continue
         end
         flux = zero(eltype(mags))
         for mass in masses
@@ -425,7 +425,7 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
     mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
     mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
-    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
+    # Loop over each component, calling generate_stars_mag. Threading works with good scaling.
     for i in eachindex(mini_vec, mags, fracs)
         result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf;
                                      binary_model = binary_model, kws...)
