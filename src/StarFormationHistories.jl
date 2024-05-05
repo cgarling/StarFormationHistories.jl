@@ -13,7 +13,7 @@ import Optim
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import Random: AbstractRNG, default_rng, rand
 import Roots: find_zero # For mass_limits in simulate.jl
-import SpecialFunctions: erf
+import SpecialFunctions: erf, loggamma
 import StaticArrays: SVector, SMatrix, sacollect
 import StatsBase: fit, Histogram, Weights, sample, mean
 import KissMCMC

@@ -61,8 +61,11 @@ While the other call signature for this function more closely mirrors the natura
     # LinearAlgebra.BLAS.gemv!('N',one(T),models,coeffs,zero(T),composite) 
 end
 
+################
+# logplr methods
+
 """
-    loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+    logplr(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
 
 Returns the logarithm of the Poisson likelihood ratio given by equation 10 in Dolphin 2002,
 
@@ -78,7 +81,7 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
  - ~9.3 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=similar(composite)`.
  - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
 """
-@inline function loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+@inline function logplr(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
     T = promote_type(eltype(composite), eltype(data))
     @assert axes(composite) == axes(data)
     result = zero(T) 
@@ -94,10 +97,200 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
     result != zero(T) ? (return result) : (return -typemax(T))
 end
 """
+    logplr(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    logplr(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+
+Returns the logarithm of the Poisson likelihood ratio, but constructs the complex Hess diagram model as `sum(coeffs .* models)` rather than taking `composite` directly as an argument. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"""
+function logplr(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    @assert axes(coeffs) == axes(models)
+    S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
+    composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
+    composite!(composite, coeffs, models) # Fill the composite array
+    return logplr(composite, data)
+end
+function logplr(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+    @assert axes(coeffs,1) == axes(models,2)
+    @assert axes(data,1) == axes(models,1)
+    S = promote_type(eltype(coeffs), eltype(models), eltype(data))
+    composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
+    composite!(composite, coeffs, models) # Fill the composite array
+    return logplr(composite, data)
+end
+
+"""
+    ∇logplr(model::AbstractArray{<:Number}, composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+
+Returns the partial derivative of the logarithm of the Poisson likelihood ratio ([`StarFormationHistories.logplr`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in Dolphin 2002,
+
+```math
+\\frac{\\partial \\, \\text{log} \\, \\mathscr{L}}{\\partial \\, r_j} = \\sum_i c_{i,j} \\left( \\frac{n_i}{m_i} - 1 \\right)
+```
+
+where ``n_i`` is bin ``i`` of the observed Hess diagram `data`. 
+
+# Performance Notes
+ - ~4.1 μs for model, composite, data all being `Matrix{Float64}(undef,99,99)`.
+ - ~1.3 μs for model, composite, data all being `Matrix{Float32}(undef,99,99)`. 
+"""
+@inline function ∇logplr(model::AbstractArray{<:Number}, composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+    T = promote_type(eltype(model), eltype(composite), eltype(data))
+    @assert axes(model) == axes(composite) == axes(data)
+    result = zero(T)
+    # ~4x speedup from LoopVectorization.@turbo here
+    @turbo thread=false for idx in eachindex(model, composite, data) 
+        # Setting eps() as minimum of composite greatly improves stability of convergence
+        # and prevents divide by zero errors.
+        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds mi = model[idx]
+        @inbounds ni = data[idx]
+        result += ifelse( ni > zero(T), -mi * (one(T) - ni/ci), zero(T) )
+    end
+    return result
+end
+"""
+    ∇logplr(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    ∇logplr(models::AbstractMatrix{<:Number}, composite::AbstractVector{<:Number}, data::AbstractVector{<:Number})
+
+Computes the gradient of the logarithm of the Poisson likelihood ratio with respect to the coefficients by calling the single-model `∇logplr` for every model in `models`. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"""
+function ∇logplr(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    @assert axes(composite) == axes(data)
+    return [ ∇logplr(i, composite, data) for i in models ]
+end
+function ∇logplr(models::AbstractMatrix{<:Number}, composite::AbstractVector{<:Number}, data::AbstractVector{<:Number})
+    @assert axes(composite,1) == axes(data,1) == axes(models,1)
+    return [ ∇logplr(i, composite, data) for i in eachcol(models) ]
+end
+"
+    ∇logplr(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    ∇logplr(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+
+Forms the composite matrix from coefficients `coeffs` and model templates `models` and returns the gradient of the logarithm of the Poisson likelihood ratio with respect to the coefficients. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"
+function ∇logplr(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
+    @assert axes(coeffs) == axes(models)
+    S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
+    composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
+    composite!(composite, coeffs, models) # Fill the composite array
+    return ∇logplr(models, composite, data) # Call to above function.
+end
+function ∇logplr(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+    @assert axes(coeffs,1) == axes(models,2)
+    @assert axes(models,1) == axes(data,1)
+    S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
+    composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
+    composite!(composite, coeffs, models) # Fill the composite array
+    return ∇logplr(models, composite, data) # Call to above function.
+end
+
+"""
+     ∇logplr!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
+
+Efficiently computes the gradient of [`StarFormationHistories.logplr`](@ref) with respect to all coefficients by updating `G` with the gradient. This will overwrite `composite` with the result of `1 .- (data ./ composite)` so it shouldn't be reused after being passed to this function. 
+
+# Arguments
+ - `G::AbstractVector` is the vector that  will be mutated in-place with the computed gradient values.
+ - `models::AbstractVector{<:AbstractMatrix{<:Number}}` is the vector of matrices giving the model Hess diagrams.
+ - `composite::AbstractMatrix{<:Number}` is a matrix that contains the composite model `sum(coeffs .* models)`.
+ - `data::AbstractMatrix{<:Number}` contains the observed Hess diagram that is being fit.
+"""
+function ∇logplr!(G::AbstractVector, composite::AbstractMatrix{<:Number}, models::AbstractVector{S}, data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
+    C = eltype(composite)
+    D = eltype(data)
+    GT = eltype(G)
+    @assert axes(composite) == axes(data) 
+    @assert axes(G,1) == axes(models,1)
+    # Build the (1 .- data ./ composite) matrix which is all we need for this method
+    # so that we don't have to repeatedly calculate it in the next loop below
+    @turbo for idx in eachindex(composite, data)
+        # Setting eps() as minimum of composite greatly improves stability of convergence
+        # and prevents divide by zero errors.
+        @inbounds ci = max( composite[idx], eps(C) )
+        @inbounds ni = data[idx]
+        @inbounds composite[idx] = one(C) - convert(C,ni/ci)
+    end
+    for k in eachindex(G, models)
+        @inbounds model = models[k]
+        @assert axes(model) == axes(data) == axes(composite)
+        result = zero(GT)
+        @turbo thread=false for idx in eachindex(model, data, composite)
+            @inbounds mi = model[idx]
+            @inbounds ni = data[idx]
+            @inbounds nici = composite[idx]
+            result += ifelse( ni > zero(D), convert(GT,-mi * nici), zero(GT) )
+        end
+        @inbounds G[k] = result
+    end
+end
+"
+    G = ∇logplr!(G::AbstractVector, composite::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+
+Updates and returns `G` with the gradient of [`StarFormationHistories.logplr`](@ref) with respect to all coefficients. This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+"
+function ∇logplr!(G::AbstractVector, composite::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
+    C = eltype(composite)
+    D = eltype(data)
+    @assert axes(G,1) == axes(models,2)
+    @assert axes(models,1) == axes(data,1) == axes(composite,1)
+    # Build the (1 .- data ./ composite) matrix which is all we need for this method
+    @turbo for idx in eachindex(composite, data)
+        # Setting eps() as minimum of composite greatly improves stability of convergence
+        # and prevents divide by zero errors.
+        @inbounds ci = max( composite[idx], eps(C) )
+        @inbounds ni = data[idx]
+        # @inbounds composite[idx] = one(T) - ni/ci
+        # Moved this ifelse from the matrix-vector product into this loop.
+        # Shouldn't make a difference; tests indicate same results.
+        @inbounds composite[idx] = ifelse( ni > zero(D), one(C) - convert(C,ni/ci), zero(C) )
+    end
+    # mul!(G, -models', composite)
+    # For some reason, -models allocates, but setting α=-1 does not
+    mul!(G, models', composite, -1, false) # Effectively just G = -models' * composite
+    # LinearAlgebra.BLAS.gemv!('T',-one(T),models,composite,zero(T),G)
+end
+
+################
+# loglikelihood methods
+
+"""
+    loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+
+Returns the logarithm of the Poisson likelihood,
+
+```math
+\\text{ln} \\, \\mathscr{L} = \\sum_i -\\text{ln} \\left( n_i! \\right) - m_i + n_i \\times \\text{ln} \\left( m_i \\right)
+```
+
+with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormationHistories.composite!`](@ref)) and `data` being the observed Hess diagram ``n_i``.
+
+# Performance Notes
+ - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=similar(composite)`.
+ - ~20 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
+ - ~9.3 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=similar(composite)`.
+ - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
+"""
+@inline function loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+    T = promote_type(eltype(composite), eltype(data))
+    @assert axes(composite) == axes(data)
+    result = zero(T) 
+    for idx in eachindex(composite, data) 
+        # Setting eps() as minimum of composite greatly improves stability of convergence
+        @inbounds ci = max( composite[idx], eps(T) ) 
+        @inbounds ni = data[idx]
+        # result += -logfactorial(ni) - ci + ni * log(ci)
+        result += ni * log(ci)
+    end
+    # SpecialFunctions.logfactorial(x) = SpecialFunctions.loggamma(x+1)
+    # but logfactorial only supports integer x so we'll use loggamma directly.
+    result += -sum(x->loggamma(x+1), data) - sum(composite)
+    # result = -sum(logfactorial, data) - sum(composite) + sum(data[i] * log(composite[i]) for i in eachindex(composite,data))
+end
+"""
     loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
 
-Returns the logarithm of the Poisson likelihood ratio, but constructs the complex Hess diagram model as `sum(coeffs .* models)` rather than taking `composite` directly as an argument. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+Returns the logarithm of the Poisson likelihood, but constructs the complex Hess diagram model as `sum(coeffs .* models)` rather than taking `composite` directly as an argument. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 """
 function loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(coeffs) == axes(models)
@@ -118,13 +311,15 @@ end
 """
     ∇loglikelihood(model::AbstractArray{<:Number}, composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
 
-Returns the partial derivative of the logarithm of the Poisson likelihood ratio ([`StarFormationHistories.loglikelihood`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in Dolphin 2002,
+Returns the partial derivative of the logarithm of the Poisson likelihood ([`StarFormationHistories.loglikelihood`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in Dolphin 2002,
 
 ```math
 \\frac{\\partial \\, \\text{log} \\, \\mathscr{L}}{\\partial \\, r_j} = \\sum_i c_{i,j} \\left( \\frac{n_i}{m_i} - 1 \\right)
 ```
 
-where ``n_i`` is bin ``i`` of the observed Hess diagram `data`. 
+where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
+
+This is the same as the derivative of the logarithm of the Poisson likelihood ratio given by [`StarFormationHistories.∇logplr`](@ref).
 
 # Performance Notes
  - ~4.1 μs for model, composite, data all being `Matrix{Float64}(undef,99,99)`.
@@ -149,7 +344,7 @@ end
     ∇loglikelihood(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     ∇loglikelihood(models::AbstractMatrix{<:Number}, composite::AbstractVector{<:Number}, data::AbstractVector{<:Number})
 
-Computes the gradient of the logarithm of the Poisson likelihood ratio with respect to the coefficients by calling the single-model `∇loglikelihood` for every model in `models`. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+Computes the gradient of the logarithm of the Poisson likelihood with respect to the coefficients by calling the single-model `∇loglikelihood` for every model in `models`. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 """
 function ∇loglikelihood(models::AbstractVector{T}, composite::AbstractMatrix{<:Number}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(composite) == axes(data)
@@ -163,7 +358,7 @@ end
     ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
 
-Forms the composite matrix from coefficients `coeffs` and model templates `models` and returns the gradient of the loglikelihood with respect to the coefficients. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+Forms the composite matrix from coefficients `coeffs` and model templates `models` and returns the gradient of the logarithm of the Poisson likelihood with respect to the coefficients. Second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 "
 function ∇loglikelihood(coeffs::AbstractVector{<:Number}, models::AbstractVector{T}, data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @assert axes(coeffs) == axes(models)
@@ -223,7 +418,7 @@ end
 "
     G = ∇loglikelihood!(G::AbstractVector, composite::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
 
-Updates and returns `G` with the gradient of the loglikelihood with respect to all coefficients. This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
+Updates and returns `G` with the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients. This call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 "
 function ∇loglikelihood!(G::AbstractVector, composite::AbstractVector{<:Number}, models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number})
     C = eltype(composite)
