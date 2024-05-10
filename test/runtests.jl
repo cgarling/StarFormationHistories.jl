@@ -577,7 +577,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                                 keep_idx = vcat(keep_idx, good[high_weights])
                             end
                             # This takes ~0.5s compared to ~2s for the full result = SFH.fixed_amr ... above
-                            result3 = SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
+                            # This should throw an error; see above note on Julia < 1.7
+                            if VERSION >= v"1.8"
+                                result3 = @test_logs (:warn,) SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
+                            else
+                                result3 = SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
+                            end
                             # Not accurate to the same level as tested above with `result`
                             @test ~isapprox(result3.mle.μ, SFRs; rtol=1e-5)
                             # Is accurate to a lower level of precision
@@ -623,13 +628,13 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             @test result isa MCMCChains.Chains
                             @test size(result) == (nsteps, length(coeffs), nwalkers)
                             @test eltype(result.value) == T
-                            result = SFH.mcmc_sample(models, data, x0, nwalkers, nsteps) # Test with Matrix x0
+                            result = SFH.mcmc_sample(models, data, x0, nwalkers, nsteps; use_progress_meter=false) # Test with Matrix x0
                             @test result isa MCMCChains.Chains
                             @test size(result) == (nsteps, length(coeffs), nwalkers)
                             @test eltype(result.value) == T
                             # Test with flattened input, matrix x0
                             result = SFH.mcmc_sample(SFH.stack_models(models),
-                                                     vec(data), x0, nwalkers, nsteps)
+                                                     vec(data), x0, nwalkers, nsteps; use_progress_meter=false)
                             @test result isa MCMCChains.Chains
                             @test size(result) == (nsteps, length(coeffs), nwalkers)
                             @test eltype(result.value) == T
