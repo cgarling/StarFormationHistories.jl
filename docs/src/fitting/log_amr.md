@@ -2,20 +2,16 @@
 
 ## Definition
 
-This model differs from the [linear age-metallicity relation (AMR)](@ref linear_amr_section) in its definition of the mean metallicity at lookback time $t$. In the linear model, we defined the mean metallicity as ``\langle [\text{M}/\text{H}] \rangle (t) = \alpha \, t + \beta``, whereas in this model we define the *metal mass fraction* $Z$ to be linear with lookback time, such that [M/H] scales logarithmically with lookback time,
+This model differs from the [linear age-metallicity relation (AMR)](@ref linear_amr_section) in its definition of the mean metallicity at lookback time $t$. In the linear model, we defined the mean metallicity as ``\langle [\text{M}/\text{H}] \rangle (t) = \alpha \, \left( T_\text{max} - t_j \right) + \beta``, whereas in this model we define the *metal mass fraction* $Z$ to be linear with lookback time, such that [M/H] scales logarithmically with lookback time,
 
 ```math
 \begin{aligned}
-\langle Z (t) \rangle &= \alpha \, \left( T_\text{max} - t \right) + \beta \\
-\langle [\text{M}/\text{H}]\rangle (t) &\equiv \text{log} \left( \frac{\langle Z\left(t\right) \rangle}{X} \right) - \text{log} \left( \frac{Z_\odot}{X_\odot} \right)
+\langle Z \rangle (t) &= \alpha \, \left( T_\text{max} - t \right) + \beta \\
+\langle [\text{M}/\text{H}]\rangle (t) &\equiv \text{log} \left( \frac{\langle Z \rangle \left(t\right)}{X} \right) - \text{log} \left( \frac{Z_\odot}{X_\odot} \right)
 \end{aligned}
 ```
 
-with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z (T_\text{max}) \rangle=\beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, shown below, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities. The per-model coefficients implied by a such a logarithmic AMR can be calculated with [`calculate_coeffs_logamr`](@ref StarFormationHistories.calculate_coeffs_logamr).
-
-```@docs
-StarFormationHistories.calculate_coeffs_logamr
-```
+with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z \rangle (T_\text{max}) = \beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, shown below, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities. The per-model coefficients implied by a such a logarithmic AMR can be calculated with [`calculate_coeffs_logamr`](@ref StarFormationHistories.calculate_coeffs_logamr).
 
 ```@example
 ENV["GKSwstype"] = "100" # https://discourse.julialang.org/t/generation-of-documentation-fails-qt-qpa-xcb-could-not-connect-to-display/60988 # hide
@@ -24,6 +20,10 @@ savefig("log_amr_plot.svg"); nothing # hide
 ```
 
 ![Visualization of the relative weights across a grid of logAge and metallicity under a logarithmic age-metallicity relation.](log_amr_plot.svg)
+
+```@docs
+StarFormationHistories.calculate_coeffs_logamr
+```
 
 ## Fitting Functions
 

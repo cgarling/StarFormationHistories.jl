@@ -15,12 +15,13 @@ using Test
     unique_MH = -2.5:0.1:0.0
     logAge = repeat(unique_logAge; inner=length(unique_MH))
     MH = repeat(unique_MH; outer=length(unique_logAge))
-    α, β, σ = -0.05, -1.0, 0.2
+    T_max = 12.0 # 12 Gyr
+    α, β, σ = 0.05, (-0.05*T_max + -1.0), 0.2
     # Now generate models, data, and try to solve
     hist_size = (100,100)
     N_models = length(logAge)
     SFRs = rand(rng, T, length(unique_logAge))
-    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ)
+    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max)
     x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ)
     models = [rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # Poisson sampled data
@@ -55,15 +56,15 @@ using Test
     end
     @testset "fit_templates_mdf fixed σ" begin
         # Noisy data
-        result = SFH.fit_templates_mdf(models, data, logAge, MH, σ; x0=x0[begin:end-1])
+        result = SFH.fit_templates_mdf(models, data, logAge, MH, T_max, σ; x0=x0[begin:end-1])
         @test result.mle.μ ≈ vcat(SFRs, α, β) rtol=0.05
         @test result.map.μ ≈ vcat(SFRs, α, β) rtol=0.05
         # Noise-free data
-        result = SFH.fit_templates_mdf(models, data2, logAge, MH, σ; x0=x0[begin:end-1])
+        result = SFH.fit_templates_mdf(models, data2, logAge, MH, T_max, σ; x0=x0[begin:end-1])
         @test result.mle.μ ≈ vcat(SFRs, α, β) rtol=1e-5
         @test result.map.μ ≈ vcat(SFRs, α, β) rtol=1e-2
         # Test with stacked models / data
-        result = SFH.fit_templates_mdf(SFH.stack_models(models), vec(data2), logAge, MH, σ; x0=x0[begin:end-1])
+        result = SFH.fit_templates_mdf(SFH.stack_models(models), vec(data2), logAge, MH, T_max, σ; x0=x0[begin:end-1])
         @test result.mle.μ ≈ vcat(SFRs, α, β) rtol=1e-5
         @test result.map.μ ≈ vcat(SFRs, α, β) rtol=1e-2
     end
@@ -77,12 +78,13 @@ end
     unique_MH = -3.0:1.0:0.0
     logAge = repeat(unique_logAge; inner=length(unique_MH))
     MH = repeat(unique_MH; outer=length(unique_logAge))
-    α, β, σ = -0.05, -1.0, 0.2
+    T_max = 12.0 # 12 Gyr
+    α, β, σ = 0.05, (-0.05*T_max + -1.0), 0.2
     # Now generate models, data, and try to solve
     hist_size = (100,100)
     N_models = length(logAge)
     SFRs = rand(rng, T, length(unique_logAge))
-    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ)
+    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max)
     x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ)
     models = [rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # Poisson sampled data

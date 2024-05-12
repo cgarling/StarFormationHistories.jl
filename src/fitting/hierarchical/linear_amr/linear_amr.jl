@@ -77,7 +77,7 @@ Base.length(result::LogTransformMDFσResult) = length(result.μ)
 function _rand!(rng::AbstractRNG, result::LogTransformMDFσResult, x::Union{AbstractVector{T}, DenseMatrix{T}}) where T <: Real
     dist = MvNormal(Optim.minimizer(result.result), Hermitian(result.invH))
     _rand!(rng, dist, x)
-    for i in axes(x,1)[begin:end-2]
+    for i in axes(x,1)[begin:end-1]
         for j in axes(x,2)
             x[i,j] = exp(x[i,j])
         end
@@ -92,12 +92,28 @@ _gausspdf(x,μ,σ) = exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
 # _dgaussdβ(-1.0,1e9,-1e-10,-0.4,0.2) = -2.74
 
 """
-    coeffs = calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number} [, α::Number, β::Number, σ::Number])
+    calculate_coeffs_mdf(variables::AbstractVector{<:Number},
+                         logAge::AbstractVector{<:Number},
+                         metallicities::AbstractVector{<:Number},
+                         α::Number,
+                         β::Number,
+                         σ::Number,
+                         T_max::Number)
+    calculate_coeffs_mdf(variables::AbstractVector{<:Number},
+                         logAge::AbstractVector{<:Number},
+                         metallicities::AbstractVector{<:Number},
+                         T_max::Number)
 
-Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_mdf`](@ref) and [`StarFormationHistories.hmc_sample_mdf`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * exp10(unique(logAge)[i]) / 1e9 + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. 
+Calculates per-model stellar mass coefficients `coeffs` from the fitting parameters of [`StarFormationHistories.fit_templates_mdf`](@ref) and [`StarFormationHistories.hmc_sample_mdf`](@ref). The `variables` returned by these functions is of length `length(unique(logAge))+3`. The first `length(logAge)` entries are stellar mass coefficients, one per unique entry in `logAge`. The final three elements are α, β, and σ defining a metallicity evolution such that the mean for element `i` of `unique(logAge)` is `μ[i] = α * (T_max - exp10(unique(logAge)[i]) / 1e9) + β`. The individual weights per each isochrone are then determined via Gaussian weighting with the above mean and the provided `σ`. The second call signature can be used on samples that include α, β, and σ.
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: calculate_coeffs_mdf)
+julia> calculate_coeffs_mdf([1,1], [7,7,8,8], [-2,-1,-2,-1], 0.05, -2.0, 0.2, 12) ≈ [ 0.07673913563377144, 0.9232608643662287, 0.08509904500701986, 0.9149009549929802 ]
+true
+```
 """
-function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number)
-    S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(α), typeof(β), typeof(σ))
+function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number, T_max::Number) # =exp10(maximum(logAge))/1e9)
+    S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(α), typeof(β), typeof(σ), typeof(T_max))
     # Compute the coefficients on each model template given the `variables` and the MDF
     unique_logAge = unique(logAge)
     @assert length(variables) == length(unique_logAge)
@@ -105,7 +121,7 @@ function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::Abstr
     norm_vals = Vector{S}(undef,length(unique_logAge))
     for i in eachindex(unique_logAge)
         la = unique_logAge[i]
-        μ = α * exp10(la) / 1e9 + β # Find the mean metallicity of this age bin
+        μ = α * (T_max - exp10(la) / 1e9) + β # Find the mean metallicity of this age bin
         idxs = findall( ==(la), logAge) # Find all entries that match this logAge
         tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
         A = sum(tmp_coeffs)
@@ -115,16 +131,16 @@ function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::Abstr
     end
     return coeffs
 end
-calculate_coeffs_mdf(variables, logAge, metallicities) =
+calculate_coeffs_mdf(variables, logAge, metallicities, T_max) =
     calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3),
-                         logAge, metallicities, variables[end-2], variables[end-1], variables[end])
+                         logAge, metallicities, variables[end-2], variables[end-1], variables[end], T_max)
 
 
 
 # variables[begin:end-2] are stellar mass coefficients
 # variables[end-1] is the slope of the age-MH relation in [MH] / [10Gyr; (lookback)], e.g. -1.0
 # variables[end] is the intercept of the age-MH relation in MH at present-day, e.g. -0.4
-@inline function fg_mdf_fixedσ!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number)
+@inline function fg_mdf_fixedσ!(F, G, variables::AbstractVector{<:Number}, models::Union{AbstractMatrix{<:Number}, AbstractVector{<:AbstractMatrix{<:Number}}}, data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, T_max::Number, σ::Number)
     # `variables` should have length `length(unique(logAge)) + 2`; coeffs for each unique
     # entry in logAge, plus α and β to define the MDF at fixed logAge
     @assert axes(data) == axes(composite)
@@ -132,7 +148,7 @@ calculate_coeffs_mdf(variables, logAge, metallicities) =
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, α, β, σ)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, α, β, σ, T_max)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
@@ -149,7 +165,7 @@ calculate_coeffs_mdf(variables, logAge, metallicities) =
         for i in axes(G,1)[begin:end-2] 
             la = unique_logAge[i]
             age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
-            μ = α * age + β # Find the mean metallicity of this age bin
+            μ = α * (T_max - age) + β # Find the mean metallicity of this age bin
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
             A = sum(tmp_coeffs)
@@ -159,7 +175,7 @@ calculate_coeffs_mdf(variables, logAge, metallicities) =
             dLdβ = -sum( fullG[idxs[j]] * variables[i] *
                 ( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) - tmp_coeffs[j] / A * βsum )
                          for j in eachindex(idxs)) / A / σ^2
-            dLdα = dLdβ * age
+            dLdα = dLdβ * (T_max - age)
             G[end-1] += dLdα
             G[end] += dLdβ
         end
@@ -174,6 +190,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
                            data::AbstractVector{<:Number},
                            logAge::AbstractVector{<:Number},
                            metallicities::AbstractVector{<:Number},
+                           T_max::Number,
                            σ::Number;
                            x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [-0.1, -0.5]),
                            kws...) where {S <: Number}
@@ -182,9 +199,9 @@ function fit_templates_mdf(models::AbstractMatrix{S},
     @assert size(models,1) == length(data)
     @assert size(models,2) == length(logAge) == length(metallicities)
     composite = Vector{S}(undef,length(data)) # Scratch matrix for storing complex Hess model
-    # Perform logarithmic transformation on the provided x0 for all variables except α and β
+    # Perform logarithmic transformation on the provided x0 for all variables except β
     x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
-    for i in eachindex(x0)[begin:end-2]
+    for i in eachindex(x0)[begin:end-1]
         x0[i] = log(x0[i])
     end
     # Make scratch array for assessing transformations
@@ -195,29 +212,27 @@ function fit_templates_mdf(models::AbstractMatrix{S},
     # However, the uncertainty estimates from the inverse Hessian don't seem reliable without the
     # Jacobian corrections.
     function fg_mdf_fixedσ!_map(F, G, xvec)
-        for i in eachindex(xvec)[begin:end-2] # These are the per-logage stellar mass coefficients
+        for i in eachindex(xvec)[begin:end-1] # These are the per-logage stellar mass coefficients and α
             x[i] = exp(xvec[i])
         end
-        x[end-1] = xvec[end-1]  # α
-        x[end] = xvec[end]      # β
+        x[end] = xvec[end] # β
 
-        logL = fg_mdf_fixedσ!(F, G, x, models, data, composite, logAge, metallicities, σ)
-        logL -= sum( @view xvec[begin:end-2] ) # this is the Jacobian correction
-        # Add the Jacobian correction for every element of G except α (x[end-2]) and β (x[end-1])
-        for i in eachindex(G)[begin:end-2]
+        logL = fg_mdf_fixedσ!(F, G, x, models, data, composite, logAge, metallicities, T_max, σ)
+        logL -= sum( @view xvec[begin:end-1] ) # this is the Jacobian correction
+        # Add the Jacobian correction for every element of G except β (x[end-1])
+        for i in eachindex(G)[begin:end-1]
             G[i] = G[i] * x[i] - 1
         end
         return logL
     end
     function fg_mdf_fixedσ!_mle(F, G, xvec)
-        for i in eachindex(xvec)[begin:end-2] # These are the per-logage stellar mass coefficients
+        for i in eachindex(xvec)[begin:end-1] # These are the per-logage stellar mass coefficients and α
             x[i] = exp(xvec[i])
         end
-        x[end-1] = xvec[end-1]  # α
-        x[end] = xvec[end]      # β
+        x[end] = xvec[end] # β
 
-        logL = fg_mdf_fixedσ!(F, G, x, models, data, composite, logAge, metallicities, σ)
-        for i in eachindex(G)[begin:end-2]
+        logL = fg_mdf_fixedσ!(F, G, x, models, data, composite, logAge, metallicities, T_max, σ)
+        for i in eachindex(G)[begin:end-1]
             G[i] = G[i] * x[i]
         end
         return logL
@@ -234,7 +249,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
     # Transform the resulting variables
     μ_map = deepcopy( Optim.minimizer(result_map) )
     μ_mle = deepcopy( Optim.minimizer(result_mle) )
-    for i in eachindex(μ_map,μ_mle)[begin:end-2]
+    for i in eachindex(μ_map,μ_mle)[begin:end-1]
         μ_map[i] = exp(μ_map[i])
         μ_mle[i] = exp(μ_mle[i])
     end
@@ -242,7 +257,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
     σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
     σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
     # Need to account for the logarithmic transformation
-    for i in eachindex(σ_map,σ_mle)[begin:end-2]
+    for i in eachindex(σ_map,σ_mle)[begin:end-1]
         σ_map[i] = μ_map[i] * σ_map[i]
         σ_mle[i] = μ_mle[i] * σ_mle[i]
     end
@@ -251,7 +266,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
     # return (map = (μ = μ_map, σ = σ_map, result = result_map),
     #         mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
 end
-fit_templates_mdf(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, σ::Number; kws...) = fit_templates_mdf(stack_models(models), vec(data), logAge, metallicities, σ; kws...)
+fit_templates_mdf(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, T_max::Number, σ::Number; kws...) = fit_templates_mdf(stack_models(models), vec(data), logAge, metallicities, T_max, σ; kws...)
 
 """
     LogTransformMDFResult(μ::AbstractVector{<:Number},
