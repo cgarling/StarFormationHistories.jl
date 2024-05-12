@@ -565,7 +565,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # in the way that the warnings are logged so, remove
                             VERSION >= v"1.8" && @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0)
                             # Now try fixed_linear_amr that will internally calculate the relweights
-                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, α, β, σ; x0=x0)
+                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, T_max, α, β, σ; x0=x0)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5
                             # Test how removing low-weight models from fixed_amr might impact fit
                             relweightsmin = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin
