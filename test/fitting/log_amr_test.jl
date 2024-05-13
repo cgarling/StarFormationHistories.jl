@@ -70,7 +70,7 @@ end
     N_models = length(logAge)
     SFRs = rand(rng,length(unique_logAge))
     x = SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ)
-    x0 = SFH.construct_x0_mdf(logAge, log10(13.7e9); normalize_value=sum(x))
+    x0 = SFH.construct_x0_mdf(logAge, 13.7; normalize_value=sum(x))
     models = [rand(rng,hist_size...) .* 100 for i in 1:N_models]
     data = sum(x .* models) # Perfect data, no noise
     # Calculate relative weights for input to fixed_amr
@@ -110,7 +110,7 @@ end
     MH_func= x -> SFH.MH_from_Z(x, 0.01524; Y_p=0.2485, γ=1.78)
     dMH_dZ_func = x -> SFH.dMH_dZ(x, 0.01524; Y_p=0.2485, γ=1.78)
     x = SFH.calculate_coeffs_logamr(SFRs, logAge, MH, α, β, σ; MH_func=MH_func)
-    x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=sum(x)), α, β, σ)
+    x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=sum(x)), α, β, σ)
     models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # data = sum(x .* models) # Perfect data, no noise
     data = rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data

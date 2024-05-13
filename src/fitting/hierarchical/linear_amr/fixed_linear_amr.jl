@@ -24,7 +24,7 @@ end
 #                     β::Real,
 #                     σ::Real;
 #                     composite=Matrix{S}(undef,size(data)),
-#                     x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+#                     x0=construct_x0_mdf(logAge, convert(S,13.7)),
 #                     kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 #     unique_logAge = unique(logAge)

@@ -530,7 +530,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                         # The input logAge does not need to be in any particular order
                         # in order to use this method. Test this by shuffling `logAge`.
                         let logAge = Random.shuffle(logAge) 
-                            x0 = SFH.construct_x0_mdf(logAge, log10(13.7e9))
+                            x0 = SFH.construct_x0_mdf(logAge, 13.7)
                             @test length(x0) == length(unique_logAge)
                             idxs = sortperm(unique(logAge))
                             sorted_ul = vcat(unique(logAge)[idxs], log10(13.7e9))
@@ -542,8 +542,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             @test all(sfr .≈ first(sfr)) # Test the SFR in each time bin is approximately equal
                         end
                         # Test normalize_value
-                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9))) ≈ 1
-                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9); normalize_value=1e5)) ≈ 1e5
+                        @test sum(SFH.construct_x0_mdf(logAge, 13.7)) ≈ 1
+                        @test sum(SFH.construct_x0_mdf(logAge, 13.7; normalize_value=1e5)) ≈ 1e5
                     end
 
                     # Now generate models, data, and try to solve
@@ -555,7 +555,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # SFRs are uniformly random; x are the per-model weights based on those SFRs;
                     # x0 is initial guess; models are random matrices; data is sum(x .* models)
                     @testset "fixed_amr + fixed_linear_amr" begin
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max), x0=SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
                             # Calculate relative weights for input to fixed_amr
                             relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ, T_max)
                             result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)

@@ -1,9 +1,9 @@
 # Linear age-metallicity relation with constant Gaussian spread σ
 
 """
-    x0::Vector = construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
+    x0::Vector = construct_x0_mdf(logAge::AbstractVector{T}, T_max::Number; normalize_value::Number=one(T)) where T <: Number
 
-Generates a vector of initial stellar mass normalizations for input to [`StarFormationHistories.fit_templates_mdf`](@ref) or [`StarFormationHistories.hmc_sample_mdf`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logAge` vector that contains the `log10(Age [yr])` of each isochrone that you are going to input as models. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, and with the final right-bin edge being `max_logAge`. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case you would want to set `max_logAge=6.9` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
+Generates a vector of initial stellar mass normalizations for input to [`StarFormationHistories.fit_templates_mdf`](@ref) or [`StarFormationHistories.hmc_sample_mdf`](@ref) with a total stellar mass of `normalize_value` such that the implied star formation rate is constant across the provided `logAge` vector that contains the `log10(Age [yr])` of each isochrone that you are going to input as models. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, and with the final right-bin edge being `T_max`, which has units of Gyr. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths. In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
 The difference between this function and [`StarFormationHistories.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logAge`) while [`StarFormationHistories.construct_x0`](@ref) returns an `x0` vector that is of length `length(logAge)`; that is, a normalization factor for every entry in `logAge`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logAge)[i]`. 
 
@@ -27,8 +27,9 @@ julia> construct_x0_mdf(repeat([9.0,8.0,7.0,8.0],3), 10.0; normalize_value=5.0) 
 true
 ```
 """
-function construct_x0_mdf(logAge::AbstractVector{T}, max_logAge::Number; normalize_value::Number=one(T)) where T <: Number
+function construct_x0_mdf(logAge::AbstractVector{T}, T_max::Number; normalize_value::Number=one(T)) where T <: Number
     minlog, maxlog = extrema(logAge)
+    max_logAge = log10(T_max) + 9 # T_max in units of Gyr
     @assert max_logAge > maxlog # max_logAge has to be greater than the maximum of logAge vector
     sfr = normalize_value / (exp10(max_logAge) - exp10(minlog)) # Average SFR / yr
     unique_logAge = unique(logAge)
@@ -192,7 +193,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
                            metallicities::AbstractVector{<:Number},
                            T_max::Number,
                            σ::Number;
-                           x0=vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [0.05, -2.0]),
+                           x0=vcat(construct_x0_mdf(logAge, convert(S,13.7)), [0.05, -2.0]),
                            kws...) where {S <: Number}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+2
@@ -377,7 +378,7 @@ end
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number},
                       T_max::Number [, σ::Number];
-                      x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                      x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                 [0.05, -2.0, 0.2]),
                       kws...) where {S <: Number}
     fit_templates_mdf(models::AbstractMatrix{S},
@@ -385,7 +386,7 @@ end
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number},
                       T_max::Number [, σ::Number];
-                      x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                      x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                 [0.05, -2.0, 0.2]),
                       kws...) where {S <: Number}
 
@@ -406,7 +407,7 @@ The second call signature supports the flattened formats for `models` and `data`
  - If provided, `σ::Number` is the fixed width of the Gaussian the defines the metallicity distribution function (MDF) at fixed `logAge`. If this argument is omitted, `σ` will be a free parameter in the fit. 
 
 # Keyword Arguments
- - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [0.05,-2.0,0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [0.05, -2.0, 0.2]`. If the provided `metallicities` are, for example, [M/H] values, then this mean metallicity evolution is μ(t) [dex] = 0.05 [dex/Gyr] * (T_max - t) [Gyr] - 2.0 [dex], and at fixed time, the metallicity distribution function is Gaussian with mean μ(t) and standard deviation σ. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
+ - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 13.7; normalize_value=1e4), [0.05,-2.0,0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [0.05, -2.0, 0.2]`. If the provided `metallicities` are, for example, [M/H] values, then this mean metallicity evolution is μ(t) [dex] = 0.05 [dex/Gyr] * (T_max - t) [Gyr] - 2.0 [dex], and at fixed time, the metallicity distribution function is Gaussian with mean μ(t) and standard deviation σ. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
  - Other `kws...` are passed to `Optim.options` to set things like convergence criteria for the optimization.
 
 # Returns
@@ -420,7 +421,7 @@ function fit_templates_mdf(models::AbstractMatrix{S},
                            logAge::AbstractVector{<:Number},
                            metallicities::AbstractVector{<:Number},
                            T_max::Number;
-                           x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))), [0.05, -2.0, 0.2]),
+                           x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)), [0.05, -2.0, 0.2]),
                            kws...) where {S <: Number}
     unique_logage = unique(logAge)
     @assert length(x0) == length(unique_logage)+3
@@ -508,7 +509,7 @@ fit_templates_mdf(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::Abst
 
 # We can even use the inv(H) = covariance matrix estimate to draw samples to compare to HMC
 # import Distributions: MvNormal
-# result1, std1, fr = fit_templates_mdf(mdf_templates, h.weights, mdf_template_logAge, mdf_template_MH; x0=vcat(construct_x0_mdf(mdf_template_logAge, 10.13; normalize_value=1e4),[-0.1,-0.5,0.3]))
+# result1, std1, fr = fit_templates_mdf(mdf_templates, h.weights, mdf_template_logAge, mdf_template_MH; x0=vcat(construct_x0_mdf(mdf_template_logAge, 13.7; normalize_value=1e4),[-0.1,-0.5,0.3]))
 # corner.corner(permutedims(rand(MvNormal(result1,LinearAlgebra.Hermitian(fr.trace[end].metadata["~inv(H)"])),10000)[end-2:end,:]))
 # Can we also use this inv(H) estimate as input to HMC? I think that's roughly the M matrix.
 

@@ -29,8 +29,8 @@ function calculate_coeffs_logamr(variables::AbstractVector{<:Number}, logAge::Ab
         la = unique_logAge[i]
         μZ = α * (max_age - exp10(la)) / 1e9 + β # Find the mean Z of this age bin
         # Test that the mean Z is greater than 0
-        if μZ < 0 # Keep this for now
-            throw(DomainError(μZ, "The provided coefficients to `calculate_coeffs_logamr` resulted in a mean metal mass fraction Z for `logAge` entry "*string(la)*" less than 0."))
+        if μZ <= 0 # Keep this for now
+            throw(DomainError(μZ, "The provided coefficients to `calculate_coeffs_logamr` resulted in a mean metal mass fraction Z for `logAge` entry "*string(la)*" <= than 0."))
         end
         idxs = findall( ==(la), logAge) # Find all entries that match this logAge
         μMH = MH_func(μZ) # Calculate mean metallicity from mean Z
@@ -115,7 +115,7 @@ end
                                   data::AbstractMatrix{<:Number},
                                   logAge::AbstractVector{<:Number},
                                   metallicities::AbstractVector{<:Number} [, σ::Number];
-                                  x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                  x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                             [1e-4, 5e-5, 0.2]),
                                   MH_func = StarFormationHistories.MH_from_Z,
                                   MH_deriv_Z = StarFormationHistories.dMH_dZ,
@@ -125,7 +125,7 @@ end
                                   data::AbstractVector{<:Number},
                                   logAge::AbstractVector{<:Number},
                                   metallicities::AbstractVector{<:Number} [, σ::Number];
-                                  x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                                  x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                             [1e-4, 5e-5, 0.2]),
                                   MH_func = StarFormationHistories.MH_from_Z,
                                   MH_deriv_Z = StarFormationHistories.dMH_dZ,
@@ -148,7 +148,7 @@ The second call signature supports the flattened formats for `models` and `data`
  - If provided, `σ::Number` is the fixed width of the Gaussian the defines the metallicity distribution function (MDF) at fixed `logAge`. If this argument is omitted, `σ` will be a free parameter in the fit. 
 
 # Keyword Arguments
- - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`construct_x0_mdf`](@ref StarFormationHistories.construct_x0_mdf) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 10.13; normalize_value=1e4), [1e-4, 5e-5, 0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [1e-4, 5e-5, 0.2]`. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
+ - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`, plus the variables that define the metallicity evolution model. You should basically always be calculating and passing this keyword argument. We provide [`construct_x0_mdf`](@ref StarFormationHistories.construct_x0_mdf) to prepare the first part of `x0` assuming constant star formation rate, which is typically a good initial guess. You then have to concatenate that result with an initial guess for the metallicity evolution parameters. For example, `x0=vcat(construct_x0_mdf(logAge, 13.7; normalize_value=1e4), [1e-4, 5e-5, 0.2])`, where `logAge` is a valid argument for this function (see above), and the initial guesses on the parameters are `[α, β, σ] = [1e-4, 5e-5, 0.2]`. If you provide `σ` as an optional argument, then you should not include an entry for it in `x0`.
  - `MH_func` is a callable that takes a metal mass fraction `Z` and returns the logarithmic abundance [M/H]; by default uses [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z).
  - `MH_deriv_Z` is a callable that takes a metal mass fraction `Zj` and returns the derivative of `MH_func` with respect to the metal mass fraction `Z` evaluated at `Zj`. For the default value of `MH_func`, [`dMH_dZ`](@ref StarFormationHistories.dMH_dZ) provides the correct derivative. You only need to change this if you use an alternate `MH_func`.
  - `max_logAge` is the maximum `log10(age [Gyr])` for which the age-metallicity relation is to be valid. In most cases this should just be the maximum of the `logAge` vector argument: `maximum(logAge)`. By definition, this is the `logAge` at which `μ_Z = β`. 
@@ -158,7 +158,7 @@ function fit_templates_logamr(models::AbstractMatrix{S},
                               data::AbstractVector{<:Number},
                               logAge::AbstractVector{<:Number},
                               metallicities::AbstractVector{<:Number};
-                              x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                              x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                         [1e-4, 5e-5, 0.2]),
                               MH_func = MH_from_Z,
                               MH_deriv_Z = dMH_dZ,
@@ -291,7 +291,7 @@ function fit_templates_logamr(models::AbstractMatrix{S},
                               logAge::AbstractVector{<:Number},
                               metallicities::AbstractVector{<:Number},
                               σ::Number;
-                              x0 = vcat(construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                              x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                         [1e-4, 5e-5]),
                               MH_func = MH_from_Z,
                               MH_deriv_Z = dMH_dZ,

@@ -7,7 +7,7 @@
               metallicities::AbstractVector{<:Number},
               relweights::AbstractVector{<:Number};
               relweightsmin::Number=0, 
-              x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+              x0=construct_x0_mdf(logAge, convert(S,13.7)),
               kws...) where {S <: Number, T <: AbstractMatrix{S}}
     fixed_amr(models::AbstractMatrix{S},
               data::AbstractVector{<:Number},
@@ -15,7 +15,7 @@
               metallicities::AbstractVector{<:Number},
               relweights::AbstractVector{<:Number};
               relweightsmin::Number=0,
-              x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+              x0=construct_x0_mdf(logAge, convert(S,13.7)),
               kws...) where S <: Number
 
 Method that fits a linear combination of the provided Hess diagrams `models` to the observed Hess diagram `data`, under an externally-imposed age-metallicity relation (AMR) and/or metallicity distribution function (MDF). As such, a number of coefficients equal to `length(unique(logAge))` are returned; that is, only one coefficient is derived per unique entry in `logAge`.
@@ -44,7 +44,7 @@ function fixed_amr(models::AbstractMatrix{S},
                    metallicities::AbstractVector{<:Number},
                    relweights::AbstractVector{<:Number};
                    relweightsmin::Number=0, # By default, do not truncate input model template list
-                   x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+                   x0=construct_x0_mdf(logAge, convert(S,13.7)),
                    kws...) where S <: Number
 
     composite = Vector{S}(undef,length(data)) # Scratch matrix for storing complex Hess model
