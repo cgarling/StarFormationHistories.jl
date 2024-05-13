@@ -452,12 +452,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 label = float_type_labels[i]
                 @testset "$label" begin
                     T = float_types[i]
-                    result = SFH.construct_x0(repeat(T[1,2,3],3), 4; normalize_value=5)
+                    result = SFH.construct_x0(repeat(T[1,2,3],3), 1e-5; normalize_value=5)
                     @test result ≈ repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3) rtol=rtols[i]
                     @test sum(result) ≈ 5 rtol=rtols[i]
                     @test result isa Vector{T}
                     # Reverse order of input logAge to ensure it does not assume sorting
-                    result = SFH.construct_x0(reverse(repeat(T[1,2,3],3)), 4; normalize_value=5)
+                    result = SFH.construct_x0(reverse(repeat(T[1,2,3],3)), 1e-5; normalize_value=5)
                     @test result ≈ reverse(repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3)) rtol=rtols[i]
                     @test sum(result) ≈ 5 rtol=rtols[i]
                     @test result isa Vector{T}
@@ -471,15 +471,15 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     T = float_types[i]
                     coeffs = T[1,2,2,4]
                     logAge = T[1,2,1,2]
-                    max_logAge = 3
+                    T_max = 1e-6
                     MH = T[-2,-2,-1,-1]
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=false)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=1, sorted=false)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[1//30, 2//300]
                     @test result[4] ≈ T[-4//3, -4//3]
                     # Test normalize_value
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=5)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=5)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[5//30, 10//300]
@@ -487,9 +487,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # Test sorted version
                     coeffs = T[1,2,2,4]
                     logAge = T[1,1,2,2]
-                    max_logAge = 3
+                    T_max = 1e-6
                     MH = T[-2,-1,-2,-1]
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=true)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=1, sorted=true)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[1//30, 2//300]
