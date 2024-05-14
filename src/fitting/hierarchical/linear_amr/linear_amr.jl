@@ -96,10 +96,10 @@ _gausspdf(x,μ,σ) = exp( -((x-μ)/σ)^2 / 2 )  # Unnormalized, 1-D Gaussian PDF
     calculate_coeffs_mdf(variables::AbstractVector{<:Number},
                          logAge::AbstractVector{<:Number},
                          metallicities::AbstractVector{<:Number},
+                         T_max::Number
                          α::Number,
                          β::Number,
-                         σ::Number,
-                         T_max::Number)
+                         σ::Number,)
     calculate_coeffs_mdf(variables::AbstractVector{<:Number},
                          logAge::AbstractVector{<:Number},
                          metallicities::AbstractVector{<:Number},
@@ -109,11 +109,11 @@ Calculates per-model stellar mass coefficients `coeffs` from the fitting paramet
 
 # Examples
 ```jldoctest; setup = :(import StarFormationHistories: calculate_coeffs_mdf)
-julia> calculate_coeffs_mdf([1,1], [7,7,8,8], [-2,-1,-2,-1], 0.05, -2.0, 0.2, 12) ≈ [ 0.07673913563377144, 0.9232608643662287, 0.08509904500701986, 0.9149009549929802 ]
+julia> calculate_coeffs_mdf([1,1], [7,7,8,8], [-2,-1,-2,-1], 12, 0.05, -2.0, 0.2) ≈ [ 0.07673913563377144, 0.9232608643662287, 0.08509904500701986, 0.9149009549929802 ]
 true
 ```
 """
-function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, α::Number, β::Number, σ::Number, T_max::Number) # =exp10(maximum(logAge))/1e9)
+function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, T_max::Number, α::Number, β::Number, σ::Number) # =exp10(maximum(logAge))/1e9)
     S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), typeof(α), typeof(β), typeof(σ), typeof(T_max))
     # Compute the coefficients on each model template given the `variables` and the MDF
     unique_logAge = unique(logAge)
@@ -134,7 +134,7 @@ function calculate_coeffs_mdf(variables::AbstractVector{<:Number}, logAge::Abstr
 end
 calculate_coeffs_mdf(variables, logAge, metallicities, T_max) =
     calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3),
-                         logAge, metallicities, variables[end-2], variables[end-1], variables[end], T_max)
+                         logAge, metallicities, T_max, variables[end-2], variables[end-1], variables[end])
 
 
 
@@ -149,7 +149,7 @@ calculate_coeffs_mdf(variables, logAge, metallicities, T_max) =
     # Compute the coefficients on each model template given the `variables` and the MDF
     α, β = variables[end-1], variables[end]
     unique_logAge = unique(logAge)
-    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, α, β, σ, T_max)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-2), logAge, metallicities, T_max, α, β, σ)
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
@@ -327,7 +327,7 @@ end
     α, β, σ = variables[end-2], variables[end-1], variables[end]
     unique_logAge = unique(logAge)
     # Calculate the per-template coefficents and normalization values
-    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, α, β, σ, T_max)
+    coeffs = calculate_coeffs_mdf(view(variables,firstindex(variables):lastindex(variables)-3), logAge, metallicities, T_max, α, β, σ)
 
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
@@ -377,7 +377,8 @@ end
                       data::AbstractMatrix{<:Number},
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number},
-                      T_max::Number [, σ::Number];
+                      T_max::Number
+                      [, σ::Number];
                       x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                 [0.05, -2.0, 0.2]),
                       kws...) where {S <: Number}
@@ -385,7 +386,8 @@ end
                       data::AbstractVector{<:Number},
                       logAge::AbstractVector{<:Number},
                       metallicities::AbstractVector{<:Number},
-                      T_max::Number [, σ::Number];
+                      T_max::Number
+                      [, σ::Number];
                       x0 = vcat(construct_x0_mdf(logAge, convert(S,13.7)),
                                 [0.05, -2.0, 0.2]),
                       kws...) where {S <: Number}

@@ -518,7 +518,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     T_max = 12.0 # 12.0 Gyr
                     α, β, σ = 0.05, (-1.0 + -0.05*T_max), 0.2
                     # Form relative weights; calculate_coeffs_mdf is open to API change
-                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ, T_max)
+                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
                     @testset "calculate_coeffs_mdf" begin
                         for (i, la) in enumerate(unique_logAge)
                             @test sum(relweights[logAge .== la]) ≈ 1
@@ -555,9 +555,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # SFRs are uniformly random; x are the per-model weights based on those SFRs;
                     # x0 is initial guess; models are random matrices; data is sum(x .* models)
                     @testset "fixed_amr + fixed_linear_amr" begin
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max), x0=SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, T_max, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
                             # Calculate relative weights for input to fixed_amr
-                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ, T_max)
+                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
                             result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
                             # Test that improperly normalized relweights results in warning

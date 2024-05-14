@@ -12,7 +12,7 @@ function fixed_linear_amr(models, # ::AbstractVector{<:AbstractMatrix{<:Number}}
                           kws...) #where {S <: Number, T <: AbstractMatrix{S}}
     
     # Calculate relative per-model weights since LAMR is fixed
-    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, α, β, σ, T_max)
+    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, T_max, α, β, σ)
     return fixed_amr(models, data, logAge, metallicities, relweights; kws...)
 end
 

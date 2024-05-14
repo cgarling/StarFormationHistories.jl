@@ -21,7 +21,7 @@ using Test
     hist_size = (100,100)
     N_models = length(logAge)
     SFRs = rand(rng, T, length(unique_logAge))
-    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max)
+    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, T_max, α, β, σ)
     x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=sum(x)), α, β, σ)
     models = [rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # Poisson sampled data
@@ -84,7 +84,7 @@ end
     hist_size = (100,100)
     N_models = length(logAge)
     SFRs = rand(rng, T, length(unique_logAge))
-    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ, T_max)
+    x = SFH.calculate_coeffs_mdf(SFRs, logAge, MH, T_max, α, β, σ)
     x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=sum(x)), α, β, σ)
     models = [rand(rng,T,hist_size...) .* 100 for i in 1:N_models]
     # Poisson sampled data
