@@ -452,12 +452,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 label = float_type_labels[i]
                 @testset "$label" begin
                     T = float_types[i]
-                    result = SFH.construct_x0(repeat(T[1,2,3],3), 4; normalize_value=5)
+                    result = SFH.construct_x0(repeat(T[1,2,3],3), 1e-5; normalize_value=5)
                     @test result ≈ repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3) rtol=rtols[i]
                     @test sum(result) ≈ 5 rtol=rtols[i]
                     @test result isa Vector{T}
                     # Reverse order of input logAge to ensure it does not assume sorting
-                    result = SFH.construct_x0(reverse(repeat(T[1,2,3],3)), 4; normalize_value=5)
+                    result = SFH.construct_x0(reverse(repeat(T[1,2,3],3)), 1e-5; normalize_value=5)
                     @test result ≈ reverse(repeat([0.015015015015015015, 0.15015015015015015, 1.5015015015015016], 3)) rtol=rtols[i]
                     @test sum(result) ≈ 5 rtol=rtols[i]
                     @test result isa Vector{T}
@@ -471,15 +471,15 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     T = float_types[i]
                     coeffs = T[1,2,2,4]
                     logAge = T[1,2,1,2]
-                    max_logAge = 3
+                    T_max = 1e-6
                     MH = T[-2,-2,-1,-1]
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=false)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=1, sorted=false)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[1//30, 2//300]
                     @test result[4] ≈ T[-4//3, -4//3]
                     # Test normalize_value
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=5)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=5)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[5//30, 10//300]
@@ -487,9 +487,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # Test sorted version
                     coeffs = T[1,2,2,4]
                     logAge = T[1,1,2,2]
-                    max_logAge = 3
+                    T_max = 1e-6
                     MH = T[-2,-1,-2,-1]
-                    result = SFH.calculate_cum_sfr(coeffs, logAge, max_logAge, MH; normalize_value=1, sorted=true)
+                    result = SFH.calculate_cum_sfr(coeffs, logAge, MH, T_max; normalize_value=1, sorted=true)
                     @test result[1] == T[1, 2]
                     @test result[2] ≈ T[1, 2//3]
                     @test result[3] ≈ T[1//30, 2//300]
@@ -515,9 +515,10 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # let logAge=repeat(8.0:0.1:10.0;inner=26), metallicities=repeat(-2.5:0.1:0.0;outer=21)
                     logAge = repeat(unique_logAge; inner=length(unique_MH))
                     MH = repeat(unique_MH; outer=length(unique_logAge))
-                    α, β, σ = -0.05, -1.0, 0.2
+                    T_max = 12.0 # 12.0 Gyr
+                    α, β, σ = 0.05, (-1.0 + -0.05*T_max), 0.2
                     # Form relative weights; calculate_coeffs_mdf is open to API change
-                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
+                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
                     @testset "calculate_coeffs_mdf" begin
                         for (i, la) in enumerate(unique_logAge)
                             @test sum(relweights[logAge .== la]) ≈ 1
@@ -529,7 +530,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                         # The input logAge does not need to be in any particular order
                         # in order to use this method. Test this by shuffling `logAge`.
                         let logAge = Random.shuffle(logAge) 
-                            x0 = SFH.construct_x0_mdf(logAge, log10(13.7e9))
+                            x0 = SFH.construct_x0_mdf(logAge, 13.7)
                             @test length(x0) == length(unique_logAge)
                             idxs = sortperm(unique(logAge))
                             sorted_ul = vcat(unique(logAge)[idxs], log10(13.7e9))
@@ -541,8 +542,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             @test all(sfr .≈ first(sfr)) # Test the SFR in each time bin is approximately equal
                         end
                         # Test normalize_value
-                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9))) ≈ 1
-                        @test sum(SFH.construct_x0_mdf(logAge, log10(13.7e9); normalize_value=1e5)) ≈ 1e5
+                        @test sum(SFH.construct_x0_mdf(logAge, 13.7)) ≈ 1
+                        @test sum(SFH.construct_x0_mdf(logAge, 13.7; normalize_value=1e5)) ≈ 1e5
                     end
 
                     # Now generate models, data, and try to solve
@@ -554,9 +555,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # SFRs are uniformly random; x are the per-model weights based on those SFRs;
                     # x0 is initial guess; models are random matrices; data is sum(x .* models)
                     @testset "fixed_amr + fixed_linear_amr" begin
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,log10(13.7e9)); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
+                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, T_max, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
                             # Calculate relative weights for input to fixed_amr
-                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, α, β, σ)
+                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
                             result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)
                             @test result.mle.μ ≈ SFRs rtol=1e-5
                             # Test that improperly normalized relweights results in warning
@@ -564,7 +565,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             # in the way that the warnings are logged so, remove
                             VERSION >= v"1.8" && @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0)
                             # Now try fixed_linear_amr that will internally calculate the relweights
-                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, α, β, σ; x0=x0)
+                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, T_max, α, β, σ; x0=x0)
                             @test result2.mle.μ ≈ SFRs rtol=1e-5
                             # Test how removing low-weight models from fixed_amr might impact fit
                             relweightsmin = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin

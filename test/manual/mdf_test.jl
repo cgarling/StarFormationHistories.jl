@@ -7,21 +7,21 @@
 # age will be set according to a Gaussian pdf with mean μ and fixed std σ. 
 
 using Symbolics
-@variables A α β age σ MH
+@variables A α β age σ MH T_max
 # Mean of MDF is equal to α * age + β, linear metallicity evolution model
-μ = α * age + β
+μ = α * (T_max - age) + β
 dα = Differential(α) # differential with respect to α
 dβ = Differential(β) # differential with respect to β
 # 1D Gaussian PDF, with normalization factor A
 # gausspdf(x,μ,σ) = A * inv(σ * sqrt(2π)) * exp( -((x-μ)/σ)^2 / 2 ) 
-gausspdf(x,μ,σ) = A / σ * exp( -((x-μ)/σ)^2 / 2 ) 
+gausspdf(x,μ,σ) = A * exp( -((x-μ)/σ)^2 / 2 ) # / σ
 # Derivative of gaussian pdf with respect to α
 dGdα = expand_derivatives(dα(gausspdf(MH,μ,σ)))
 dGdβ = expand_derivatives(dβ(gausspdf(MH,μ,σ)))
 
 # Try to redefine with the full A
-@variables α β age σ MH1 MH2 MH3
-μ = α * age + β
+@variables α β age σ MH1 MH2 MH3 T_max
+μ = α * (T_max - age) + β
 dα = Differential(α) # differential with respect to α
 dβ = Differential(β) # differential with respect to β
 gausspdf(x,μ,σ,A) = A / σ * exp( -((x-μ)/σ)^2 / 2 ) 

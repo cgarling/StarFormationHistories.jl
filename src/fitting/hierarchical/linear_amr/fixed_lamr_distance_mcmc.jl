@@ -74,6 +74,7 @@ function MCMCFixedLAMRDistance(models::A,
                                edges,
                                logAge::AbstractVector{<:Number},
                                metallicities::AbstractVector{<:Number},
+                               T_max::Number,
                                α::Number,
                                β::Number,
                                σ::Number) where {A <: AbstractVector{<:AbstractMatrix{<:Number}},
@@ -85,7 +86,7 @@ function MCMCFixedLAMRDistance(models::A,
     @assert length(logAge) == length(metallicities)
     @assert σ > 0
     # Pre-calculate relative per-model weights since LAMR is fixed
-    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, α, β, σ)
+    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, T_max, α, β, σ)
     # Save out the index masks for each unique entry in logAge so we can
     # construct the full `coeffs` vector when evaluating the likelihood
     idxlogAge = [logAge .== i for i in unique(logAge)]

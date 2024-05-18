@@ -9,15 +9,15 @@ logAge = repeat(unique_logAge; inner=length(unique_MH))
 MH = repeat(unique_MH; outer=length(unique_logAge))
 
 # Set coefficients for the logarithmic age-metallicity relation
-α::Float64, β::Float64 = calculate_αβ_logamr( (-0.8, 0.0), (-2.5, 13.7), Z_from_MH )
+T_max::Float64 = 13.7 # exp10(maximum(unique_logAge)-9)
+α::Float64, β::Float64 = calculate_αβ_logamr( (-0.8, 0.0), (-2.5, 13.7), T_max, Z_from_MH )
 σ::Float64 = 0.2 # Metallicity spread at fixed logAge; Units of dex
-max_age::Float64 = 13.7 # exp10(maximum(unique_logAge)) / 1e9
 # <Z>(unique_logAge) for plotting
-plot_Z = α .* (max_age .- exp10.(unique_logAge)./1e9) .+ β
+plot_Z = α .* (T_max .- exp10.(unique_logAge)./1e9) .+ β
 
 # Calculate the relative weights such that the sum of all coefficients
 # across a single logAge entry logAge[i] is 1. 
-relative_weights = calculate_coeffs_logamr(ones(length(unique_logAge)), logAge, MH, α, β, σ; max_logAge=log10(max_age * 1e9))
+relative_weights = calculate_coeffs_logamr(ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
 # Reshape vector into matrix for display
 relweights_matrix = reshape(relative_weights,(length(unique_MH), length(unique_logAge)))
 # xbins = vcat(unique_MH .- step(unique_MH)/2,last(unique_MH) + step(unique_MH)/2)

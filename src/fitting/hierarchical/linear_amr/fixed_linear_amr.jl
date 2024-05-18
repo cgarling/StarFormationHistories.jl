@@ -5,13 +5,14 @@ function fixed_linear_amr(models, # ::AbstractVector{<:AbstractMatrix{<:Number}}
                           data,   #::AbstractMatrix{<:Number},
                           logAge::AbstractVector{<:Number},
                           metallicities::AbstractVector{<:Number},
+                          T_max::Number,
                           α::Number,
                           β::Number,
                           σ::Number;
                           kws...) #where {S <: Number, T <: AbstractMatrix{S}}
     
     # Calculate relative per-model weights since LAMR is fixed
-    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, α, β, σ)
+    relweights = calculate_coeffs_mdf( ones(length(unique(logAge))), logAge, metallicities, T_max, α, β, σ)
     return fixed_amr(models, data, logAge, metallicities, relweights; kws...)
 end
 
@@ -23,7 +24,7 @@ end
 #                     β::Real,
 #                     σ::Real;
 #                     composite=Matrix{S}(undef,size(data)),
-#                     x0=construct_x0_mdf(logAge, convert(S,log10(13.7e9))),
+#                     x0=construct_x0_mdf(logAge, convert(S,13.7)),
 #                     kws...) where {S <: Number, T <: AbstractMatrix{S}}
 
 #     unique_logAge = unique(logAge)
