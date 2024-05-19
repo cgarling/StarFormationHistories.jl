@@ -26,6 +26,8 @@ Manifest.toml
 # IPython notebook temporary files
 .ipynb_checkpoints
 
+# nbconvert generated static html in examples
+examples/*.html
 
 # Some test files that don't need to be committed
 test/manual/madcash-2
