@@ -19,7 +19,6 @@ makedocs(
                              example_size_threshold=0),    # Write all @example to file
     authors = "Chris Garling",
     pages = ["index.md",
-             "simulate.md",
              "Deriving Star Formation Histories from Hess Diagrams" =>
                  ["fitting/fitting_intro.md",
                   "fitting/unconstrained.md",
@@ -29,6 +28,7 @@ makedocs(
                        "fitting/fixed_amr.md"],
                   "fitting/internals.md"],
              "examples.md",
+             "simulate.md",
              "binaries.md",
              "helpers.md",
              "doc_index.md"],
