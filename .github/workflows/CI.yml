@@ -75,7 +75,7 @@ jobs:
           julia --project=docs -e '
             import Documenter: doctest, DocMeta
             import StarFormationHistories
-	    DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true) 
+            DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
             doctest(StarFormationHistories)'
       - run: julia --project=docs docs/make.jl
         env:
