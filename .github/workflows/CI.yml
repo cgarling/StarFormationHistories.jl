@@ -73,8 +73,10 @@ jobs:
             Pkg.instantiate()'
       - run: |
           julia --project=docs -e '
-            using Documenter: doctest
-            using StarFormationHistories
+            import Documenter: doctest, DocMeta
+            import StarFormationHistories
+	    # To use unexported methods (`zzz`) as StarFormationHistories.zzz in doctests
+	    DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true) 
             doctest(StarFormationHistories)'
       - run: julia --project=docs docs/make.jl
         env:
