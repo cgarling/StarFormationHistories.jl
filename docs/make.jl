@@ -37,8 +37,8 @@ makedocs(
     warnonly = [:missing_docs, :linkcheck]
 )
 
-# deploydocs(;
-#     repo = "github.com/cgarling/StarFormationHistories.jl.git",
-#     versions = ["stable" => "v^", "v#.#"],
-#     push_preview=true,
-# )
+deploydocs(;
+    repo = "github.com/cgarling/StarFormationHistories.jl.git",
+    versions = ["stable" => "v^", "v#.#"],
+    push_preview=true,
+)
