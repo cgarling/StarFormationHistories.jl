@@ -47,6 +47,12 @@ partial_cmd_smooth
 
 We note that in many cases it can also be helpful to add in a foreground/background template that models contamination of the Hess diagram from stars not in your population of interest -- this is often done using observations of parallel fields though there are several other possible methods.
 
+Photometric catalogs can be processed into Hess diagrams meeting our formatting requirements with the method [`bin_cmd`](@ref StarFormationHistories.bin_cmd).
+
+```@docs
+StarFormationHistories.bin_cmd
+```
+
 ## A Note on Array Formatting
 
 It is expected that the user will typically have model templates stored as two-dimensional matrices as these are the obvious choice for representing a binned two-dimensional histogram. We fully support supplying the list of model templates as a list of matrices (e.g., a `Vector{Matrix{<:Number}}`) to the fitting functions discussed below. The important computational kernels [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!) have custom loops for these input types.

@@ -280,7 +280,7 @@ end
 """
     calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
 
-Function to calculate the bin edges for 2D histograms.
+Function to calculate the bin edges for 2D histograms. Returns `(xbins, ybins)` with both entries being ranges. 
 
 # Keyword Arguments
  - `edges` is a tuple of vectors-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it will simply be returned.
@@ -346,7 +346,17 @@ function histogram_pix(x, edges)
 end
 
 """
-    result::StatsBase.Histogram = bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}; weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
+    result::StatsBase.Histogram =
+       bin_cmd( colors::AbstractVector{<:Number},
+                mags::AbstractVector{<:Number};
+                weights::AbstractVector{<:Number} = ones(promote_type(eltype(colors),
+                                                         eltype(mags)), size(colors)),
+                edges  = nothing,
+                xlim   = extrema(colors),
+                ylim   = extrema(mags),
+                nbins  = nothing,
+                xwidth = nothing,
+                ywidth = nothing)
 
 Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 

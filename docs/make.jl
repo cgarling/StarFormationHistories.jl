@@ -28,6 +28,7 @@ makedocs(
                        "fitting/log_amr.md",
                        "fitting/fixed_amr.md"],
                   "fitting/internals.md"],
+             "examples.md",
              "binaries.md",
              "helpers.md",
              "doc_index.md"],
