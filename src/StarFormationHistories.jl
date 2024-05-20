@@ -493,7 +493,7 @@ end
 
 # Method exports
 # Exports from StarFormationHistories.jl
-export bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
+export mean, bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
 # Exports from simulate.jl
 export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite, generate_stars_mag_composite, model_cmd
 # Exports from fitting.jl
