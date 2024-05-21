@@ -78,10 +78,10 @@ x2_mags_covar1 = randn(n_points) .* err_funcs[obs_filters[covar1_color_indices[2
 y_mags_covar1 = copy(x1_mags_covar1) # randn(n_points) .* err_funcs[obs_filters[covar1_y_index]]( mags[obs_filters[covar1_y_index]] ) .+ mags[obs_filters[covar1_y_index]]
 x_mags_covar1 = x1_mags_covar1 .- x2_mags_covar1
 
-covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1,length=100),
-               range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1,length=100))
-# covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1,step=0.003),
-#                range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1,step=0.003))
+# covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1,length=100),
+#                range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1,length=100))
+covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1,step=0.003),
+               range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1,step=0.003))
 # Construct the covariant kernel with all variables in units of pixels or bins
 # covar1_matrix = SMatrix{2,2}(σx^2+σy^2,σy^2,σy^2,σy^2)
 covar1_matrix = SMatrix{2,2}( ((x0_err_covar1 / step(covar1_bins[1]))^2 + (y0_err_covar1 / step(covar1_bins[2]))^2),
