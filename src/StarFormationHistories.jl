@@ -229,7 +229,7 @@ Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`
     δy = y-y0
     # If `Δx = SVector{2}( x-x0, y-y0 )`, below is `transpose(Δx) * inv(Σ) * Δx`
     exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-    return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
+    return A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B
 end
 # Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5]
 # which is half of the regular Gauss-Legendre intervals.
@@ -249,7 +249,7 @@ const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444
         δy = y-y0+legendre_x_halfpix[j]
         # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
         exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
+        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B)
     end
     return result
 end
