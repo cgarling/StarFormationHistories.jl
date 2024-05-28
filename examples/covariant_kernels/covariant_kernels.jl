@@ -82,21 +82,26 @@ x_mags_covar1 = x1_mags_covar1 .- x2_mags_covar1
 
 # covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1,length=100),
 #                range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1,length=100))
-covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1, step=0.003),
+covar1_bins = (range(start=x0_covar1 - 3*x0_err_covar1,stop=x0_covar1 + 3*x0_err_covar1, step=0.0015),
                range(start=y0_covar1 - 3*y0_err_covar1,stop=y0_covar1 + 3*y0_err_covar1, step=0.003))
 # Construct the covariant kernel with all variables in units of pixels or bins
 # covar1_matrix = SMatrix{2,2}(σx^2,σy^2,σy^2,σy^2)
-covar1_matrix = SMatrix{2,2}( (x0_err_covar1 / step(covar1_bins[1]))^2,
-                              (y0_err_covar1 / step(covar1_bins[2]))^2,
-                              (y0_err_covar1 / step(covar1_bins[2]))^2,
-                              (y0_err_covar1 / step(covar1_bins[2]))^2 )
+# covar1_matrix = SMatrix{2,2}( (x0_err_covar1 / step(covar1_bins[1]))^2,
+#                               (y0_err_covar1 / step(covar1_bins[1]))^2,
+#                               (y0_err_covar1 / step(covar1_bins[1]))^2,
+#                               (y0_err_covar1 / step(covar1_bins[1]))^2 )
+covar1_matrix = SMatrix{2,2}( (x0_err_covar1)^2 / step(covar1_bins[1])^2,
+                              (y0_err_covar1)^2 / (step(covar1_bins[1]) * step(covar1_bins[2])),
+                              (y0_err_covar1)^2 / (step(covar1_bins[1]) * step(covar1_bins[2])),
+                              (y0_err_covar1)^2 / step(covar1_bins[2])^2 )
 # Determine the covariance matrix from the random samples numerically
 # covar1_matrix = cov([x_mags_covar1 y_mags_covar1]) ./ step(covar1_bins[1])^2
-covar1_kernel = SFH.Gaussian2D( length(covar1_bins[1])/2 + 0.25, length(covar1_bins[2])/2 + 0.5, covar1_matrix)
+covar1_kernel = SFH.Gaussian2D( length(covar1_bins[1])/2, length(covar1_bins[2])/2 + 0.5, covar1_matrix, 1.0, step(covar1_bins[2]) / step(covar1_bins[1]))
 
 covar1_kernel_img = zeros( length(covar1_bins[1])-1, length(covar1_bins[2])-1)
-# Mutate sep_kernel_img in place to hold the kernel normalized to sum to 1.
+# Mutate covar1_kernel_img in place to hold the kernel normalized to sum to 1.
 SFH.addstar!(covar1_kernel_img, covar1_kernel)
+covar1_kernel_img .*= step(covar1_bins[1]) / step(covar1_bins[2]) # Have to correct for step size rescaling
 
 # Bin the sampled magnitudes 
 covar1_data_hist = SFH.bin_cmd(x_mags_covar1, y_mags_covar1; edges=covar1_bins)

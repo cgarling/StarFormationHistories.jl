@@ -276,6 +276,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
     #####################################################################
     @testset verbose=true "SFH Fitting" begin
+        # Test the kernels used in the smooth Hess diagram models
+        @safetestset "Template Kernels" include("kernels.jl")
+        # Test the primitive SFH methods
         @testset "composite!" begin
             for i in eachindex(float_types, float_type_labels)
                 label = float_type_labels[i]

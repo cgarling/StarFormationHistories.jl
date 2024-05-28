@@ -178,7 +178,7 @@ evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) =
 """
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
     Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
-    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
+    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, ybin_factor::Real)
 
 Type representing the general 2D Gaussian distribution with covariance matrix `Σ`, defined as ...
 
@@ -186,50 +186,55 @@ Type representing the general 2D Gaussian distribution with covariance matrix `�
  - `x0`, the center of the model along the first matrix dimension
  - `y0`, the center of the model along the second matrix dimension
  - `Σ`, the 2x2 covariance matrix
- - `A`, and additional multiplicative constant in front of the normalized Gaussian
- - `B`, a constant additive background
+ - `A`, a multiplicative constant in front of the normalized Gaussian
+ - `ybin_factor`, the ratio of the y-axis bin size to the x-axis bin size
 """
 struct Gaussian2D{T <: Real, S <: AbstractMatrix{<:Real}}
     x0::T
     y0::T
     Σ::S
     A::T
-    B::T
+    ybin_factor::T
     function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
         T = promote(x0, y0)
         T_type = eltype(T)
-        new{T_type,typeof(Σ)}(T[1], T[2], Σ, one(T_type), zero(T_type))
+        new{T_type,typeof(Σ)}(T[1], T[2], Σ, one(T_type), one(T_type))
     end
     function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
         T = promote(x0, y0, A)
         T_type = eltype(T)
-        new{T_type,typeof(Σ)}(T[1], T[2], Σ, T[3], zero(T_type))
+        new{T_type,typeof(Σ)}(T[1], T[2], Σ, T[3], one(T_type))
     end
-    function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
-        T = promote(x0,y0,A,B)
+    function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, ybin_factor::Real)
+        T = promote(x0,y0,A,ybin_factor)
         new{eltype(T),typeof(Σ)}(T[1], T[2], Σ, T[3], T[4])
     end
 end
 Base.Broadcast.broadcastable(m::Gaussian2D) = Ref(m)
-parameters(model::Gaussian2D) = (model.x0, model.y0, model.Σ, model.A, model.B)
+parameters(model::Gaussian2D) = (model.x0, model.y0, model.Σ, model.A, model.ybin_factor)
 function Base.size(model::Gaussian2D)
     Σ = model.Σ
     return (ceil(Int,sqrt(first(Σ)) * 10), ceil(Int,sqrt(last(Σ)) * 10))
 end
 centroid(model::Gaussian2D) = (model.x0, model.y0)
 """
-    gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
+    gauss2D(x::Real,
+            y::Real,
+            x0::Real,
+            y0::Real,
+            Σ::AbstractMatrix{<:Real},
+            A::Real)
 
-Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`StarFormationHistories.gauss2d_integral_halfpix`](@ref). 
+Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant). Currently deprecated in favor of [`StarFormationHistories.gauss2d_integral_halfpix`](@ref). 
 """
-@inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
+@inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real)
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
     # invΣ = SMatrix{2,2}(Σ[4], -Σ[3], -Σ[2], Σ[1]) ./ detΣ # 2x2 Matrix inverse
     δx = x-x0
     δy = y-y0
     # If `Δx = SVector{2}( x-x0, y-y0 )`, below is `transpose(Δx) * inv(Σ) * Δx`
     exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-    return A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B
+    return A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
 end
 # Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5]
 # which is half of the regular Gauss-Legendre intervals.
@@ -239,21 +244,21 @@ const legendre_x_halfpix = SVector{3,Float64}(-0.3872983346207417, 0.0, 0.387298
 const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444444,0.2777777777777778)
 # const legendre_x_halfpix = SVector{5,Float64}(-0.453089922969332, -0.2692346550528415, 0.0, 0.2692346550528415, 0.453089922969332) 
 # const legendre_w_halfpix = SVector{5,Float64}(0.11846344252809454, 0.23931433524968324, 0.28444444444444444, 0.23931433524968324, 0.11846344252809454)
-@inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-    @assert size(Σ) == (2,2)
-    result = 0.0
-    detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
-    @inbounds @turbo for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
-    # @inbounds @fastmath @simd ivdep for idx in CartesianIndices( (axes(legendre_x_halfpix,1), axes(legendre_x_halfpix,1)) ); i = idx[1]; j = idx[2]
-        δx = x-x0+legendre_x_halfpix[i]
-        δy = y-y0+legendre_x_halfpix[j]
-        # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
-        exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B)
-    end
-    return result
-end
-@inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real,ybin_factor::Real)
+# @inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
+#     @assert size(Σ) == (2,2)
+#     result = 0.0
+#     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
+#     @inbounds @turbo for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
+#     # @inbounds @fastmath @simd ivdep for idx in CartesianIndices( (axes(legendre_x_halfpix,1), axes(legendre_x_halfpix,1)) ); i = idx[1]; j = idx[2]
+#         δx = x-x0+legendre_x_halfpix[i]
+#         δy = y-y0+legendre_x_halfpix[j]
+#         # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
+#         exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
+#         result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B)
+#     end
+#     return result
+# end
+@inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,ybin_factor::Real)
     @assert size(Σ) == (2,2)
     result = 0.0
     detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
@@ -268,7 +273,7 @@ end
         δy = y-y0+legendre_y[j]
         # If `Δx = SVector{2}( x-x0+legendre_x[i], y-y0+legendre_y[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
         exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-        result += legendre_wx[i] * legendre_wy[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B)
+        result += legendre_wx[i] * legendre_wy[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ))
     end
     return result
 end

@@ -1,5 +1,6 @@
 import Distributions: Normal
 import Statistics: cov, mean, median, std, var
+import PyPlot as plt
 
 struct CMDPoint{T <: Real}
     x0::T
