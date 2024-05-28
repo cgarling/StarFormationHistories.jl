@@ -253,6 +253,25 @@ const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444
     end
     return result
 end
+@inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real,ybin_factor::Real)
+    @assert size(Σ) == (2,2)
+    result = 0.0
+    detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
+    # Set up separate weights and nodes for x and y dimensions
+    legendre_x = legendre_x_halfpix                # Default (x-0.5, x+0.5) integration 
+    legendre_y = legendre_x_halfpix * ybin_factor  # Stretch the y-axis nodes
+    legendre_wx = legendre_w_halfpix               # Default weights
+    legendre_wy = legendre_w_halfpix * ybin_factor # Scale the y-axis weights
+    @inbounds @turbo for i=axes(legendre_x,1), j=axes(legendre_y,1)
+    # @inbounds @fastmath @simd ivdep for idx in CartesianIndices( (axes(legendre_x,1), axes(legendre_y,1)) ); i = idx[1]; j = idx[2]
+        δx = x-x0+legendre_x[i]
+        δy = y-y0+legendre_y[j]
+        # If `Δx = SVector{2}( x-x0+legendre_x[i], y-y0+legendre_y[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
+        exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
+        result += legendre_wx[i] * legendre_wy[j] * (A * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ) + B)
+    end
+    return result
+end
 evaluate(model::Gaussian2D, x::Real, y::Real) = gauss2d_integral_halfpix(x, y, parameters(model)...)
 
 
