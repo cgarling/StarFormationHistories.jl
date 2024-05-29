@@ -98,7 +98,7 @@ axs[2].text(0.1,0.9,"Sampled Hess Diagram",transform=axs[2].transAxes)
 im4 = axs[4].imshow( signif, 
                      origin="lower", extent=(extrema(edges[1])..., extrema(edges[2])...), 
                      aspect="auto", clim=(-2,2), rasterized=true)
-axs[4].text(0.1,0.9,"Obs - Model",transform=axs[4].transAxes)
+axs[4].text(0.1,0.9,L"(Obs - Model) / $\sigma$",transform=axs[4].transAxes)
 
 for ax in axs
     ax.set_xlabel(L"F090W$-$F150W")
