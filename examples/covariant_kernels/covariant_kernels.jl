@@ -123,6 +123,53 @@ covar1_kernel_means = matrix_mean(covar1_bins[1], covar1_bins[2], covar1_kernel_
 # println("Pixel difference in covar1 x means: ", (first(covar1_data_means) - first(covar1_kernel_means)) / step(first(covar1_bins)) )
 # println("Pixel difference in covar1 y means: ", (last(covar1_data_means) - last(covar1_kernel_means)) / step(last(covar1_bins)) )
 
+
+######################
+# Sample for case where 2-D error distribution is
+# covariant of the form x=(F090W - F150W), y=F150W.
+
+# Color is obs_filters[1] - obs_filters[2] = F090W - F150W
+covar2_color_indices = (1,2)
+# Y-axis magnitude is obs_filters[1] = F150W
+covar2_y_index = 2
+x0_covar2 = mags[obs_filters[covar2_color_indices[1]]] - mags[obs_filters[covar2_color_indices[2]]]
+y0_covar2 = mags[obs_filters[covar2_y_index]]
+# Add errors in quadrature for x-axis 
+x0_err_covar2 = sqrt( err_funcs[obs_filters[covar2_color_indices[1]]]( mags[obs_filters[covar2_color_indices[1]]] )^2 + err_funcs[obs_filters[covar2_color_indices[2]]]( mags[obs_filters[covar2_color_indices[2]]] )^2 )
+y0_err_covar2 = err_funcs[obs_filters[covar2_y_index]]( mags[obs_filters[covar2_y_index]] )
+# Sample random MC points given the above errors
+x1_mags_covar2 = randn(n_points) .* err_funcs[obs_filters[covar2_color_indices[1]]]( mags[obs_filters[covar2_color_indices[1]]] ) .+ mags[obs_filters[covar2_color_indices[1]]]
+x2_mags_covar2 = randn(n_points) .* err_funcs[obs_filters[covar2_color_indices[2]]]( mags[obs_filters[covar2_color_indices[2]]] ) .+ mags[obs_filters[covar2_color_indices[2]]]
+x_mags_covar2 = [x1_mags_covar2, x2_mags_covar2]
+# This defines the covariance pattern
+y_mags_covar2 = copy(x_mags_covar2[findfirst(x -> x == covar2_y_index, covar2_color_indices)]) 
+x_mags_covar2 = x1_mags_covar2 .- x2_mags_covar2
+
+covar2_bins = (range(start=x0_covar2 - 3*x0_err_covar2,stop=x0_covar2 + 3*x0_err_covar2, step=0.0015),
+               range(start=y0_covar2 - 3*y0_err_covar2,stop=y0_covar2 + 3*y0_err_covar2, step=0.003))
+# Construct the covariant kernel with all variables in units of pixels or bins
+# covar2_matrix = SMatrix{2,2}(σx^2,σy^2,σy^2,σy^2)
+covar2_matrix = SMatrix{2,2}( (x0_err_covar2)^2 / step(covar2_bins[1])^2,
+                              -(y0_err_covar2)^2 / (step(covar2_bins[1]) * step(covar2_bins[2])),
+                              -(y0_err_covar2)^2 / (step(covar2_bins[1]) * step(covar2_bins[2])),
+                              (y0_err_covar2)^2 / step(covar2_bins[2])^2 )
+# Determine the covariance matrix from the random samples numerically
+# covar2_matrix = cov([x_mags_covar2 y_mags_covar2]) ./ step(covar2_bins[1])^2
+covar2_kernel = SFH.Gaussian2D( length(covar2_bins[1])/2 - 0.1, length(covar2_bins[2])/2 + 0.1, covar2_matrix, 1.0, step(covar2_bins[2]) / step(covar2_bins[1]))
+
+covar2_kernel_img = zeros( length(covar2_bins[1])-1, length(covar2_bins[2])-1)
+# Mutate covar2_kernel_img in place to hold the kernel normalized to sum to 1.
+SFH.addstar!(covar2_kernel_img, covar2_kernel)
+covar2_kernel_img .*= step(covar2_bins[1]) / step(covar2_bins[2]) # Have to correct for step size rescaling
+
+# Bin the sampled magnitudes 
+covar2_data_hist = SFH.bin_cmd(x_mags_covar2, y_mags_covar2; edges=covar2_bins)
+# Normalize bins to sum to 1, same as kernel
+covar2_data_hist.weights ./= sum(covar2_data_hist.weights)
+
+covar2_data_means = matrix_mean(covar2_bins[1], covar2_bins[2], covar2_data_hist.weights)
+covar2_kernel_means = matrix_mean(covar2_bins[1], covar2_bins[2], covar2_kernel_img)
+
 ######################
 # Make plot
 
@@ -144,5 +191,9 @@ diff1 = heatmap(sep_bins[2], sep_bins[1], sep_data_hist.weights .- sep_kernel_im
 r2 = heatmap(covar1_data_hist.edges[2], covar1_data_hist.edges[1], covar1_data_hist.weights)
 k2 = heatmap(covar1_bins[2], covar1_bins[1], covar1_kernel_img)
 diff2 = heatmap(covar1_bins[2], covar1_bins[1], covar1_data_hist.weights .- covar1_kernel_img)
-plot(r1, k1, diff1, r2, k2, diff2; layout=l, size=(700,700), left_margin=(2,:mm), right_margin=(2,:mm), xticks=false, yticks=false, show_empty_bins=true, colorbar=false)
+# Second covariant kernel
+r3 = heatmap(covar2_data_hist.edges[2], covar2_data_hist.edges[1], covar2_data_hist.weights)
+k3 = heatmap(covar2_bins[2], covar2_bins[1], covar2_kernel_img)
+diff3 = heatmap(covar2_bins[2], covar2_bins[1], covar2_data_hist.weights .- covar2_kernel_img)
+plot(r1, k1, diff1, r2, k2, diff2, r3, k3, diff3; layout=l, size=(700,700), left_margin=(2,:mm), right_margin=(2,:mm), xticks=false, yticks=false, show_empty_bins=true, colorbar=false)
 # end
