@@ -407,7 +407,7 @@ Returns a `StatsBase.Histogram` type containing the Hess diagram where the point
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
-function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+function bin_cmd_smooth( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, color_err::AbstractVector{<:Number}, mag_err::AbstractVector{<:Number}; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
     @assert axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
@@ -427,6 +427,48 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
         color_err[i] / xwidth, mag_err[i] / ywidth
         # Construct the star object
         obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+        # Insert the star object
+        cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) ) # (10,10)
+        addstar!(mat, obj, cutout_size) 
+    end
+    return Histogram(edges, mat, :left, false)
+end
+function bin_cmd_smooth( mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err::AbstractVector{<:AbstractVector{<:Number}}, y_index, color_indices; weights = ones(promote_type(eltype(mags[y_index]), eltype(mag_err[y_index])), size(mags[y_index])), edges=nothing, xlim=extrema(mags[first(color_indices)] .- mags[last(color_indices)]), ylim=extrema(mags[y_index]), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    # mag_colnames = Tables.columnnames(mags)
+    # mag_err_colnames = Tables.columnnames(mag_err)
+    # # Test that provided keys appear in the mags and mag_err structures
+    # @assert (first(x_keys) ∈ mag_colnames) & (last(x_keys) ∈ mag_colnames) & (y_key ∈ mag_colnames) & (first(x_keys) ∈ mag_err_colnames) & (last(x_keys) ∈ mag_err_colnames) & (y_key ∈ mag_err_colnames)
+    # Test that the sizes of the input arrays have correct dimensions
+    @assert axes(mags[first(color_indices)]) == axes(mags[last(color_indices)]) == axes(mags[y_index]) == axes(mag_err[first(color_indices)]) == axes(mag_err[last(color_indices)]) == axes(mag_err[y_index]) == axes(weights)
+    # Calculate edges from provided kws
+    edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
+    # Construct matrix to hold the 2D histogram
+    mat = zeros(Float64, length(edges[1])-1, length(edges[2])-1)
+    # Get the pixel width in each dimension; this currently only works if edges[1] and [2] are AbstractRange. 
+    xwidth, ywidth = step(edges[1]), step(edges[2])
+    ybin_factor = ywidth / xwidth # Factor of pixel stretch in the y direction
+    # Break out the necessary arrays from the input tables
+    colors = mags[first(color_indices)] .- mags[last(color_indices)]
+    color_err = sqrt.(mag_err[first(color_indices)].^2 .+ mag_err[last(color_indices)].^2)
+    y_mags = mags[y_index]
+    y_err = mag_err[y_index]
+    for i in eachindex(weights)
+        # Convert colors, mags, color_err, and mag_err from magnitude-space to pixel-space in `mat`
+        x0, y0, σx, σy = histogram_pix(colors[i], edges[1]) - 0.5, histogram_pix(y_mags[i], edges[2]) - 0.5,
+        color_err[i] / xwidth, y_err[i] / ywidth
+        # Construct the star object, using proper covariance when necessary
+        if y_index == first(color_indices)
+            crossterm = y_err[i]^2 / xwidth / ywidth
+            covar_matrix = SMatrix{2,2}(σx^2, crossterm, crossterm, σy^2)
+            obj = Gaussian2D(x0, y0, covar_matrix, weights[i] / ybin_factor, ybin_factor)
+        elseif y_index == last(color_indices)
+            crossterm = -color_err[i]^2 / xwidth / ywidth
+            covar_matrix = SMatrix{2,2}(σx^2, crossterm, crossterm, σy^2)
+            obj = Gaussian2D(x0, y0, covar_matrix, weights[i] / ybin_factor, ybin_factor)
+        else
+            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+        end
+
         # Insert the star object
         cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) ) # (10,10)
         addstar!(mat, obj, cutout_size) 

@@ -155,12 +155,12 @@ covar2_matrix = SMatrix{2,2}( (x0_err_covar2)^2 / step(covar2_bins[1])^2,
                               (y0_err_covar2)^2 / step(covar2_bins[2])^2 )
 # Determine the covariance matrix from the random samples numerically
 # covar2_matrix = cov([x_mags_covar2 y_mags_covar2]) ./ step(covar2_bins[1])^2
-covar2_kernel = SFH.Gaussian2D( length(covar2_bins[1])/2 - 0.1, length(covar2_bins[2])/2 + 0.1, covar2_matrix, 1.0, step(covar2_bins[2]) / step(covar2_bins[1]))
+covar2_kernel = SFH.Gaussian2D( length(covar2_bins[1])/2 - 0.1, length(covar2_bins[2])/2 + 0.1, covar2_matrix, step(covar2_bins[1]) / step(covar2_bins[2]), step(covar2_bins[2]) / step(covar2_bins[1])) # Note that A = step(covar2_bins[1]) / step(covar2_bins[2]) to account for the necessary PDF renormalization
 
 covar2_kernel_img = zeros( length(covar2_bins[1])-1, length(covar2_bins[2])-1)
 # Mutate covar2_kernel_img in place to hold the kernel normalized to sum to 1.
 SFH.addstar!(covar2_kernel_img, covar2_kernel)
-covar2_kernel_img .*= step(covar2_bins[1]) / step(covar2_bins[2]) # Have to correct for step size rescaling
+# covar2_kernel_img .*= step(covar2_bins[1]) / step(covar2_bins[2]) 
 
 # Bin the sampled magnitudes 
 covar2_data_hist = SFH.bin_cmd(x_mags_covar2, y_mags_covar2; edges=covar2_bins)
