@@ -462,7 +462,7 @@ function bin_cmd_smooth( mags::AbstractVector{<:AbstractVector{<:Number}}, mag_e
             covar_matrix = SMatrix{2,2}(σx^2, crossterm, crossterm, σy^2)
             obj = Gaussian2D(x0, y0, covar_matrix, weights[i] / ybin_factor, ybin_factor)
         elseif y_index == last(color_indices)
-            crossterm = -color_err[i]^2 / xwidth / ywidth
+            crossterm = -y_err[i]^2 / xwidth / ywidth
             covar_matrix = SMatrix{2,2}(σx^2, crossterm, crossterm, σy^2)
             obj = Gaussian2D(x0, y0, covar_matrix, weights[i] / ybin_factor, ybin_factor)
         else
@@ -554,6 +554,8 @@ function partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVect
     return bin_cmd_smooth( colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
                            color_err[begin:end-1], mag_err[y_index][begin:end-1]; weights=weights,
                            edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
+    # This is the new signature that calls the covariant bin_cmd_smooth
+    # return bin_cmd_smooth( [i[begin:end-1] for i in new_iso_mags], [i[begin:end-1] for i in mag_err], y_index, color_indices; weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins, xwidth=xwidth, ywidth=ywidth )
 end
 
 
