@@ -60,7 +60,10 @@ interpolate_mini(m_ini::AbstractVector{<:Number},
     reduce(hcat, interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in eachcol(mags))
 
 """
-    mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag, ret_spacing::Bool=false)
+    mini_spacing(m_ini::AbstractVector{<:Number},
+                 mags::AbstractVector{<:Number},
+                 Δmag,
+                 ret_spacing::Bool = false)
 
 Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
@@ -164,7 +167,14 @@ function Base.size(model::GaussianPSFAsymmetric)
 end
 centroid(model::GaussianPSFAsymmetric) = (model.x0, model.y0)  
 """ 
-    gaussian_psf_asymmetric_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
+    gaussian_psf_asymmetric_integral_halfpix(x::Real,
+                                             y::Real,
+                                             x0::Real,
+                                             y0::Real,
+                                             σx::Real,
+                                             σy::Real,
+                                             A::Real,
+                                             B::Real)
 
 Exact analytic integral for the asymmetric, non-rotated 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
 """
@@ -172,89 +182,6 @@ gaussian_psf_asymmetric_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,σx::
     0.25 * A * erf((x+0.5-x0) / (sqrt(2) * σx), (x-0.5-x0) / (sqrt(2) * σx)) * erf((y+0.5-y0) / (sqrt(2) * σy), (y-0.5-y0) / (sqrt(2) * σy)) + B
 evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) = 
     gaussian_psf_asymmetric_integral_halfpix(x, y, parameters(model)...)
-
-##################################
-
-"""
-    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
-    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
-    Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
-
-Type representing the general 2D Gaussian distribution with covariance matrix `Σ`, defined as ...
-
-# Parameters
- - `x0`, the center of the model along the first matrix dimension
- - `y0`, the center of the model along the second matrix dimension
- - `Σ`, the 2x2 covariance matrix
- - `A`, and additional multiplicative constant in front of the normalized Gaussian
- - `B`, a constant additive background
-"""
-struct Gaussian2D{T <: Real, S <: AbstractMatrix{<:Real}}
-    x0::T
-    y0::T
-    Σ::S
-    A::T
-    B::T
-    function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real})
-        T = promote(x0, y0)
-        T_type = eltype(T)
-        new{T_type,typeof(Σ)}(T[1], T[2], Σ, one(T_type), zero(T_type))
-    end
-    function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real)
-        T = promote(x0, y0, A)
-        T_type = eltype(T)
-        new{T_type,typeof(Σ)}(T[1], T[2], Σ, T[3], zero(T_type))
-    end
-    function Gaussian2D(x0::Real, y0::Real, Σ::AbstractMatrix{<:Real}, A::Real, B::Real)
-        T = promote(x0,y0,A,B)
-        new{eltype(T),typeof(Σ)}(T[1], T[2], Σ, T[3], T[4])
-    end
-end
-Base.Broadcast.broadcastable(m::Gaussian2D) = Ref(m)
-parameters(model::Gaussian2D) = (model.x0, model.y0, model.Σ, model.A, model.B)
-function Base.size(model::Gaussian2D)
-    Σ = model.Σ
-    return (ceil(Int,sqrt(first(Σ)) * 10), ceil(Int,sqrt(last(Σ)) * 10))
-end
-centroid(model::Gaussian2D) = (model.x0, model.y0)
-"""
-    gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-
-Evaluates the PDF of a general 2D Gaussian distribution with centroid `(x0, y0)`, covariance matrix `Σ`, with total probability `A` (multiplicative normalization constant) and additive constant `B`. Currently deprecated in favor of [`StarFormationHistories.gauss2d_integral_halfpix`](@ref). 
-"""
-@inline function gauss2D(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-    detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
-    # invΣ = SMatrix{2,2}(Σ[4], -Σ[3], -Σ[2], Σ[1]) ./ detΣ # 2x2 Matrix inverse
-    δx = x-x0
-    δy = y-y0
-    # If `Δx = SVector{2}( x-x0, y-y0 )`, below is `transpose(Δx) * inv(Σ) * Δx`
-    exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-    return exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
-end
-# Gauss-Legendre integration over [x-0.5,x+0.5] and [y-0.5,y+0.5]
-# which is half of the regular Gauss-Legendre intervals.
-# Suffers from numerical undersampling when σx=sqrt(Σ[1]) and σy=sqrt(σ[y]) are much less than 1 pixel.
-# About 1% accuracy for Σ=[0.1 0.0; 0.0 0.1]
-const legendre_x_halfpix = SVector{3,Float64}(-0.3872983346207417, 0.0, 0.3872983346207417) 
-const legendre_w_halfpix = SVector{3,Float64}(0.2777777777777778,0.4444444444444444,0.2777777777777778)
-# const legendre_x_halfpix = SVector{5,Float64}(-0.453089922969332, -0.2692346550528415, 0.0, 0.2692346550528415, 0.453089922969332) 
-# const legendre_w_halfpix = SVector{5,Float64}(0.11846344252809454, 0.23931433524968324, 0.28444444444444444, 0.23931433524968324, 0.11846344252809454)
-@inline function gauss2d_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,Σ::AbstractMatrix{<:Real},A::Real,B::Real)
-    @assert size(Σ) == (2,2)
-    result = 0.0
-    detΣ = Σ[1] * Σ[4] - Σ[2] * Σ[3] # 2x2 Matrix determinant
-    @inbounds @turbo for i=axes(legendre_x_halfpix,1), j=axes(legendre_x_halfpix,1)
-    # @inbounds @fastmath @simd ivdep for idx in CartesianIndices( (axes(legendre_x_halfpix,1), axes(legendre_x_halfpix,1)) ); i = idx[1]; j = idx[2]
-        δx = x-x0+legendre_x_halfpix[i]
-        δy = y-y0+legendre_x_halfpix[j]
-        # If `Δx = SVector{2}( x-x0+legendre_x_halfpix[i], y-y0+legendre_x_halfpix[j] )`, below is `transpose(Δx) * inv(Σ) * Δx`
-        exp_internal = ( δx * (Σ[4] * δx - Σ[2] * δy) + δy * (Σ[1] * δy - Σ[3] * δx) ) / detΣ
-        result += legendre_w_halfpix[i] * legendre_w_halfpix[j] * exp( -exp_internal / 2 ) / 2π / sqrt(detΣ)
-    end
-    return result
-end
-evaluate(model::Gaussian2D, x::Real, y::Real) = gauss2d_integral_halfpix(x, y, parameters(model)...)
-
 
 ##################################
 # Function to add a star to a smoothed CMD
@@ -377,7 +304,18 @@ function bin_cmd( colors::AbstractVector{<:Number}, mags::AbstractVector{<:Numbe
 end
 
 """
-    result::StatsBase.Histogram = bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram =
+        bin_cmd_smooth( colors,
+                        mags,
+                        color_err,
+                        mag_err;
+                        weights = ones(promote_type(eltype(colors), eltype(mags)), size(colors)),
+                        edges=nothing,
+                        xlim=extrema(colors),
+                        ylim=extrema(mags),
+                        nbins=nothing,
+                        xwidth=nothing,
+                        ywidth=nothing )
 
 Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`StarFormationHistories.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
@@ -411,7 +349,20 @@ function bin_cmd_smooth( colors, mags, color_err, mag_err; weights = ones(promot
 end
 
 """
-    result::StatsBase.Histogram = partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, imf; dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram =
+        partial_cmd( m_ini::AbstractVector{<:Number},
+                     colors::AbstractVector{<:Number},
+                     mags::AbstractVector{<:Number},
+                     imf;
+                     dmod::Number=0,
+                     normalize_value::Number=1,
+                     mean_mass::Number=mean(imf),
+                     edges=nothing,
+                     xlim=extrema(colors),
+                     ylim=extrema(mags),
+                     nbins=nothing,
+                     xwidth=nothing,
+                     ywidth=nothing )
 
 Creates an error-free Hess diagram for stars from an isochrone with x-axis photometric `colors`, y-axis photometric magnitudes `mags`, and initial masses `m_ini`. Because this is not smoothed by photometric errors, it is not generally useful but is provided for comparative checks. Most arguments are as in [`bin_cmd`](@ref). The only unique keyword arguments are `normalize_value::Number` which is a multiplicative factor giving the effective stellar mass you want in the Hess diagram, and `mean_mass::Number` which is the mean stellar mass implied by the provided initial mass function `imf`. 
 """
@@ -434,7 +385,23 @@ function partial_cmd( m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:
 end
 
 """
-    result::StatsBase.Histogram = partial_cmd_smooth( m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs=[one for i in mags]; dmod::Number=0, normalize_value::Number=1, mean_mass=mean(imf), edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing, xwidth=nothing, ywidth=nothing )
+    result::StatsBase.Histogram =
+        partial_cmd_smooth( m_ini::AbstractVector{<:Number},
+                            mags::AbstractVector{<:AbstractVector{<:Number}},
+                            mag_err_funcs,
+                            y_index,
+                            color_indices,
+                            imf,
+                            completeness_funcs=[one for i in mags];
+                            dmod::Number=0,
+                            normalize_value::Number=1,
+                            mean_mass=mean(imf),
+                            edges=nothing,
+                            xlim=nothing,
+                            ylim=nothing,
+                            nbins=nothing,
+                            xwidth=nothing,
+                            ywidth=nothing )
 
 Main function for generating template Hess diagrams from a simple stellar population of stars from an isochrone, including photometric error and completeness.
 
