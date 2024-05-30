@@ -83,9 +83,7 @@ jobs:
         with:
           packages: |
             scheme-basic
-      cleveref
-      hyperref
-	  cache: true
+            cache: true
       - run: julia --project=docs docs/make.jl
         env:
           PYTHON: ''
