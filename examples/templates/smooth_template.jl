@@ -28,7 +28,7 @@ F150W = isochrone[:,3]
 distmod::Float64 = 25.0 # Distance modulus 
 
 # Set bins for Hess diagram
-edges = (range(-0.2, 1.2, length=75), range(distmod-6.0, distmod+5.0, length=100))
+edges = (range(-0.2, 1.2, length=75), range(distmod-6.0, distmod+5.0, length=75))
 
 # Set total stellar mass to normalize template to
 template_norm::Float64 = 1e7
@@ -83,25 +83,25 @@ signif[permutedims(obs_hess) .== 0] .= NaN
 # Plot
 fig,axs=plt.subplots(nrows=1,ncols=4,sharex=true,sharey=true,figsize=(20,5))
 fig.subplots_adjust(hspace=0.0,wspace=0.0)
-fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
+# fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
 
 axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:), s=1, marker=".", c="k", alpha=0.05, rasterized=true, label="CMD-Sampled")
-axs[1].text(0.1,0.9,"Sampled CMD",transform=axs[1].transAxes)
+axs[1].text(0.05,0.95,@sprintf("Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),transform=axs[1].transAxes,va="top",ha="left")
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7)), rasterized=true)
-axs[3].text(0.1,0.9,"Smooth Model",transform=axs[3].transAxes)
+axs[3].text(0.05,0.95,"Smooth Model",transform=axs[3].transAxes,va="top",ha="left")
 
 axs[2].imshow(permutedims(obs_hess), origin="lower", 
               extent=(extrema(edges[1])..., extrema(edges[2])...), 
               aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7),vmax=im1.get_clim()[2]), rasterized=true, label="CMD-Sampled")
-axs[2].text(0.1,0.9,"Sampled Hess Diagram",transform=axs[2].transAxes)
+axs[2].text(0.05,0.95,"Sampled Hess Diagram",transform=axs[2].transAxes,va="top",ha="left")
 
 im4 = axs[4].imshow( signif, 
                      origin="lower", extent=(extrema(edges[1])..., extrema(edges[2])...), 
                      aspect="auto", clim=(-2,2), rasterized=true)
-axs[4].text(0.1,0.9,L"(Obs - Model) / $\sigma$",transform=axs[4].transAxes)
+axs[4].text(0.05,0.95,L"(Obs - Model) / $\sigma$",transform=axs[4].transAxes,va="top",ha="left")
 
 plot_isochrones::Bool = true
 for i in eachindex(axs)
