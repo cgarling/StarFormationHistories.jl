@@ -82,6 +82,5 @@ jobs:
       - run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
       - run: julia --project=docs docs/make.jl
         env:
-          PYTHON: ''
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
