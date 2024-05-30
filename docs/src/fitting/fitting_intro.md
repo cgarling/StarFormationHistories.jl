@@ -54,7 +54,7 @@ At left is a population of stars sampled from an SSP with the methods described 
 
 ![Distribution of data - model residuals, in units of standard deviations.](figures/sigma_distribution.svg)
 
-The method used to create these our smooth Hess diagram templates is [`partial_cmd_smooth`](@ref).
+The method used to create these smooth Hess diagram templates is [`partial_cmd_smooth`](@ref).
 
 ```@docs
 partial_cmd_smooth
