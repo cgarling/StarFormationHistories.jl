@@ -83,7 +83,7 @@ jobs:
         with:
           packages: |
             scheme-basic
-            cache: true
+          cache: true
       - run: julia --project=docs docs/make.jl
         env:
           PYTHON: ''
