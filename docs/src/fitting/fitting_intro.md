@@ -40,6 +40,21 @@ Below we show a comparison of a smooth Hess diagram template constructed with [`
 
 ![Comparison of smooth Hess diagram template from `partial_cmd_smooth` and a Monte Carlo model made with `generate_stars_mass`.](figures/model_cmd.png)
 
+```@example
+mv("../../../examples/templates/template_compare.svg", "figures/template_compare.svg") # hide
+mv("../../../examples/templates/sigma_distribution.svg", "figures/sigma_distribution.svg") # hide
+nothing # hide
+```
+
+A worked example comparing a sampled stellar population with a smooth Hess diagram template is available in `examples/templates/smooth_template.jl`. The output figure is shown below. A distance modulus of 25 mag is used for this example, with photometric error and completeness functions roughly based on those we observe in the JWST/NIRCAM data of WLM (see [Weisz et al. 2024](https://ui.adsabs.harvard.edu/abs/2024ApJS..271...47W)). 
+
+![Comparison of CMD-sampled population with smooth Hess diagram template.](figures/template_compare.svg)
+
+At left is a population of stars sampled from an SSP with the methods described in the section of the documentation on [simulating CMDs](@ref simulate). The points from the isochrone are colored orange. The next figure shows the binned Hess diagram derived from these data. The next figure shows our smooth Hess diagram template calculated for this SSP. The final figure at right shows the residual between the data and model in units of standard deviations. These are sometimes called Pearson residuals. Below we show the distribution of these residuals, which should be Gaussian with mean 0 and standard deviation 1 if the model were perfect. We show a Gaussian PDF with standard deviation 1 and mean equal to the observed mean of the residuals for comparison.
+
+![Distribution of data - model residuals, in units of standard deviations.](figures/sigma_distribution.svg)
+
+The method used to create these smooth Hess diagram templates is [`partial_cmd_smooth`](@ref).
 
 ```@docs
 partial_cmd_smooth
