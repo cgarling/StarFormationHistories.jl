@@ -83,6 +83,7 @@ jobs:
         with:
           packages: |
             scheme-basic
+            cm-super
           cache: true
       - run: julia --project=docs docs/make.jl
         env:
