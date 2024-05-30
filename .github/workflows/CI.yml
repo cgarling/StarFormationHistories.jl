@@ -79,12 +79,7 @@ jobs:
             import StarFormationHistories
             DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
             doctest(StarFormationHistories)'
-      - uses: teatimeguest/setup-texlive-action@v3
-        with:
-          packages: |
-            scheme-basic
-            cm-super
-          cache: true
+      - run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
       - run: julia --project=docs docs/make.jl
         env:
           PYTHON: ''
