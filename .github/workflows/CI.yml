@@ -62,25 +62,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+      - run: python -m pip install --upgrade pip
+      - run: pip install matplotlib
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
       - uses: julia-actions/cache@v2
-      - run: |
+      - name: Instantiate docs project
+        run: |
           julia --project=docs -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
-        env:
-          PYTHON: ''
-      - run: |
+      - name: Run doctests
+        run: |
           julia --project=docs -e '
             import Documenter: doctest, DocMeta
             import StarFormationHistories
             DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
             doctest(StarFormationHistories)'
-      - run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
-      - run: julia --project=docs docs/make.jl
+      - name: Install tex dependencies
+        run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
+      - name: Make and deploy docs
+        run: julia --project=docs docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
