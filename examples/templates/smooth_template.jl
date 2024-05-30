@@ -8,6 +8,9 @@ import PyPlot as plt
 import PyPlot: @L_str # For LatexStrings
 plt.rc("text", usetex=true)
 plt.rc("font", family="serif", serif=["Computer Modern"], size=14)
+# This gets close but not quite
+# plt.matplotlib.rcParams["axes.formatter.use_mathtext"] = true
+# plt.rc("font", family="serif", serif=["cmr10"], size=14)
 plt.rc("figure", figsize=(5,5))
 plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
 # Disable interactive plotting when running on CI or building docs

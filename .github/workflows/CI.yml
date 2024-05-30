@@ -79,6 +79,11 @@ jobs:
             import StarFormationHistories
             DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
             doctest(StarFormationHistories)'
+      - uses: teatimeguest/setup-texlive-action@v3
+        with:
+          packages: |
+            scheme-basic
+	  cache: true
       - run: julia --project=docs docs/make.jl
         env:
           PYTHON: ''
