@@ -9,10 +9,16 @@ import PyPlot: @L_str # For LatexStrings
 plt.rc("text", usetex=true)
 plt.rc("font", family="serif", serif=["Computer Modern"], size=14)
 plt.rc("figure", figsize=(5,5))
-plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true) 
+plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
+# Disable interactive plotting when running on CI or building docs
+# if ("CI" in keys(ENV) && (ENV["CI"] == "true")) | (("DOCS_RUN" in keys(ENV)) && (ENV["DOCS_RUN"] == "true"))
+#     ENV["MPLBACKEND"] = "agg"
+#     plt.ioff()
+# end
 
 # Load example isochrone
-isochrone, mag_names = readdlm("../isochrone.txt", ' ', Float64, '\n'; header=true)
+# Path is relative to location of script, so use @__DIR__
+isochrone, mag_names = readdlm(joinpath(@__DIR__, "../isochrone.txt"), ' ', Float64, '\n'; header=true)
 # Unpack
 m_ini = isochrone[:,1]
 F090W = isochrone[:,2]
@@ -22,7 +28,7 @@ F150W = isochrone[:,3]
 distmod::Float64 = 25.0 # Distance modulus 
 
 # Set bins for Hess diagram
-edges = (range(-0.2, 1.2, length=75), range(distmod-6.0, distmod+3.0, length=75))
+edges = (range(-0.2, 1.2, length=75), range(distmod-6.0, distmod+5.0, length=100))
 
 # Set total stellar mass to normalize template to
 template_norm::Float64 = 1e7
@@ -83,25 +89,26 @@ axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:), s=1
 axs[1].text(0.1,0.9,"Sampled CMD",transform=axs[1].transAxes)
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
-      extent=(extrema(edges[1])..., extrema(edges[2])...), 
-      aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7)), rasterized=true)
+                    extent=(extrema(edges[1])..., extrema(edges[2])...), 
+                    aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7)), rasterized=true)
 axs[3].text(0.1,0.9,"Smooth Model",transform=axs[3].transAxes)
 
 axs[2].imshow(permutedims(obs_hess), origin="lower", 
-    extent=(extrema(edges[1])..., extrema(edges[2])...), 
-    aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7),vmax=im1.get_clim()[2]), rasterized=true, label="CMD-Sampled")
+              extent=(extrema(edges[1])..., extrema(edges[2])...), 
+              aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7),vmax=im1.get_clim()[2]), rasterized=true, label="CMD-Sampled")
 axs[2].text(0.1,0.9,"Sampled Hess Diagram",transform=axs[2].transAxes)
 
-# im4 = axs[4].imshow( permutedims(obs_hess) .- permutedims(template.weights), origin="lower",
-#                      extent=(extrema(edges[1])..., extrema(edges[2])...), 
-#                      aspect="auto", cmap="Greys", clim=(-50,50), rasterized=true)
 im4 = axs[4].imshow( signif, 
                      origin="lower", extent=(extrema(edges[1])..., extrema(edges[2])...), 
                      aspect="auto", clim=(-2,2), rasterized=true)
 axs[4].text(0.1,0.9,L"(Obs - Model) / $\sigma$",transform=axs[4].transAxes)
 
-for ax in axs
-    ax.set_xlabel(L"F090W$-$F150W")
+plot_isochrones::Bool = true
+for i in eachindex(axs)
+    axs[i].set_xlabel(L"F090W$-$F150W")
+    if plot_isochrones & (i != 4) # Don't plot on residual
+        axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange", s=1, alpha=0.3)
+    end
 end
 axs[1].set_ylabel("F150W")
 axs[1].set_ylim(reverse(extrema(edges[2]))) 
@@ -109,10 +116,10 @@ axs[1].set_xlim(extrema(edges[1]))
 
 fig.colorbar(im1, ax=axs[1:3], pad=0.005, fraction=0.075) # fraction prevents too much padding on right
 fig.colorbar(im4, ax=axs[4], pad=0.015)
-# plt.savefig("test_cov.pdf", bbox_inches="tight")
-println( "sum(obs) - sum(template): ", sum(obs_hess) .- sum(template.weights))
-println( "Difference of sums / sum: ", (sum(obs_hess) .- sum(template.weights)) ./ sum(obs_hess))
-println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .- permutedims(template.weights)) )
+# println( "sum(obs) - sum(template): ", sum(obs_hess) .- sum(template.weights))
+# println( "Difference of sums / sum: ", (sum(obs_hess) .- sum(template.weights)) ./ sum(obs_hess))
+# println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .- permutedims(template.weights)) )
+plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
 
 #################################
 # Distribution of σ discrepancies
@@ -129,3 +136,5 @@ let xplot = first(hist1[2]):0.01:last(hist1[2])
     ax1.plot( xplot, pdf.(Normal(mean_σ,1.0),xplot))
     ax1.axvline(mean_σ, c="k", ls="--")
 end
+plt.savefig(joinpath(@__DIR__,"sigma_distribution.svg"), bbox_inches="tight")
+

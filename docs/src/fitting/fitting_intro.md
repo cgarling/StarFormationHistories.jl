@@ -41,6 +41,15 @@ Below we show a comparison of a smooth Hess diagram template constructed with [`
 ![Comparison of smooth Hess diagram template from `partial_cmd_smooth` and a Monte Carlo model made with `generate_stars_mass`.](figures/model_cmd.png)
 
 
+```@example
+mv("../../../examples/templates/template_compare.svg", "figures/template_compare.svg") # hide
+mv("../../../examples/templates/sigma_distribution.svg", "figures/sigma_distribution.svg") # hide
+nothing # hide
+```
+
+![Caption.](figures/template_compare.svg)
+
+
 ```@docs
 partial_cmd_smooth
 ```

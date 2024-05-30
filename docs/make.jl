@@ -1,6 +1,18 @@
 using Documenter
 using StarFormationHistories
 
+
+# Run examples
+import PyPlot as plt
+plt.ioff()
+ENV["MPLBACKEND"] = "agg"
+# Run smooth_template.jl
+include("../examples/templates/smooth_template.jl")
+# Can't move yet as makedocs will clear the build folder.
+# Moving and showing in docs/src/fitting/fitting_intro.md.
+
+###########################################################
+
 # The `format` below makes it so that urls are set to "pretty" if you are pushing them to a hosting service, and basic if you are just using them locally to make browsing easier.
 
 # DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories; import Unitful; import UnitfulAstro); recursive=true)
