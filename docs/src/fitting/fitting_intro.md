@@ -46,7 +46,7 @@ mv("../../../examples/templates/sigma_distribution.svg", "figures/sigma_distribu
 nothing # hide
 ```
 
-A worked example comparing a sampled stellar population with a smooth Hess diagram template is available in `examples/templates/smooth_template.jl`. The output figure is shown below. A distance modulus of 25 mag is used for this example, with photometric error and completeness functions roughly based on those we observe in the JWST/NIRCAM data of WLM (see [Weisz et al. 2024](https://ui.adsabs.harvard.edu/abs/2024ApJS..271...47W)). 
+A worked example comparing a sampled stellar population with a smooth Hess diagram template is available in `examples/templates/smooth_template.jl`. The output figure is shown below. A distance modulus of 25 mag is used for this example, with photometric error and completeness functions roughly based on those we observe in the JWST/NIRCAM data of WLM (see [Weisz et al. 2024](https://ui.adsabs.harvard.edu/abs/2024ApJS..271...47W)). The isochrone used is a PARSEC isochrone of age 12.6 Gyr and [M/H] = -2.2. 
 
 ![Comparison of CMD-sampled population with smooth Hess diagram template.](figures/template_compare.svg)
 
