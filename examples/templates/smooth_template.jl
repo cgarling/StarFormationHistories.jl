@@ -58,6 +58,7 @@ template = SFH.partial_cmd_smooth( m_ini,
                                    edges = edges )
 
 # Sample analogous population
+# Do it twice to compare random--random as well as random--smooth
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W], ["F090W", "F150W"], template_norm, imf; dist_mod=distmod, binary_model=SFH.NoBinaries())[2] # index [1] is sampled masses, dont need them
 
 # Model photometric error and incompleteness
@@ -83,28 +84,49 @@ obs_hess = SFH.bin_cmd(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2
 signif = (permutedims(obs_hess) .- permutedims(template.weights)) ./ sqrt.(permutedims(template.weights))
 signif[permutedims(obs_hess) .== 0] .= NaN
 
+# Test comparison of random Hess diagram with another random Hess diagram
+function test_r_r(niter::Integer)
+    mean_result = Vector{Float64}(undef,niter)
+    std_result = similar(mean_result)
+    Base.Threads.@threads for i in 1:niter
+        starcat_mags2 = SFH.generate_stars_mass(m_ini, [F090W, F150W], ["F090W", "F150W"], template_norm, imf; dist_mod=distmod, binary_model=SFH.NoBinaries())[2] # index [1] is sampled masses, dont need them
+        obs_mags2 = SFH.model_cmd( starcat_mags2, [F090W_error, F150W_error], [F090W_complete, F150W_complete])
+        obs_mags2 = reduce(hcat,obs_mags2)
+        obs_hess2 = SFH.bin_cmd(view(obs_mags2,1,:) .- view(obs_mags2,2,:), view(obs_mags2,2,:), edges=edges).weights
+        # Calculate significance
+        λ = reshape( collect((obs_hess[i] + obs_hess2[i])/2 for i in eachindex(obs_hess)), size(obs_hess))
+        signif2 = (obs_hess .- obs_hess2) ./ sqrt.(  λ  )
+        tmp_mean = mean(filter(x->isfinite(x) & !iszero(x), signif2) )
+        tmp_std = std(filter(x->isfinite(x) & !iszero(x), signif2) )
+        mean_result[i] = tmp_mean
+        std_result[i] = tmp_std
+    end
+    return mean(abs.(mean_result)), mean(std_result), mean_result, std_result
+end
+
+############################################################################
 # Plot
 fig,axs=plt.subplots(nrows=1,ncols=4,sharex=true,sharey=true,figsize=(20,5))
 fig.subplots_adjust(hspace=0.0,wspace=0.0)
 # fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
 
 axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:), s=1, marker=".", c="k", alpha=0.05, rasterized=true, label="CMD-Sampled")
-axs[1].text(0.05,0.95,@sprintf("Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),transform=axs[1].transAxes,va="top",ha="left")
+axs[1].text(0.05,0.95,@sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),transform=axs[1].transAxes,va="top",ha="left")
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7)), rasterized=true)
-axs[3].text(0.05,0.95,"Smooth Model",transform=axs[3].transAxes,va="top",ha="left")
+axs[3].text(0.05,0.95,"c) Smooth Model",transform=axs[3].transAxes,va="top",ha="left")
 
 axs[2].imshow(permutedims(obs_hess), origin="lower", 
               extent=(extrema(edges[1])..., extrema(edges[2])...), 
               aspect="auto", cmap="Greys", norm=plt.matplotlib.colors.LogNorm(vmin=2.5 + log10(template_norm/1e7),vmax=im1.get_clim()[2]), rasterized=true, label="CMD-Sampled")
-axs[2].text(0.05,0.95,"Sampled Hess Diagram",transform=axs[2].transAxes,va="top",ha="left")
+axs[2].text(0.05,0.95,"b) Sampled Hess Diagram",transform=axs[2].transAxes,va="top",ha="left")
 
 im4 = axs[4].imshow( signif, 
                      origin="lower", extent=(extrema(edges[1])..., extrema(edges[2])...), 
                      aspect="auto", clim=(-2,2), rasterized=true)
-axs[4].text(0.05,0.95,L"(Obs - Model) / $\sigma$",transform=axs[4].transAxes,va="top",ha="left")
+axs[4].text(0.05,0.95,L"d) (Obs - Model) / $\sigma$",transform=axs[4].transAxes,va="top",ha="left")
 
 plot_isochrones::Bool = true
 for i in eachindex(axs)
