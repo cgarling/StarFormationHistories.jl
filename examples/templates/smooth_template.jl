@@ -58,7 +58,6 @@ template = SFH.partial_cmd_smooth( m_ini,
                                    edges = edges )
 
 # Sample analogous population
-# Do it twice to compare random--random as well as random--smooth
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W], ["F090W", "F150W"], template_norm, imf; dist_mod=distmod, binary_model=SFH.NoBinaries())[2] # index [1] is sampled masses, dont need them
 
 # Model photometric error and incompleteness
