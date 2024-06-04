@@ -178,7 +178,7 @@ fig.colorbar(im4, ax=axs[4], pad=0.015)
 #     sum(obs_hess))
 # println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .-
 #     permutedims(template.weights)) )
-# plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
+plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
 
 #################################
 # Distribution of σ discrepancies
