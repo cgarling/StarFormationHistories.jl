@@ -57,12 +57,14 @@ jobs:
       - uses: julia-actions/julia-buildpkg@v1
       - run: julia --color=yes -e 'using Pkg; Pkg.add("Aqua")'
       - run: julia --project=@. --color=yes -e 'using Aqua, StarFormationHistories; Aqua.test_all(StarFormationHistories; ambiguities=false, piracies=(treat_as_own=[mean],))'
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: cpython3
         with:
           python-version: '3.x'
       - run: python -m pip install --upgrade pip
@@ -71,12 +73,14 @@ jobs:
         with:
           version: '1'
       - uses: julia-actions/cache@v2
-      - name: Instantiate docs project
+      - name: Instantiate and build docs project
         run: |
           julia --project=docs -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
+        env:
+          PYTHON: ${{ steps.cpython3.outputs.python-path }}
       - name: Run doctests
         run: |
           julia --project=docs -e '
