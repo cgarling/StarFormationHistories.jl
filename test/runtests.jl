@@ -10,6 +10,12 @@ import DynamicHMC
 # import Optim
 using Test, SafeTestsets
 
+# Run doctests first
+import Documenter: DocMeta, doctest
+DocMeta.setdocmeta!(SFH, :DocTestSetup, :(using StarFormationHistories); recursive=true)
+doctest(SFH)
+
+# Setup for other tests
 const seedval = 58392 # Seed to use when instantiating new StableRNG objects
 const float_types = (Float32, Float64) # Float types to test most functions with
 const float_type_labels = ("Float32", "Float64") # String labels for the above float_types

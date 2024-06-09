@@ -24,6 +24,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 Distributions = "0.25"
+Documenter = "1"
 DynamicHMC = "3.4.2" # Changed stack_posterior_matrices order https://github.com/tpapp/DynamicHMC.jl/pull/175
 InitialMassFunctions = "0.1"
 Interpolations = "0.13.4, 0.14, 0.15"
@@ -48,6 +49,7 @@ julia = "1.7"
 
 [extras]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DynamicHMC = "bbc10e6e-7c05-544b-b16e-64fede858acb"
 InitialMassFunctions = "e9251ff4-c148-4db3-bf46-89407750fae0"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -60,4 +62,4 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Distributions", "DynamicHMC", "InitialMassFunctions", "LinearAlgebra", "MCMCChains", "QuadGK", "Random", "SafeTestsets", "StableRNGs", "StaticArrays", "Test"]
+test = ["Distributions", "Documenter", "DynamicHMC", "InitialMassFunctions", "LinearAlgebra", "MCMCChains", "QuadGK", "Random", "SafeTestsets", "StableRNGs", "StaticArrays", "Test"]
