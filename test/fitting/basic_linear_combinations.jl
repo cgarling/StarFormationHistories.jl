@@ -1,5 +1,5 @@
-import Distributions: Poisson
-import StableRNGs: StableRNG
+using Distributions: Poisson
+using StableRNGs: StableRNG
 import StarFormationHistories as SFH
 using Test
 
