@@ -11,12 +11,13 @@ import LinearAlgebra: diag, Hermitian, mul!
 import LogDensityProblems # For interfacing with DynamicHMC
 import LoopVectorization: @turbo
 import Optim
+import Printf: @sprintf
 import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 import Random: AbstractRNG, default_rng, rand
 import Roots: find_zero # For mass_limits in simulate.jl
 import SpecialFunctions: erf
 import StaticArrays: SVector, SMatrix, sacollect
-import StatsBase: fit, Histogram, Weights, sample, mean
+import StatsBase: fit, Histogram, Weights, sample, mean, median
 import KissMCMC
 import MCMCChains
 
