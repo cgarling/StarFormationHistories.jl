@@ -681,6 +681,11 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
 
     @testset "utilities" begin
+        # Uses extensions, requires Julia >= 1.9
+        if VERSION >= v"1.9"
+            @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
+        end
+
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]
             @testset "$label" begin
