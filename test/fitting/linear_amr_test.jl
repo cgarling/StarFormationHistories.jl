@@ -1,10 +1,10 @@
-import Distributions: Poisson
+using Distributions: Poisson
 import DynamicHMC
-import StableRNGs: StableRNG
+using StableRNGs: StableRNG
 import StarFormationHistories as SFH
 
-import LinearAlgebra: Diagonal
-import Random: rand!
+using LinearAlgebra: Diagonal
+using Random: rand!
 using Test
 
 
