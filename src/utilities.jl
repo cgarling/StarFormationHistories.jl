@@ -149,11 +149,11 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
     Threads.@threads for i in eachindex(completeness)
         # Get the stars in the current bin
         inbin = findall((input_mags .>= bins[i]) .&
-                        (input_mags .< bins[i+1]))
-        tmp_asts = ASTs[inbin]
-        if length(tmp_asts) == 0
+            (input_mags .< bins[i+1]))
+        tmp_asts = ASTs[inbin,:]
+        if size(tmp_asts,1) == 0
             @warn(@sprintf("No input magnitudes found in bin ranging from %.6f => %.6f \
-                           in `ASTs.inmag`, please revise `bins` argument.", bins[i],
+                               in `ASTs.inmag`, please revise `bins` argument.", bins[i],
                            bins[i+1]))
             completeness[i] = NaN
             bias[i] = NaN
@@ -161,8 +161,8 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
             bin_centers[i] = bins[i] + (bins[i+1] - bins[i])/2
         end
         # Let selectfunc determine which ASTs are properly detected
-        good = selectfunc.(tmp_asts)
-        completeness[i] = count(good) / length(tmp_asts)
+        good = [selectfunc(row) for row in eachrow(tmp_asts)]
+        completeness[i] = count(good) / size(tmp_asts,1)
         if count(good) > 0
             inmags = getproperty(tmp_asts, inmag)[good]
             outmags = getproperty(tmp_asts, outmag)[good]
