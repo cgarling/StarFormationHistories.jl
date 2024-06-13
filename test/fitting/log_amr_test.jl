@@ -1,8 +1,8 @@
-import Distributions: Poisson
+using Distributions: Poisson
 # import ForwardDiff
 import StarFormationHistories as SFH
-import StableRNGs: StableRNG
-import Random: rand!
+using StableRNGs: StableRNG
+using Random: rand!
 using Test
 
 # Now try fixed_log_amr that uses an AMR that is logarithmic in [M/H]

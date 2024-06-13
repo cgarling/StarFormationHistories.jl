@@ -1,10 +1,9 @@
-# import DataFrames: DataFrame
-using StarFormationHistories: process_ASTs
 using StableRNGs: StableRNG
 using StatsBase: median, mean
 using Test
 using TypedTables: Table
 using DataFrames: DataFrame
+using StarFormationHistories: process_ASTs
 
 const seedval = 58392 # Seed to use when instantiating new StableRNG objects
 
