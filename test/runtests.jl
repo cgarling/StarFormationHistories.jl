@@ -1,10 +1,10 @@
 import StarFormationHistories as SFH
-import InitialMassFunctions: Salpeter1955, Kroupa2001
-import Distributions: Poisson, Uniform, pdf, median
+using InitialMassFunctions: Salpeter1955, Kroupa2001
+using Distributions: Poisson, Uniform, pdf, median
 import Random
-import StableRNGs: StableRNG
-import StaticArrays: SVector
-import QuadGK: quadgk
+using StableRNGs: StableRNG
+using StaticArrays: SVector
+using QuadGK: quadgk
 import MCMCChains
 import DynamicHMC
 # import Optim
