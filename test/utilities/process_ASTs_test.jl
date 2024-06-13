@@ -71,4 +71,7 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
     @test all(result_df[2] .== 1)
     @test result_df[3] ≈ a_bias
     @test result_df[4] ≈ a_error
+
+    # Could use more tests to cover edge cases
+    # (e.g., empty bins, 0% completeness)
 end

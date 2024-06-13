@@ -169,8 +169,9 @@ You could call this method as
 
 ```julia
 import TypedTables: Table
-process_ASTs(Table(in=F606Wi, out=F606Wo, good=flag),
-             :in, :out, x->x.good==true)
+process_ASTs(Table(input=F606Wi, output=F606Wo, good=flag),
+             :input, :output, minimum(F606Wi):0.1:maximum(F606Wi),
+             x -> (x.good==true) & (x.output != 99.999))
 ```
 
 See also the tests in `test/utilities/process_ASTs_test.jl`.
