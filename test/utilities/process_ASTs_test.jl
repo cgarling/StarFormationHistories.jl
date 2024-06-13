@@ -1,9 +1,10 @@
 # import DataFrames: DataFrame
-import StableRNGs: StableRNG
-import StarFormationHistories: process_ASTs
-import StatsBase: median, mean
+using StarFormationHistories: process_ASTs
+using StableRNGs: StableRNG
+using StatsBase: median, mean
 using Test
-import TypedTables: Table
+using TypedTables: Table
+using DataFrames: DataFrame
 
 const seedval = 58392 # Seed to use when instantiating new StableRNG objects
 
@@ -18,6 +19,8 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
     bias = [0.01 for b in bin_centers]
     inmags = Vector{Float64}(undef, nstars)
     outmags = similar(inmags)
+    # Flag that indicates whether an AST is good or not; all true for now
+    flag = trues(length(inmags))
     # Since we are using low nstars to test fast, the sample bias and error
     # will not be exactly equal to the values in `bias` and `error` above.
     # We will record the actual sample bias and error in these vectors
@@ -37,22 +40,36 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         a_bias[i] = median(curr_diff)
         a_error[i] = median(abs.(curr_diff))
     end
-    result = process_ASTs(Table(in=inmags, out=outmags), :in, :out, bins, x->true)
+    result = process_ASTs(Table(in=inmags, out=outmags, flag=flag),
+                          :in, :out, bins, x->x.flag==true)
     @test result isa NTuple{4, Vector{Float64}}
+    @test all(result[2] .== 1)
     @test result[3] ≈ a_bias
     @test result[4] ≈ a_error
     # Use different statistic and test the answer is different
-    result2 = process_ASTs(Table(in=inmags, out=outmags), :in, :out, bins, x->true;
+    result2 = process_ASTs(Table(in=inmags, out=outmags, flag=flag),
+                           :in, :out, bins, x->x.flag==true;
                            statistic=mean)
     @test result2 isa NTuple{4, Vector{Float64}}
+    @test all(result2[2] .== 1)
     @test !(result2[3] ≈ a_bias)
     @test !(result2[4] ≈ a_error)
     # Make sure selectfunc is properly utilized to filter input ASTs
     outmags2 = copy(outmags)
     outmags2[1:100] .= 99.999
-    result3 = process_ASTs(Table(in=inmags, out=outmags2), :in, :out, bins, !=(99.999))
+    result3 = process_ASTs(Table(in=inmags, out=outmags2, flag=flag),
+                           :in, :out, bins, x-> (x.flag==true) & (x.out != 99.999))
     @test result3 isa NTuple{4, Vector{Float64}}
-    # Results wont be exactly the same but close
+    # Make sure completeness is properly affected by bad stars
+    @test all(result3[2] .== vcat((nstars_iter-100)/nstars_iter, ones(length(bin_centers)-1)))
+    # Bias and error wont be exactly the same but close
     @test result3[3] ≈ a_bias rtol=1e-2
     @test result3[4] ≈ a_error rtol=1e-2
+    # Test on dataframe
+    result_df = process_ASTs(DataFrame(in=inmags, out=outmags, flag=flag),
+                             :in, :out, bins, x->x.flag==true)
+    @test result_df isa NTuple{4, Vector{Float64}}
+    @test all(result_df[2] .== 1)
+    @test result_df[3] ≈ a_bias
+    @test result_df[4] ≈ a_error
 end
