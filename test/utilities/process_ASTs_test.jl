@@ -109,5 +109,18 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         @test result5[4][1] ≈ a_error[1]
         @test isnan(result5[4][2])
         @test result5[4][3:end] ≈ a_error[3:end]
+
+        # Test case where first bin has no input stars
+        result6 = process_ASTs(ttype(in=inmags, out=outmags, flag=flag),
+                               :in, :out, vcat(bins, last(bins) + step(bins)),
+                               x -> (x.flag == true);
+                               statistic=median)
+        @test result6 isa NTuple{4, Vector{Float64}}
+        @test isnan(result6[2][end])
+        @test all(result6[2][begin:end-1] .== 1)
+        @test isnan(result6[3][end])
+        @test result6[3][begin:end-1] ≈ a_bias
+        @test isnan(result6[4][end])
+        @test result6[4][begin:end-1] ≈ a_error
     end
 end

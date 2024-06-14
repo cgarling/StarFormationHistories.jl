@@ -31,6 +31,7 @@ function process_ASTs(ASTs::Table, inmag::Symbol, outmag::Symbol,
             bias[i] = NaN
             error[i] = NaN
             bin_centers[i] = bins[i] + (bins[i+1] - bins[i])/2
+            continue
         end
         # Let selectfunc determine which ASTs are properly detected
         good = selectfunc.(tmp_asts)
