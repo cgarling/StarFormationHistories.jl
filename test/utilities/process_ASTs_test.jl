@@ -39,39 +39,75 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         a_bias[i] = median(curr_diff)
         a_error[i] = median(abs.(curr_diff))
     end
-    result = process_ASTs(Table(in=inmags, out=outmags, flag=flag),
-                          :in, :out, bins, x->x.flag==true)
-    @test result isa NTuple{4, Vector{Float64}}
-    @test all(result[2] .== 1)
-    @test result[3] ≈ a_bias
-    @test result[4] ≈ a_error
-    # Use different statistic and test the answer is different
-    result2 = process_ASTs(Table(in=inmags, out=outmags, flag=flag),
-                           :in, :out, bins, x->x.flag==true;
-                           statistic=mean)
-    @test result2 isa NTuple{4, Vector{Float64}}
-    @test all(result2[2] .== 1)
-    @test !(result2[3] ≈ a_bias)
-    @test !(result2[4] ≈ a_error)
-    # Make sure selectfunc is properly utilized to filter input ASTs
-    outmags2 = copy(outmags)
-    outmags2[1:100] .= 99.999
-    result3 = process_ASTs(Table(in=inmags, out=outmags2, flag=flag),
-                           :in, :out, bins, x-> (x.flag==true) & (x.out != 99.999))
-    @test result3 isa NTuple{4, Vector{Float64}}
-    # Make sure completeness is properly affected by bad stars
-    @test all(result3[2] .== vcat((nstars_iter-100)/nstars_iter, ones(length(bin_centers)-1)))
-    # Bias and error wont be exactly the same but close
-    @test result3[3] ≈ a_bias rtol=1e-2
-    @test result3[4] ≈ a_error rtol=1e-2
-    # Test on dataframe
-    result_df = process_ASTs(DataFrame(in=inmags, out=outmags, flag=flag),
-                             :in, :out, bins, x->x.flag==true)
-    @test result_df isa NTuple{4, Vector{Float64}}
-    @test all(result_df[2] .== 1)
-    @test result_df[3] ≈ a_bias
-    @test result_df[4] ≈ a_error
+    # Loop over all supported table types
+    for ttype in (Table, DataFrame)
+        # Basic call
+        result = process_ASTs(ttype(in=inmags, out=outmags, flag=flag),
+                              :in, :out, bins, x->x.flag==true; statistic=median)
+        @test result isa NTuple{4, Vector{Float64}}
+        @test all(result[2] .== 1)
+        @test result[3] ≈ a_bias
+        @test result[4] ≈ a_error
+        
+        # Use different statistic and test the answer is different
+        result2 = process_ASTs(ttype(in=inmags, out=outmags, flag=flag),
+                               :in, :out, bins, x->x.flag==true;
+                               statistic=mean)
+        @test result2 isa NTuple{4, Vector{Float64}}
+        @test all(result2[2] .== 1)
+        @test !(result2[3] ≈ a_bias)
+        @test !(result2[4] ≈ a_error)
+        
+        # Make sure selectfunc is properly utilized to filter input ASTs
+        outmags2 = copy(outmags)
+        outmags2[1:100] .= 99.999
+        result3 = process_ASTs(ttype(in=inmags, out=outmags2, flag=flag),
+                               :in, :out, bins,
+                               x-> (x.flag==true) & (x.out != 99.999);
+                               statistic=median)
+        @test result3 isa NTuple{4, Vector{Float64}}
+        # Make sure completeness is properly affected by bad stars
+        @test all(result3[2] .== vcat((nstars_iter-100)/nstars_iter,
+                                      ones(length(bin_centers)-1)))
+        # Bias and error wont be exactly the same but close
+        @test result3[3] ≈ a_bias rtol=1e-2
+        @test result3[4] ≈ a_error rtol=1e-2
 
-    # Could use more tests to cover edge cases
-    # (e.g., empty bins, 0% completeness)
+        # Test case where first bin has input stars but
+        # none pass `selectfunc` criteria
+        result4 = process_ASTs(ttype(in=inmags, out=outmags, flag=flag),
+                              :in, :out, bins,
+                              x -> (x.flag == true) & (x.in > bins[2]);
+                              statistic=median)
+        @test result4 isa NTuple{4, Vector{Float64}}
+        @test result4[2][1] == 0.0
+        @test result4[2][2:end] == ones(length(bin_centers)-1)
+        @test isnan(result4[3][1])
+        @test result4[3][2:end] ≈ a_bias[2:end]
+        @test isnan(result4[4][1])
+        @test result4[4][2:end] ≈ a_error[2:end]
+
+        # Test case where second bin has input stars but
+        # none pass `selectfunc` criteria
+        # This case used to set error and bias
+        # to the previous bin value.
+        # The argument was that this would make the output
+        # continuous, but it is not strictly correct. Now we return NaN
+        # for bias and error whenever the number of detected stars in
+        # a bin is 0.
+        result5 = process_ASTs(ttype(in=inmags, out=outmags, flag=flag),
+                              :in, :out, bins,
+                              x -> (x.flag == true) & ((x.in < bins[2]) | (x.in >= bins[3]));
+                              statistic=median)
+        @test result5 isa NTuple{4, Vector{Float64}}
+        @test result5[2][1] == 1.0
+        @test result5[2][2] == 0.0
+        @test result5[2][3:end] == ones(length(bin_centers)-2)
+        @test result5[3][1] ≈ a_bias[1]
+        @test isnan(result5[3][2])
+        @test result5[3][3:end] ≈ a_bias[3:end]
+        @test result5[4][1] ≈ a_error[1]
+        @test isnan(result5[4][2])
+        @test result5[4][3:end] ≈ a_error[3:end]
+    end
 end

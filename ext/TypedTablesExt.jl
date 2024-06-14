@@ -25,7 +25,7 @@ function process_ASTs(ASTs::Table, inmag::Symbol, outmag::Symbol,
         tmp_asts = ASTs[inbin]
         if length(tmp_asts) == 0
             @warn(@sprintf("No input magnitudes found in bin ranging from %.6f => %.6f \
-                               in `ASTs.inmag`, please revise `bins` argument.", bins[i],
+                            in `ASTs.inmag`, please revise `bins` argument.", bins[i],
                            bins[i+1]))
             completeness[i] = NaN
             bias[i] = NaN
@@ -43,13 +43,11 @@ function process_ASTs(ASTs::Table, inmag::Symbol, outmag::Symbol,
             error[i] = statistic(abs.(diff))
             bin_centers[i] = mean(inmags)
         else
-            if i != firstindex(completeness)
-                bias[i] = bias[i-1]
-                error[i] = error[i-1]
-            else
-                bias[i] = NaN
-                error[i] = NaN
-            end
+            @warn(@sprintf("Completeness measured to be 0 in bin ranging from \
+                            %.6f => %.6f. The error and bias values for this bin \
+                            will be returned as NaN.", bins[i], bins[i+1]))
+            bias[i] = NaN
+            error[i] = NaN
             bin_centers[i] = bins[i] + (bins[i+1] - bins[i])/2
         end
     end
