@@ -1,22 +1,25 @@
 module StarFormationHistories
 
-import Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    quantile, Multivariate, MvNormal, _rand!, sampler, Uniform # cdf
+using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
+    quantile, Multivariate, MvNormal, sampler, Uniform # cdf
+import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
-import Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw
+using Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
 # Need mul! for composite!, ∇loglikelihood!;
-import LinearAlgebra: diag, Hermitian, mul!
+using LinearAlgebra: diag, Hermitian, mul!
 import LogDensityProblems # For interfacing with DynamicHMC
-import LoopVectorization: @turbo
+using LoopVectorization: @turbo
 import Optim
-import QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
-import Random: AbstractRNG, default_rng, rand
-import Roots: find_zero # For mass_limits in simulate.jl
-import SpecialFunctions: erf
-import StaticArrays: SVector, SMatrix, sacollect
-import StatsBase: fit, Histogram, Weights, sample, mean
+using Printf: @sprintf
+using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
+using Random: AbstractRNG, default_rng, rand
+using Roots: find_zero # For mass_limits in simulate.jl
+using SpecialFunctions: erf
+using StaticArrays: SVector, SMatrix, sacollect
+using StatsBase: fit, Histogram, Weights, sample, median
+import StatsBase: mean # Extending
 import KissMCMC
 import MCMCChains
 

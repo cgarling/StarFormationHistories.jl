@@ -132,6 +132,52 @@ Reported values for some HST data were `a=1.05, b=10.0, c=32.0, d=0.01`.
 """
 exp_photerr(m, a, b, c, d) = a^(b * (m-c)) + d
 
+"""
+    process_ASTs(ASTs::Union{DataFrames.DataFrame,
+                             TypedTables.Table},
+                 inmag::Symbol,
+                 outmag::Symbol,
+                 bins::AbstractVector{<:Real},
+                 selectfunc;
+                 statistic=StatsBase.median)
+
+Processes a table of artificial stars to calculate photometric completeness, bias, and error across the provided `bins`. This method has no default implementation and is implemented in package extensions that rely on either `DataFrames.jl` or `TypedTables.jl` being loaded into your Julia session to load the relevant method. This method therefore requires Julia 1.9 or greater to use.
+
+# Arguments
+ - `ASTs` is the table of artificial stars to be analyzed.
+ - `inmag` is the column name in symbol format (e.g., :F606Wi) that corresponds to the intrinsic (input) magnitudes of the artificial stars.
+ - `outmag` is the column name in symbol format (e.g., :F606Wo) that corresponds to the measured (output) magnitude of the artificial stars.
+ - `bins` give the bin edges to be used when computing the binned statistics.
+ - `selectfunc` is a method that takes a single row from `ASTs`, corresponding to a single artificial star, and returns a boolean that is `true` if the star is considered successfully measured.
+
+# Keyword Arguments
+ - `statistic` is the method that will be used to determine the bias and error, i.e., `bias = statistic(out .- in)` and `error = statistic(abs.(out .- in))`. By default we use `StatsBase.median`, but you could instead use a simple or sigma-clipped mean if so desired.
+
+# Returns
+This method returns a `result` of type `NTuple{4,Vector{Float64}}`. Each vector is of length `length(bins)-1`. `result` contains the following elements, each of which are computed over the provided `bins` considering only artificial stars for which `selectfunc` returned `true`:
+ - `result[1]` contains the mean input magnitude of the stars in each bin.
+ - `result[2]` contains the completeness value measured for each bin, defined as the fraction of input stars in each bin for which `selectfunc` returned `true`.
+ - `result[3]` contains the photometric bias measured for each bin, defined as `statistic(out .- in)`, where `out` are the measured (output) magnitudes and `in` are the intrinsic (input) magnitudes.
+ - `result[4]` contains the photometric error measured for each bin, defined as `statistic(abs.(out .- in))`, with `out` and `in` defined as above.
+
+# Examples
+Let
+ - `F606Wi` be a vector containing the input magnitudes of your artificial stars
+ - `F606Wo` be a vector containing the measured magnitudes of the artificial stars, where a value of 99.999 indicates a non-detection.
+ - `flag` be a vector of booleans that indicates whether the artificial star passed additional quality cuts (star-galaxy separation, etc.)
+You could call this method as
+
+```julia
+import TypedTables: Table
+process_ASTs(Table(input=F606Wi, output=F606Wo, good=flag),
+             :input, :output, minimum(F606Wi):0.1:maximum(F606Wi),
+             x -> (x.good==true) & (x.output != 99.999))
+```
+
+See also the tests in `test/utilities/process_ASTs_test.jl`.
+"""
+function process_ASTs end
+
 # Numerical utilities
 
 # function estimate_mode(data::AbstractVector{<:Real})

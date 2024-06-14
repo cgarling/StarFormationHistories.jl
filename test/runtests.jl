@@ -1,10 +1,10 @@
 import StarFormationHistories as SFH
-import InitialMassFunctions: Salpeter1955, Kroupa2001
-import Distributions: Poisson, Uniform, pdf, median
+using InitialMassFunctions: Salpeter1955, Kroupa2001
+using Distributions: Poisson, Uniform, pdf, median
 import Random
-import StableRNGs: StableRNG
-import StaticArrays: SVector
-import QuadGK: quadgk
+using StableRNGs: StableRNG
+using StaticArrays: SVector
+using QuadGK: quadgk
 import MCMCChains
 import DynamicHMC
 # import Optim
@@ -681,6 +681,11 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
 
     @testset "utilities" begin
+        # Uses extensions, requires Julia >= 1.9
+        if VERSION >= v"1.9"
+            @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
+        end
+
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]
             @testset "$label" begin
