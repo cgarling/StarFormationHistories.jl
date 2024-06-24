@@ -81,30 +81,39 @@ interpolate_mini(m_ini::AbstractVector{<:Number},
 
 """
     mini_spacing(m_ini::AbstractVector{<:Number},
+                 colors::AbstractVector{<:Number},
                  mags::AbstractVector{<:Number},
                  Δmag,
                  ret_spacing::Bool = false)
 
-Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding magnitude vector `mags`. Will compute the new initial mass vector such that the absolute difference between adjacent points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
+Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding y-axis magnitude vector `mags` and x-axis color vector `color` to be used to construct a model Hess diagram. Will compute the new initial mass vector such that the distance between adjacent isochrone points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
 ```julia
 julia> mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16],
-                    [13.545, 12.899, 12.355, 11.459, 10.947], 0.1, false)
+                    [1.0, 0.99, 0.98, 0.97, 0.96],
+                    [13.545, 12.899, 12.355, 11.459, 10.947],
+                    0.1, false)
 ```
 """
-function mini_spacing(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number}, Δmag,
+function mini_spacing(m_ini::AbstractVector{<:Number},
+                      colors::AbstractVector{<:Number},
+                      mags::AbstractVector{<:Number},
+                      Δmag,
                       ret_spacing::Bool=false)
-    @assert axes(m_ini) == axes(mags)
+    @assert axes(m_ini) == axes(mags) == axes(colors)
     new_mini = Vector{Float64}(undef,1)
     new_mini[1] = first(m_ini)
     # Sort the input m_ini and mags. This could be optional. 
     idx = sortperm(m_ini)
     m_ini = m_ini[idx]
     mags = mags[idx]
-    # Loop through the indices, testing if adjacent magnitudes are
+    colors = colors[idx]
+    # Loop through the indices, testing if adjacent CMD points are
     # different by less than Δm.
-    for i in eachindex(m_ini, mags)[begin:end-1]
-        diffi = abs(mags[i+1] - mags[i])
+    for i in eachindex(m_ini, mags, colors)[begin:end-1]
+        Δx = colors[i+1] - colors[i]
+        Δy = mags[i+1] - mags[i]
+        diffi = hypot(Δx, Δy)
         if diffi > Δmag # Requires interpolation
             npoints = round(Int, diffi / Δmag, RoundUp)
             Δmass = m_ini[i+1] - m_ini[i]
@@ -418,7 +427,7 @@ function partial_cmd(m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:N
                      mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors),
                      ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
     # Resample the isochrone magnitudes to a denser m_ini array
-    new_mini, new_spacing = mini_spacing(m_ini, mags, 0.01, true)
+    new_mini, new_spacing = mini_spacing(m_ini, colors, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
     new_iso_mags = interpolate_mini(m_ini, mags, new_mini) .+ dmod
     # Approximate the IMF weights on each star in the isochrone as
@@ -490,8 +499,9 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
     # Resample the isochrone magnitudes to a denser m_ini array
-    # new_mini, new_spacing = mini_spacing(m_ini, imf, 1000, true)
-    new_mini, new_spacing = mini_spacing(m_ini, mags[y_index], 0.01, true)
+    ymags = mags[y_index]
+    colors = mags[first(color_indices)] .- mags[last(color_indices)]
+    new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, 0.01, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
     colors = new_iso_mags[color_indices[1]] .- new_iso_mags[color_indices[2]]
