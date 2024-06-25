@@ -88,6 +88,7 @@ jobs:
             import StarFormationHistories
             DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
             doctest(StarFormationHistories)'
+      - run: sudo apt-get update
       - name: Install tex dependencies
         run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
       - name: Make and deploy docs
