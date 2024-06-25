@@ -75,7 +75,7 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Instantiate and build docs project
         run: |
-          julia --project=docs -e '
+          julia --project=docs --color=yes -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
@@ -83,7 +83,7 @@ jobs:
           PYTHON: ${{ steps.cpython3.outputs.python-path }}
       - name: Run doctests
         run: |
-          julia --project=docs -e '
+          julia --project=docs --color=yes -e '
             import Documenter: doctest, DocMeta
             import StarFormationHistories
             DocMeta.setdocmeta!(StarFormationHistories, :DocTestSetup, :(using StarFormationHistories); recursive=true)
@@ -92,7 +92,7 @@ jobs:
       - name: Install tex dependencies
         run: sudo apt-get install dvipng texlive-latex-extra texlive-fonts-recommended cm-super
       - name: Make and deploy docs
-        run: julia --project=docs docs/make.jl
+        run: julia --project=docs --color=yes docs/make.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
