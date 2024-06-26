@@ -212,11 +212,18 @@ centroid(model::GaussianPSFAsymmetric) = (model.x0, model.y0)
 
 Exact analytic integral for the asymmetric, non-rotated 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
 """
-gaussian_psf_asymmetric_integral_halfpix(x::Real,y::Real,x0::Real,y0::Real,
-                                         σx::Real,σy::Real,A::Real,B::Real) = 
-    0.25 * A * erf((x+0.5-x0) / (sqrt(2) * σx), (x-0.5-x0) / (sqrt(2) * σx)) *
-        erf((y+0.5-y0) / (sqrt(2) * σy), (y-0.5-y0) / (sqrt(2) * σy)) + B
-evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) = 
+@inline function gaussian_psf_asymmetric_integral_halfpix(x::T, y::T, x0::T, y0::T,
+                                                          σx::T, σy::T, A::T, B::T) where T <: Real
+    T <: Integer ? onehalf = 0.5 : onehalf = T(1//2) # Cover all integer case
+    sqrt2 = sqrt(T(2))
+    Δx = x - x0
+    Δy = y - y0
+    return A / 4 * erf((Δx + onehalf) / (sqrt2 * σx), (Δx - onehalf) / (sqrt2 * σx)) *
+           erf((Δy + onehalf) / (sqrt2 * σy), (Δy-onehalf) / (sqrt2 * σy)) + B
+end
+@inline gaussian_psf_asymmetric_integral_halfpix(args::Vararg{Real,8}) = 
+    gaussian_psf_asymmetric_integral_halfpix(promote(args...)...)
+@inline evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) = 
     gaussian_psf_asymmetric_integral_halfpix(x, y, parameters(model)...)
 
 ##################################
