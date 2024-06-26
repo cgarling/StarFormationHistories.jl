@@ -503,6 +503,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 end
             end
         end
+
+        @safetestset "Template Construction" include("templates/template_test.jl")
         
         # Benchmarking
         # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
