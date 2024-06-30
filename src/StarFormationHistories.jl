@@ -241,38 +241,37 @@ struct GaussianPSFCovariant{T <: Real} <: RealSpaceKernel
     y0::T
     σx::T
     σy::T
+    cov_mult::T # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
     A::T
     B::T
-    function GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real)
-        T = promote(x0,y0,σx,σy)
-        T_type = eltype(T)
-        new{T_type}(T[1],T[2],T[3],T[4],one(T_type),zero(T_type))
-    end
-    function GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,A::Real)
-        T = promote(x0,y0,σx,σy,A)
-        T_type = eltype(T)
-        new{T_type}(T[1],T[2],T[3],T[4],T[5],zero(T_type))
-    end
-    function GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
-        T = promote(x0,y0,σx,σy,A,B)
+    GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real) = 
+        GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, 1, 0)
+    GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real,A::Real) =
+        GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, A, 0)
+    function GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real,A::Real,B::Real)
+        @assert (cov_mult == 1) || (cov_mult == -1) || (cov_mult == 0)
+        T = promote(x0,y0,σx,σy,cov_mult,A,B)
         new{eltype(T)}(T...)
     end
 end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
-parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy, model.A, model.B)
+parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
+                                           model.cov_mult, model.A, model.B)
 # function Base.size(model::GaussianPSFCovariant)
 #     σx,σy = model.σx,model.σy
 #     return (ceil(Int,σx) * 10, ceil(Int,σy) * 10)
 # end
 Base.size(model::GaussianPSFCovariant) = (10 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
-@inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
+@inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
+                                        σy::Real,cov_mult::Real,A::Real,B::Real)
     δy = y - y0
     # x0 = y0 - x0 + δy # This assumes that, e.g., y=B and x=B-V 
     # x0 = -(y0 - x0 + δy) # This assumes that, e.g., y=V and x=B-V 
     # δx = x - x0
-    δx = x - x0 - δy # This assumes that, e.g., y=B and x=B-V 
-    # δx = x - x0 + δy # This assumes that, e.g., y=V and x=B-V 
+    # δx = x - x0 - δy # This assumes that, e.g., y=B and x=B-V 
+    # δx = x - x0 + δy # This assumes that, e.g., y=V and x=B-V
+    δx = x - x0 + (δy * cov_mult)
     # δx = x - (y0 - x0 + δy)
     # δx = x - y0 + x0 - δy
     # δx = (x0 + x) - (y0 + δy)

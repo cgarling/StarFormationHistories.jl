@@ -1,4 +1,5 @@
 import StarFormationHistories: GaussianPSFAsymmetric, GaussianPSFCovariant, addstar!, evaluate
+import StatsBase: Histogram
 
 # Set up for plotting
 import PyPlot as plt
@@ -24,7 +25,8 @@ centers = (B=20.0, V=19.0, R=18.0)
 # For mags {B,V,R}, test case y=B, x=B-V
 yy = randn(npoints) .* σ.B .+ centers.B
 xx = yy .- (randn(npoints) .* σ.V .+ centers.V)
-model = GaussianPSFCovariant(centers.B - centers.V, centers.B, σ.V, σ.B, 1.0, 0.0)
+# cov_mult = 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
+model = GaussianPSFCovariant(centers.B - centers.V, centers.B, σ.V, σ.B, -1.0, 1.0, 0.0)
 
 fig,axs=plt.subplots(nrows=1, ncols=3, sharex=true, sharey=true, figsize=(15,6))
 fig.subplots_adjust(hspace=0.0,wspace=0.0)
