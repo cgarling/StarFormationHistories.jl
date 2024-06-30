@@ -13,7 +13,7 @@ import Distributions
 import LinearAlgebra: det, diag, transpose
 import LineSearches # For comparison to DynamicHMC
 import Optim        # For comparison to DynamicHMC
-import SFH: bin_cmd, bin_cmd_smooth, generate_stars_mag, generate_stars_mass, generate_stars_mass_composite, generate_stars_mag_composite, ingest_mags, model_cmd, sort_ingested, mass_limits, Binaries, NoBinaries, partial_cmd_smooth, fit_templates, construct_x0, composite!, loglikelihood, ∇loglikelihood
+import StarFormationHistories: composite!, loglikelihood, ∇loglikelihood, ∇loglikelihood!
 
 # import PyCall: @pyimport
 # @pyimport matplotlib.pyplot as plt
