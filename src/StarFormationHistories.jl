@@ -257,29 +257,27 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-# function Base.size(model::GaussianPSFCovariant)
-#     σx,σy = model.σx,model.σy
-#     return (ceil(Int,σx) * 10, ceil(Int,σy) * 10)
-# end
 Base.size(model::GaussianPSFCovariant) = (10 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
-@inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
-                                        σy::Real,cov_mult::Real,A::Real,B::Real)
-    δy = y - y0
-    # x0 = y0 - x0 + δy # This assumes that, e.g., y=B and x=B-V 
-    # x0 = -(y0 - x0 + δy) # This assumes that, e.g., y=V and x=B-V 
-    # δx = x - x0
-    # δx = x - x0 - δy # This assumes that, e.g., y=B and x=B-V 
-    # δx = x - x0 + δy # This assumes that, e.g., y=V and x=B-V
-    δx = x - x0 + (δy * cov_mult)
-    # δx = x - (y0 - x0 + δy)
-    # δx = x - y0 + x0 - δy
-    # δx = (x0 + x) - (y0 + δy)
-    # println(δx, " ", δy)
-    (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
+# This is the PSF but we really want the integral PRF
+# @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
+#                                         σy::Real,cov_mult::Real,A::Real,B::Real)
+#     δy = y - y0
+#     δx = x - x0 + (δy * cov_mult)
+#     return (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
+# end
+@inline function gaussian_psf_covariant(x::T,y::T,halfxstep::T,halfystep::T,x0::T,y0::T,σx::T,
+                                        σy::T,cov_mult::T,A::T,B::T) where T <: Real
+    sqrt2 = sqrt(T(2))
+    Δy = y - y0
+    Δx = x - x0 + (Δy * cov_mult)
+    return A / 4 * erf((Δx + halfxstep) / (sqrt2 * σx), (Δx - halfxstep) / (sqrt2 * σx)) *
+        erf((Δy + halfystep) / (sqrt2 * σy), (Δy - halfystep) / (sqrt2 * σy)) + B
 end
-@inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real) = 
-    gaussian_psf_covariant(x, y, parameters(model)...)
+@inline gaussian_psf_covariant(args::Vararg{Real,11}) = 
+    gaussian_psf_covariant(promote(args...)...)
+@inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real, halfxstep::Real, halfystep::Real) = 
+    gaussian_psf_covariant(x, y, halfxstep, halfystep, parameters(model)...)
 
 ##################################
 # Function to add a kernel to a smoothed Hess diagram
@@ -288,16 +286,15 @@ end
 @inline addstar!(image::Histogram, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}) =
     addstar!(image.weights, obj, cutout_size)
 function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}=size(obj))
-    x,y = round.(Int,centroid(obj)) # get the center of the object to be inserted, in pixel space
+    x,y = round.(Int, centroid(obj)) # get the center of the object to be inserted, in pixel space
     x_offset = cutout_size[1] ÷ 2
     y_offset = cutout_size[2] ÷ 2
-    for i in x-x_offset:x+x_offset
-        if checkbounds(Bool,image,i)           # check bounds on image
-            for j in y-y_offset:y+y_offset
-                if checkbounds(Bool,image,i,j) # check bounds on image
-                    @inbounds image[i,j] += evaluate(obj,i,j)
-                end
-            end
+    # Need to eval at pixel midpoint, so add 0.5
+    onehalf = eltype(image)(1//2)
+    # Double loop over x and y
+    for i = x-x_offset:x+x_offset, j = y-y_offset:y+y_offset
+        if checkbounds(Bool, image, i, j) # check bounds on image
+            @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
         end
     end
 end
@@ -306,8 +303,9 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     data = image.weights
     Base.require_one_based_indexing(data) # Make sure data is 1-indexed
     edges = image.edges # Get histogram edges
+    # Need uniform step; easiest to enforce via ranges
     if !all(Base.Fix2(isa, AbstractRange), edges)
-        throw(ArgumentError("Provided `edges` for `addstar!` with a `RealSpaceKernel` object must be subtypes of `AbstractRange.")) # Need uniform step; easiest to enforce via ranges
+        throw(ArgumentError("The `image::Histogram` provided to `addstar!` with a `obj::RealSpaceKernel` object must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
     end
     xrstep = step(edges[1])
     yrstep = step(edges[2])
@@ -321,21 +319,22 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     xpiter = xp-x_offset:xp+x_offset
     ypiter = yp-y_offset:yp+y_offset
     # Get real-space coordinates of rounded pixel center
-    xrc = histogram_data(xp + 0.5, edges[1]) # Add 0.5 to get pixel center, rather than index
+    xrc = histogram_data(xp + 0.5, edges[1])  # Add 0.5 to get pixel midpoint, rather than index
     xr_offset = x_offset * xrstep
     xriter = xrc-xr_offset:xrstep:xrc+xr_offset
-    yrc = histogram_data(yp + 0.5, edges[2])
+    yrc = histogram_data(yp + 0.5, edges[2]) # Add 0.5 to get pixel midpoint, rather than index
     yr_offset = y_offset * yrstep
     yriter = yrc-yr_offset:yrstep:yrc+yr_offset
-    # return (xpiter, xriter), (ypiter, yriter)
-    for (xind, xreal) in zip(xpiter, xriter)
-        for (yind, yreal) in zip(ypiter, yriter)
-            if checkbounds(Bool,data,xind,yind) # check bounds on image
-                @inbounds data[xind,yind] += evaluate(obj,xreal,yreal)
-            end
+    # Half the step widths are needed for evaluate call
+    halfxstep, halfystep = xrstep / 2, yrstep / 2
+    # Double loop over x and y
+    # Above code takes ~200ns so loop typically dominates runtime
+    # because evaluate(...) can take 20--60 ns per call
+    for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
+        if checkbounds(Bool, data, xind, yind) # check bounds on data
+            @inbounds data[xind, yind] += evaluate(obj, xreal, yreal, halfxstep, halfystep)
         end
     end
-    return (xriter, yriter)
 end
 
 ##################################
@@ -498,8 +497,8 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err;
         # end
         # Convert colors, mags, color_err, and mag_err from magnitude-space to
         # pixel-space in `mat`
-        x0 = histogram_pix(colors[i], edges[1]) - 0.5
-        y0 = histogram_pix(mags[i], edges[2]) - 0.5
+        x0 = histogram_pix(colors[i], edges[1])
+        y0 = histogram_pix(mags[i], edges[2])
         σx = color_err[i] / xwidth
         σy = mag_err[i] / ywidth
         # Construct the star object
