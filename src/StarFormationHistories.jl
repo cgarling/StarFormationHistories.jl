@@ -17,6 +17,7 @@ using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous};
 using Random: AbstractRNG, default_rng, rand
 using Roots: find_zero # For mass_limits in simulate.jl
 using SpecialFunctions: erf
+import VectorizationBase: verf # SIMD-capable erf for Float32 and Float64
 using StaticArrays: SVector, SMatrix, sacollect
 using StatsBase: fit, Histogram, Weights, sample, median
 import StatsBase: mean # Extending
@@ -150,24 +151,63 @@ dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 Simple one-liner that calculates the mean of the provided `imf` distribution using numerical integration via `QuadGK.quadgk` with the passed keyword arguments `kws...`. This is a generic fallback; better to define this explicitly for your IMF model. Requires that `pdf(imf,x)` and `extrema(imf)` be defined.
 """
 mean(imf::Distribution{Univariate, Continuous}; kws...) =
-     quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
+     quadgk(x -> x * pdf(imf, x), extrema(imf)...; kws...)[1]
 
 ##################################
 # KDE models
-
+"Root abstract type for kernels used in Hess diagram modelling."
 abstract type AbstractKernel end
+"Abstract type for kernels used in Hess diagram modelling that define their parameters \
+(e.g., widths, centers, sizes) in the pixel space of underlying Hess diagram matrix."
 abstract type PixelSpaceKernel <: AbstractKernel end
+"Abstract type for kernels used in Hess diagram modelling that define their parameters \
+(e.g., widths, centers, sizes) in real magnitude space -- these kernels require their \
+parameters converted into pixel-space prior to injection into the Hess diagram matrix."
 abstract type RealSpaceKernel <: AbstractKernel end
 
 ##################################
 # Code for concrete implementations of PixelSpaceKernel
 
 """
+    gaussian_int_general(Δx::Real, Δy::Real, halfxstep::Real, halfystep::Real,
+                         σx::Real, σy::Real, A::Real, B::Real)
+
+Returns the exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric, *possibly* covariant 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
+
+# Notes
+
+Let `Δx` and `Δy` be offsets from the centroid `(x0, y0)` of a 2-D Gaussian such that the midpoint of integration is `(x, y) = (x0, y0) .+ (Δx, Δy)` in the case of no covariance. There are two additional simple covariance patterns;
+ - if "B" and "V" are independently sampled from normal distributions, and `y="B"` and `x="B"-"V"`
+ - ... and `y="V"` and `x="B"-"V"`
+This covariance can be modelled by substituting
+`Δx = x - x0 + (Δy * cov_mult)`
+with specific values of `cov_mult`:
+ - `1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B"-"V"`,
+ - `-1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B"-"V"`,
+ - `0` for `y="R"` and `x="B-V"`.
+As only the offsets are required for the integration, this substitution be done prior to calling this method. This is handled by [`StarFormationHistories.gaussian_psf_covariant](@ref).
+"""
+@inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
+                                      σx::T, σy::T, A::T, B::T) where T <: Real
+    sqrt2 = sqrt(T(2))
+    return A / 4 * erf((Δx + halfxstep) / (sqrt2 * σx), (Δx - halfxstep) / (sqrt2 * σx)) *
+                   erf((Δy + halfystep) / (sqrt2 * σy), (Δy - halfystep) / (sqrt2 * σy)) + B
+end
+# 2x speedup in double precision for Julia 1.10 using VectorizationBase.verf
+@inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
+                                      σx::T, σy::T, A::T, B::T) where T <: Union{Float32, Float64}
+    sqrt2 = sqrt(T(2))
+    return A / 4 * (verf((Δx - halfxstep) / (sqrt2 * σx)) - verf((Δx + halfxstep) / (sqrt2 * σx))) *
+        (verf((Δy - halfystep) / (sqrt2 * σy)) - verf((Δy + halfystep) / (sqrt2 * σy))) + B
+end
+@inline gaussian_int_general(args::Vararg{Real,8}) = gaussian_int_general(promote(args...)...)
+
+"""
     GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
     GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
     GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
 
-Type representing the 2D asymmetric Gaussian PSF without rotation (no θ).
+A [`PixelSpaceKernel`](@ref StarFormationHistories.PixelSpaceKernel) representing the 2D asymmetric Gaussian PSF without rotation (no θ).
 
 # Parameters
  - `x0`, the center of the PSF model along the first matrix dimension
@@ -184,49 +224,37 @@ struct GaussianPSFAsymmetric{T <: Real} <: PixelSpaceKernel
     σy::T
     A::T
     B::T
-    function GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real)
-        T = promote(x0,y0,σx,σy)
+    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
+        T = promote(x0, y0, σx, σy)
         T_type = eltype(T)
-        new{T_type}(T[1],T[2],T[3],T[4],one(T_type),zero(T_type))
+        new{T_type}(T[1], T[2], T[3], T[4], one(T_type), zero(T_type))
     end
-    function GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real)
-        T = promote(x0,y0,σx,σy,A)
+    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
+        T = promote(x0, y0, σx, σy, A)
         T_type = eltype(T)
-        new{T_type}(T[1],T[2],T[3],T[4],T[5],zero(T_type))
+        new{T_type}(T[1], T[2], T[3], T[4], T[5], zero(T_type))
     end
-    function GaussianPSFAsymmetric(x0::Real,y0::Real,σx::Real,σy::Real,A::Real,B::Real)
-        T = promote(x0,y0,σx,σy,A,B)
+    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
+        T = promote(x0, y0, σx, σy, A, B)
         new{eltype(T)}(T...)
     end
 end
 Base.Broadcast.broadcastable(m::GaussianPSFAsymmetric) = Ref(m)
-parameters(model::GaussianPSFAsymmetric) = (model.x0, model.y0, model.σx, model.σy,
-                                            model.A, model.B)
-function Base.size(model::GaussianPSFAsymmetric)
-    σx, σy = model.σx, model.σy
-    return (ceil(Int,σx * 10), ceil(Int,σy * 10)) 
-end
-centroid(model::GaussianPSFAsymmetric) = (model.x0, model.y0)  
+parameters(model::GaussianPSFAsymmetric) = (model.x0, model.y0, model.σx, model.σy, model.A, model.B)
+Base.size(model::GaussianPSFAsymmetric) = (ceil(Int, model.σx * 10), ceil(Int, model.σy * 10))
+centroid(model::GaussianPSFAsymmetric) = (model.x0, model.y0)
 """ 
-    gaussian_psf_asymmetric_integral_halfpix(x::Real,
-                                             y::Real,
-                                             x0::Real,
-                                             y0::Real,
-                                             σx::Real,
-                                             σy::Real,
-                                             A::Real,
-                                             B::Real)
+    gaussian_psf_asymmetric_integral_halfpix(x::Real, y::Real, x0::Real, y0::Real, σx::Real,
+                                             σy::Real, A::Real, B::Real)
 
-Exact analytic integral for the asymmetric, non-rotated 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
+Exact analytic integral from `(x - 0.5, x + 0.5)` and `(y - 0.5, y + 0.5)` for the asymmetric, non-rotated 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
 """
 @inline function gaussian_psf_asymmetric_integral_halfpix(x::T, y::T, x0::T, y0::T,
                                                           σx::T, σy::T, A::T, B::T) where T <: Real
     T <: Integer ? onehalf = 0.5 : onehalf = T(1//2) # Cover all integer case
-    sqrt2 = sqrt(T(2))
     Δx = x - x0
     Δy = y - y0
-    return A / 4 * erf((Δx + onehalf) / (sqrt2 * σx), (Δx - onehalf) / (sqrt2 * σx)) *
-           erf((Δy + onehalf) / (sqrt2 * σy), (Δy-onehalf) / (sqrt2 * σy)) + B
+    return gaussian_int_general(Δx, Δy, onehalf, onehalf, σx, σy, A, B)
 end
 @inline gaussian_psf_asymmetric_integral_halfpix(args::Vararg{Real,8}) = 
     gaussian_psf_asymmetric_integral_halfpix(promote(args...)...)
@@ -244,13 +272,13 @@ struct GaussianPSFCovariant{T <: Real} <: RealSpaceKernel
     cov_mult::T # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
     A::T
     B::T
-    GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real) = 
+    GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real) = 
         GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, 1, 0)
-    GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real,A::Real) =
+    GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real) =
         GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, A, 0)
-    function GaussianPSFCovariant(x0::Real,y0::Real,σx::Real,σy::Real,cov_mult::Real,A::Real,B::Real)
+    function GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
         @assert (cov_mult == 1) || (cov_mult == -1) || (cov_mult == 0)
-        T = promote(x0,y0,σx,σy,cov_mult,A,B)
+        T = promote(x0, y0, σx, σy, cov_mult, A, B)
         new{eltype(T)}(T...)
     end
 end
@@ -266,20 +294,29 @@ centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 #     δx = x - x0 + (δy * cov_mult)
 #     return (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
 # end
-@inline function gaussian_psf_covariant(x::T,y::T,halfxstep::T,halfystep::T,x0::T,y0::T,σx::T,
-                                        σy::T,cov_mult::T,A::T,B::T) where T <: Real
-    sqrt2 = sqrt(T(2))
+"""
+    gaussian_psf_covariant(x::Real, y::Real, halfxstep::Real, halfystep::Real, x0::Real, 
+                           y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
+
+Exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric, covariant 2D Gaussian. `cov_mult` controls the degree of covariance and should be
+ - `1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B-V"`,
+ - `-1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B-V"`,
+ - `0` for `y="R"` and `x="B-V"`.
+`A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
+"""
+@inline function gaussian_psf_covariant(x::T, y::T, halfxstep::T, halfystep::T, x0::T, y0::T, σx::T,
+                                        σy::T, cov_mult::T, A::T, B::T) where T <: Real
     Δy = y - y0
     Δx = x - x0 + (Δy * cov_mult)
-    return A / 4 * erf((Δx + halfxstep) / (sqrt2 * σx), (Δx - halfxstep) / (sqrt2 * σx)) *
-        erf((Δy + halfystep) / (sqrt2 * σy), (Δy - halfystep) / (sqrt2 * σy)) + B
+    return gaussian_int_general(Δx, Δy, halfxstep, halfystep, σx, σy, A, B)
+
 end
 @inline gaussian_psf_covariant(args::Vararg{Real,11}) = 
     gaussian_psf_covariant(promote(args...)...)
 @inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real, halfxstep::Real, halfystep::Real) = 
     gaussian_psf_covariant(x, y, halfxstep, halfystep, parameters(model)...)
 
-##################################
+#####################################################
 # Function to add a kernel to a smoothed Hess diagram
 
 @inline addstar!(image::Histogram, obj::PixelSpaceKernel) = addstar!(image.weights, obj)
@@ -337,7 +374,7 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     end
 end
 
-##################################
+#########################################
 # 2D Histogram construction and utilities
 
 """
