@@ -106,7 +106,7 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
     @assert axes(m_ini) == axes(mags) == axes(colors)
     new_mini = Vector{Float64}(undef,1)
     new_mini[1] = first(m_ini)
-    # Sort the input m_ini and mags. This could be optional. 
+    # Sort the input m_ini and mags. This could be optional.
     idx = sortperm(m_ini)
     m_ini = m_ini[idx]
     mags = mags[idx]
@@ -128,6 +128,8 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
             push!(new_mini, m_ini[i+1])
         end
     end
+    # Return only unique entries from new_mini
+    new_mini = unique(new_mini)
     if !ret_spacing
         return new_mini
     else
@@ -394,6 +396,31 @@ end
 # 2D Histogram construction and utilities
 
 """
+    midpoints(v::AbstractVector, ranges::Bool=true)
+Given an input vector `v`, returns a `length(v)-1` vector containing the midpoints between the original values in `v`. If `ranges == true`, returns the midpoints as a range if the differences between values in `v` (i.e., `diff(v)`) are all approximately equal. 
+"""
+function midpoints(v::AbstractVector, ranges::Bool=true)
+    d = diff(v)
+    # Aggressively convert to range if all steps are approximately equal
+    if all(Base.Fix1(isapprox, first(d)), d) && ranges
+        vstep = first(d)
+        start = (v[begin]+vstep/2)
+        stop = (v[end]-vstep/2)
+        return range(start, stop; length=length(v)-1)
+    end
+    result = Vector{eltype(v)}(undef, length(v) - 1)
+    for i in eachindex(result)
+        result[i] = v[i] + d[i] / 2
+    end
+    return result
+end
+"""
+    midpoints(v::AbstractRange, ranges::Bool=true)
+Given an input range `v`, returns a `length(v)-1` range containing the midpoints between the original values in `v`.
+"""
+midpoints(v::AbstractRange, ranges::Bool=true) = first(v) + step(v)/2:step(v):last(v) - step(v)/2
+
+"""
     calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
 
 Function to calculate the bin edges for 2D histograms.
@@ -607,6 +634,28 @@ function partial_cmd(m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:N
                    xwidth=xwidth, ywidth=ywidth)
 end
 
+    # Approximate the IMF weights on each star in the isochrone as
+    # the trapezoidal rule integral across the bin. 
+    # This is equivalent to the difference in the CDF across the bin as long as imf
+    # is a properly normalized pdf i.e., if imf is a
+    # Distributions.ContinuousUnivariateDistribution,
+    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
+function calculate_weights(mini::AbstractVector, completeness::AbstractVector,
+                           imf, normalize_value::Number, mean_mass::Number, mini_spacing::AbstractVector=diff(mini))
+    @assert length(mini) == length(completeness)
+    @assert length(mini_spacing) == (length(mini) - 1)
+    weights = Vector{Float64}(undef, length(mini) - 1)
+    for i in eachindex(weights)
+        weights[i] = mini_spacing[i] *
+            (dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])) / 2
+        weights[i] *= completeness[i] * normalize_value / mean_mass # Correct normalization
+    end
+    return weights
+end
+    # sum(weights) is now the full integral over the imf pdf from
+    # minimum(m_ini) -> maximum(m_ini). This is equivalent to
+    # cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
+
 """
     result::StatsBase.Histogram =
         partial_cmd_smooth(m_ini::AbstractVector{<:Number},
@@ -658,39 +707,92 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             normalize_value::Number=1, mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
+# partial_cmd_smooth(m_ini::AbstractVector{<:Number},
+#                    mags::AbstractVector{<:AbstractVector{<:Number}},
+#                    mag_err_funcs, y_index, color_indices, imf,
+#                    completeness_funcs=[one for i in mags];
+#                    edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
+#                    xwidth=nothing, ywidth=nothing, kws...) =
+#                        partial_cmd_smooth(m_ini, mags, mag_err_funcs, y_index, color_indices, imf,
+#                                           calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth),
+#                                           completeness_funcs; kws...)
+# function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
+#                             mags::AbstractVector{<:AbstractVector{<:Number}},
+#                             mag_err_funcs, y_index, color_indices, imf, edges,
+#                             completeness_funcs;
+#                             dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf))
+    @assert length(color_indices) == 2
+    @assert length(mags) == length(mag_err_funcs) == length(completeness_funcs)
+    # Calculate edges from provided kws
+    edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
+    # Verify that the provided y_index and color_indices are valid
+    for idx in union(y_index, color_indices)
+        @assert all(map(x -> checkbounds(Bool, x, idx), (mags, mag_err_funcs, completeness_funcs)))
+    end
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]
     new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, 0.01, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
-    colors = new_iso_mags[color_indices[1]] .- new_iso_mags[color_indices[2]]
-    mag_err = [mag_err_funcs[color_indices[i]].( new_iso_mags[color_indices[i]] )
-               for i in eachindex(mags)]
-    color_err = [sqrt( mag_err[color_indices[1]][i]^2 + mag_err[color_indices[2]][i]^2 )
-                 for i in eachindex(new_mini)]
-    # Approximate the IMF weights on each star in the isochrone as
-    # the trapezoidal rule integral across the bin. 
-    # This is equivalent to the difference in the CDF across the bin as long as imf
-    # is a properly normalized pdf i.e., if imf is a
-    # Distributions.ContinuousUnivariateDistribution,
-    # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
-    weights = Vector{Float64}(undef, length(new_mini) - 1)
-    @inbounds @simd for i in eachindex(weights)
-        weights[i] = new_spacing[i] *
-            (dispatch_imf(imf,new_mini[i]) + dispatch_imf(imf,new_mini[i+1])) / 2
-        # Incorporate completeness values
-        weights[i] *= completeness_funcs[color_indices[1]](new_iso_mags[color_indices[1]][i]) *
-            completeness_funcs[color_indices[2]](new_iso_mags[color_indices[2]][i])
-        weights[i] *= normalize_value / mean_mass # Correct normalization
+    colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
+    mag_err = [mag_err_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
+    if y_index in color_indices # x-axis color is dependent on y-axis magnitude
+        # x-axis color error is quadrature of the two constituent magnitudes
+        color_err = [sqrt(mag_err[first(color_indices)][i]^2 + mag_err[last(color_indices)][i]^2)
+                     for i in eachindex(new_mini)]
+        # Calculate vector of completeness products
+        completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
+            completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)])
+        # Calculate weights; output length is one less than input vectors
+        weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
+        # Calculate midpoints of the colors, y_mags, color_err, and mag_err to match
+        # with the length of weights, which are effectively integrals across bin edges
+        # y_mags = midpoints(new_iso_mags[y_index])
+        # y_mag_err = midpoints(mag_err[y_index])
+        # colors = midpoints(colors)
+        # color_err = midpoints(color_err)
+        y_mags = new_iso_mags[y_index][begin:end-1]
+        y_mag_err = mag_err[y_index][begin:end-1]
+        colors = colors[begin:end-1]
+        color_err = color_err[begin:end-1]
+        @assert axes(colors) == axes(y_mags) == axes(color_err) == axes(y_mag_err) == axes(weights)
+        # Construct matrix to hold the 2D histogram
+        mat = zeros(Float64, length(edges[1])-1, length(edges[2])-1)
+        # Get the pixel width in each dimension;
+        # this currently only works if edges[1] and [2] are AbstractRange. 
+        xwidth, ywidth = step(edges[1]), step(edges[2])
+        @inbounds for i in eachindex(colors)
+            # Skip stars that are 3σ away from the histogram region in either x or y. 
+            # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
+            #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
+            #     |
+            #     ( ((y_mags[i] - 3*y_mag_err[i]) > maximum(edges[2])) | ((y_mags[i] + 3*y_mag_err[i]) <
+            #                                                         minimum(edges[2])) )
+            #     continue
+            # end
+            # Convert colors, y_mags, color_err, and y_mag_err from magnitude-space to
+            # pixel-space in `mat`
+            x0 = histogram_pix(colors[i], edges[1])
+            y0 = histogram_pix(y_mags[i], edges[2])
+            σx = color_err[i] / xwidth
+            σy = y_mag_err[i] / ywidth
+            # Construct the star object
+            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0)
+            # Insert the star object
+            cutout_size = size(obj)
+            addstar!(mat, obj, cutout_size)
+        end
+        return Histogram(edges, mat, :left, false)
+        
+    else # x-axis color is independent of y-axis magnitude
+        
     end
-    # sum(weights) is now the full integral over the imf pdf from
-    # minimum(m_ini) -> maximum(m_ini). This is equivalent to
-    # cdf(imf, maximum(m_ini)) - cdf(imf, minimum(m_ini)).
-    return bin_cmd_smooth(colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
-                          color_err[begin:end-1], mag_err[y_index][begin:end-1];
-                          weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
-                          xwidth=xwidth, ywidth=ywidth)
+    
+    # return bin_cmd_smooth(colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
+    #                       color_err[begin:end-1], mag_err[y_index][begin:end-1];
+    #                       weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
+    #                       xwidth=xwidth, ywidth=ywidth)
 end
 
 
