@@ -11,13 +11,15 @@ import LineSearches # For configuration of Optim.jl
 using LinearAlgebra: diag, Hermitian, mul!
 import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
+import LoopVectorization: can_turbo # Extending for our functions
 import Optim
 using Printf: @sprintf
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 using Random: AbstractRNG, default_rng, rand
 using Roots: find_zero # For mass_limits in simulate.jl
 using SpecialFunctions: erf
-import VectorizationBase: verf # SIMD-capable erf for Float32 and Float64
+# LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)
+using VectorizationBase: AbstractSIMD, verf # SIMD-capable erf for Float32 and Float64
 using StaticArrays: SVector, SMatrix, sacollect
 using StatsBase: fit, Histogram, Weights, sample, median
 import StatsBase: mean # Extending
@@ -195,7 +197,9 @@ As only the offsets are required for the integration, this substitution be done 
 end
 # 2x speedup in double precision for Julia 1.10 using VectorizationBase.verf
 @inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
-                                      σx::T, σy::T, A::T, B::T) where T <: Union{Float32, Float64}
+                                      σx::T, σy::T, A::T, B::T) where T <: Union{Float32, Float64,
+                                                                                 AbstractSIMD{<:Any, Float32},
+                                                                                 AbstractSIMD{<:Any, Float64}}
     sqrt2 = sqrt(T(2))
     return A / 4 * (verf((Δx - halfxstep) / (sqrt2 * σx)) - verf((Δx + halfxstep) / (sqrt2 * σx))) *
         (verf((Δy - halfystep) / (sqrt2 * σy)) - verf((Δy + halfystep) / (sqrt2 * σy))) + B
@@ -260,6 +264,8 @@ end
     gaussian_psf_asymmetric_integral_halfpix(promote(args...)...)
 @inline evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) = 
     gaussian_psf_asymmetric_integral_halfpix(x, y, parameters(model)...)
+# Need to let LoopVectorization know that it can turbo this function
+can_turbo(::typeof(evaluate), ::Val{3}) = true
 
 ##################################
 # Code for concrete implementations of RealSpaceKernel
@@ -323,14 +329,23 @@ end
 @inline addstar!(image::Histogram, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}) =
     addstar!(image.weights, obj, cutout_size)
 function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}=size(obj))
+    @assert length(image) > 1
     x,y = round.(Int, centroid(obj)) # get the center of the object to be inserted, in pixel space
     x_offset = cutout_size[1] ÷ 2
     y_offset = cutout_size[2] ÷ 2
     # Need to eval at pixel midpoint, so add 0.5
     onehalf = eltype(image)(1//2)
     # Double loop over x and y
-    for i = x-x_offset:x+x_offset, j = y-y_offset:y+y_offset
-        if checkbounds(Bool, image, i, j) # check bounds on image
+    # for i = x-x_offset:x+x_offset, j = y-y_offset:y+y_offset
+    #     if checkbounds(Bool, image, i, j) # check bounds on image
+    #         @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
+    #     end
+    # end
+    # Define loop indices, verifying safe bounds for @turbo loop
+    xind = max(firstindex(image, 1), x - x_offset):min(lastindex(image, 1), x + x_offset)
+    yind = max(firstindex(image, 2), y - y_offset):min(lastindex(image, 2), y + y_offset)
+    if (length(xind) > 1) && (length(yind) > 1) # Don't run if loop indices empty; safety for @turbo
+        @turbo for i=xind, j=yind
             @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
         end
     end
@@ -338,6 +353,7 @@ end
 
 function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,T}=size(obj)) where T <: Number
     data = image.weights
+    @assert length(data) > 1
     Base.require_one_based_indexing(data) # Make sure data is 1-indexed
     edges = image.edges # Get histogram edges
     # Need uniform step; easiest to enforce via ranges
