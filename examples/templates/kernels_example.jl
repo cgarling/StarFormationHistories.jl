@@ -19,6 +19,7 @@ npoints = 100_000
 mags = ("B", "V", "R")
 σ = (B=0.1, V=0.1, R=0.1) # Magnitude errors
 centers = (B=20.0, V=19.0, R=18.0)
+hist_size = (50, 100)
 
 
 ##################################################################################
@@ -47,8 +48,8 @@ fig.subplots_adjust(hspace=0.0,wspace=0.0)
 # nbins is only a suggestion, this function tries to use nice/round bin widths
 # rather than give you the exact number of bins you asked for, so use explicit ranges
 # hist1 = fit(Histogram, (xx, yy); closed=:left, nbins=(100,50))
-hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=50),
-                                  range(extrema(yy)...; length=100)); closed=:left)
+hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=hist_size[1]),
+                                  range(extrema(yy)...; length=hist_size[2])); closed=:left)
 hist1_data = hist1.weights
 hist1_data = hist1_data ./ sum(hist1_data)
 hist1_bins = (x = hist1.edges[1], y = hist1.edges[2])
@@ -100,8 +101,8 @@ axs[2].text(0.05,0.95,"Kernel Model",transform=axs[2].transAxes,va="top",ha="lef
 axs[3].text(0.05,0.95,"Residual",transform=axs[3].transAxes,va="top",ha="left",c="white")
 fig.subplots_adjust(hspace=0.0,wspace=0.0)
 
-hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=50),
-                                  range(extrema(yy)...; length=100)); closed=:left)
+hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=hist_size[1]),
+                                  range(extrema(yy)...; length=hist_size[2])); closed=:left)
 hist1_data = hist1.weights
 hist1_data = hist1_data ./ sum(hist1_data)
 hist1_bins = (x = hist1.edges[1], y = hist1.edges[2])
@@ -150,8 +151,8 @@ axs[2].text(0.05,0.95,"Kernel Model",transform=axs[2].transAxes,va="top",ha="lef
 axs[3].text(0.05,0.95,"Residual",transform=axs[3].transAxes,va="top",ha="left",c="white")
 fig.subplots_adjust(hspace=0.0,wspace=0.0)
 
-hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=50),
-                                  range(extrema(yy)...; length=100)); closed=:left)
+hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=hist_size[1]),
+                                  range(extrema(yy)...; length=hist_size[2])); closed=:left)
 hist1_data = hist1.weights
 hist1_data = hist1_data ./ sum(hist1_data)
 hist1_bins = (x = hist1.edges[1], y = hist1.edges[2])

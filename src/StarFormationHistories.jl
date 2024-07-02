@@ -293,7 +293,7 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-Base.size(model::GaussianPSFCovariant) = (10 * model.σx, 10 * model.σy)
+Base.size(model::GaussianPSFCovariant) = (15 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 # This is the PSF but we really want the integral PRF
 # @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
@@ -553,39 +553,51 @@ Returns a `StatsBase.Histogram` type containing the Hess diagram where the point
 
 Recommended usage is to make a histogram of your observational data using [`bin_cmd`](@ref), then pass the resulting histogram bins through using the `edges` keyword to [`bin_cmd_smooth`](@ref) and [`partial_cmd_smooth`](@ref) to construct smoothed isochrone models. 
 """
-function bin_cmd_smooth(colors, mags, color_err, mag_err;
+function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
                         weights = ones(promote_type(eltype(colors), eltype(mags)),
                                        size(colors)), edges=nothing,
                         xlim=extrema(colors), ylim=extrema(mags), nbins=nothing,
                         xwidth=nothing, ywidth=nothing)
+    @assert cov_mult in (-1, 0, 1) # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
     @assert axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Construct matrix to hold the 2D histogram
     mat = zeros(Float64, length(edges[1])-1, length(edges[2])-1)
-    # Get the pixel width in each dimension;
-    # this currently only works if edges[1] and [2] are AbstractRange. 
-    xwidth, ywidth = step(edges[1]), step(edges[2])
-    for i in eachindex(colors)
-        # Skip stars that are 3σ away from the histogram region in either x or y. 
-        # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
-        #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
-        #     |
-        #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) <
-        #                                                         minimum(edges[2])) )
-        #     continue
-        # end
-        # Convert colors, mags, color_err, and mag_err from magnitude-space to
-        # pixel-space in `mat`
-        x0 = histogram_pix(colors[i], edges[1])
-        y0 = histogram_pix(mags[i], edges[2])
-        σx = color_err[i] / xwidth
-        σy = mag_err[i] / ywidth
-        # Construct the star object
-        obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
-        # Insert the star object
-        cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
-        addstar!(mat, obj, cutout_size) 
+    hist = Histogram(edges, mat, :left, false)
+    if cov_mult == 0 # Case: y=R and x=B-V
+        for i in eachindex(colors)
+            # Skip stars that are 3σ away from the histogram region in either x or y. 
+            # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
+            #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
+            #     |
+            #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) <
+            #                                                         minimum(edges[2])) )
+            #     continue
+            # end
+            # Get the pixel width in each dimension;
+            # this currently only works if edges[1] and [2] are AbstractRange. 
+            xwidth, ywidth = step(edges[1]), step(edges[2])
+            # Convert colors, mags, color_err, and mag_err from magnitude-space to
+            # pixel-space in `mat`
+            x0 = histogram_pix(colors[i], edges[1])
+            y0 = histogram_pix(mags[i], edges[2])
+            σx = color_err[i] / xwidth
+            σy = mag_err[i] / ywidth
+            # Construct the star object
+            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+            # Insert the star object
+            cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
+            addstar!(hist, obj, cutout_size)
+        end
+    else # Case: (y=V and x=B-V) or (y=B and x=B-V)
+        for i in eachindex(colors)
+            # Construct the star object
+            obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0.0)
+            # Insert the star object
+            cutout_size = size(obj) # .* 2 # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
+            addstar!(hist, obj, cutout_size)
+        end
     end
     return Histogram(edges, mat, :left, false)
 end
@@ -707,27 +719,13 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             normalize_value::Number=1, mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
-# partial_cmd_smooth(m_ini::AbstractVector{<:Number},
-#                    mags::AbstractVector{<:AbstractVector{<:Number}},
-#                    mag_err_funcs, y_index, color_indices, imf,
-#                    completeness_funcs=[one for i in mags];
-#                    edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
-#                    xwidth=nothing, ywidth=nothing, kws...) =
-#                        partial_cmd_smooth(m_ini, mags, mag_err_funcs, y_index, color_indices, imf,
-#                                           calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth),
-#                                           completeness_funcs; kws...)
-# function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
-#                             mags::AbstractVector{<:AbstractVector{<:Number}},
-#                             mag_err_funcs, y_index, color_indices, imf, edges,
-#                             completeness_funcs;
-#                             dmod::Number=0, normalize_value::Number=1, mean_mass::Number=mean(imf))
     @assert length(color_indices) == 2
     @assert length(mags) == length(mag_err_funcs) == length(completeness_funcs)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
     for idx in union(y_index, color_indices)
-        @assert all(map(x -> checkbounds(Bool, x, idx), (mags, mag_err_funcs, completeness_funcs)))
+        @assert all(map(x -> y_index in first(axes(x)), (mags, mag_err_funcs, completeness_funcs)))
     end
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
@@ -738,61 +736,41 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
     mag_err = [mag_err_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
     if y_index in color_indices # x-axis color is dependent on y-axis magnitude
-        # x-axis color error is quadrature of the two constituent magnitudes
-        color_err = [sqrt(mag_err[first(color_indices)][i]^2 + mag_err[last(color_indices)][i]^2)
-                     for i in eachindex(new_mini)]
-        # Calculate vector of completeness products
+        # This case will use GaussianPSFCovariant, which expects the color_err
+        # to be the single-band error for the filter in the x-axis color which
+        # does not appear on the y axis; i.e. if y=V and x=B-V, color_err should
+        # simply be σB.
+        x_c_idx = color_indices[findfirst(x -> x !== y_index, color_indices)]
+        color_err = mag_err[x_c_idx]
+        # Calculate vector of completeness products; product of the two involved magnitudes
         completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
             completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)])
         # Calculate weights; output length is one less than input vectors
         weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
-        # Calculate midpoints of the colors, y_mags, color_err, and mag_err to match
-        # with the length of weights, which are effectively integrals across bin edges
-        # y_mags = midpoints(new_iso_mags[y_index])
-        # y_mag_err = midpoints(mag_err[y_index])
-        # colors = midpoints(colors)
-        # color_err = midpoints(color_err)
-        y_mags = new_iso_mags[y_index][begin:end-1]
-        y_mag_err = mag_err[y_index][begin:end-1]
-        colors = colors[begin:end-1]
-        color_err = color_err[begin:end-1]
-        @assert axes(colors) == axes(y_mags) == axes(color_err) == axes(y_mag_err) == axes(weights)
-        # Construct matrix to hold the 2D histogram
-        mat = zeros(Float64, length(edges[1])-1, length(edges[2])-1)
-        # Get the pixel width in each dimension;
-        # this currently only works if edges[1] and [2] are AbstractRange. 
-        xwidth, ywidth = step(edges[1]), step(edges[2])
-        @inbounds for i in eachindex(colors)
-            # Skip stars that are 3σ away from the histogram region in either x or y. 
-            # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
-            #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
-            #     |
-            #     ( ((y_mags[i] - 3*y_mag_err[i]) > maximum(edges[2])) | ((y_mags[i] + 3*y_mag_err[i]) <
-            #                                                         minimum(edges[2])) )
-            #     continue
-            # end
-            # Convert colors, y_mags, color_err, and y_mag_err from magnitude-space to
-            # pixel-space in `mat`
-            x0 = histogram_pix(colors[i], edges[1])
-            y0 = histogram_pix(y_mags[i], edges[2])
-            σx = color_err[i] / xwidth
-            σy = y_mag_err[i] / ywidth
-            # Construct the star object
-            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0)
-            # Insert the star object
-            cutout_size = size(obj)
-            addstar!(mat, obj, cutout_size)
-        end
-        return Histogram(edges, mat, :left, false)
-        
+        cov_mult = (y_index == first(color_indices)) ? -1 : 1
     else # x-axis color is independent of y-axis magnitude
-        
+        # x-axis color error is quadrature of the two constituent magnitudes
+        color_err = [sqrt(mag_err[first(color_indices)][i]^2 + mag_err[last(color_indices)][i]^2)
+                     for i in eachindex(new_mini)]
+        # Calculate vector of completeness products; product of all three involved magnitudes
+        completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
+            completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)]) .*
+            completeness_funcs[y_index].(new_iso_mags[y_index])
+            # Calculate weights; output length is one less than input vectors
+        weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
+        # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
+        cov_mult = 0
     end
     
     # return bin_cmd_smooth(colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
     #                       color_err[begin:end-1], mag_err[y_index][begin:end-1];
     #                       weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
     #                       xwidth=xwidth, ywidth=ywidth)
+    
+    return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
+                          midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
+                          weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
+                          xwidth=xwidth, ywidth=ywidth)
 end
 
 
