@@ -768,11 +768,6 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         cov_mult = 0
     end
     
-    # return bin_cmd_smooth(colors[begin:end-1], new_iso_mags[y_index][begin:end-1],
-    #                       color_err[begin:end-1], mag_err[y_index][begin:end-1];
-    #                       weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
-    #                       xwidth=xwidth, ywidth=ywidth)
-    
     return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
                           midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                           weights=weights, edges=edges)
