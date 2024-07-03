@@ -734,7 +734,9 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]
-    new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, min(step(edges[1]), step(edges[2])), true)
+    # Use bin spacing to inform necessary spacing of isochrone points
+    Δmag = min(step(edges[1]), step(edges[2]))
+    new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, Δmag, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
     colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
@@ -773,8 +775,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     
     return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
                           midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
-                          weights=weights, edges=edges, xlim=xlim, ylim=ylim, nbins=nbins,
-                          xwidth=xwidth, ywidth=ywidth)
+                          weights=weights, edges=edges)
 end
 
 
