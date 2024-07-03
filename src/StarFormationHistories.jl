@@ -104,7 +104,7 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
                       Δmag,
                       ret_spacing::Bool=false)
     @assert axes(m_ini) == axes(mags) == axes(colors)
-    new_mini = Vector{Float64}(undef,1)
+    new_mini = Vector{Float64}(undef, 1)
     new_mini[1] = first(m_ini)
     # Sort the input m_ini and mags. This could be optional.
     idx = sortperm(m_ini)
@@ -159,6 +159,7 @@ mean(imf::Distribution{Univariate, Continuous}; kws...) =
 
 ##################################
 # KDE models
+
 "Root abstract type for kernels used in Hess diagram modelling."
 abstract type AbstractKernel end
 "Abstract type for kernels used in Hess diagram modelling that define their parameters \
@@ -323,6 +324,8 @@ end
     gaussian_psf_covariant(promote(args...)...)
 @inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real, halfxstep::Real, halfystep::Real) = 
     gaussian_psf_covariant(x, y, halfxstep, halfystep, parameters(model)...)
+# Need to let LoopVectorization know that it can turbo this function
+can_turbo(::typeof(evaluate), ::Val{5}) = true
 
 #####################################################
 # Function to add a kernel to a smoothed Hess diagram
@@ -337,15 +340,10 @@ function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tup
     y_offset = cutout_size[2] ÷ 2
     # Need to eval at pixel midpoint, so add 0.5
     onehalf = eltype(image)(1//2)
-    # Double loop over x and y
-    # for i = x-x_offset:x+x_offset, j = y-y_offset:y+y_offset
-    #     if checkbounds(Bool, image, i, j) # check bounds on image
-    #         @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
-    #     end
-    # end
     # Define loop indices, verifying safe bounds for @turbo loop
     xind = max(firstindex(image, 1), x - x_offset):min(lastindex(image, 1), x + x_offset)
     yind = max(firstindex(image, 2), y - y_offset):min(lastindex(image, 2), y + y_offset)
+    # Double loop over x and y
     if (length(xind) > 1) && (length(yind) > 1) # Don't run if loop indices empty; safety for @turbo
         @turbo for i=xind, j=yind
             @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
@@ -370,23 +368,26 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     # Convert cutout_size into pixel-space and take half width
     x_offset = round(Int, cutout_size[1] / xrstep / 2, RoundUp)
     y_offset = round(Int, cutout_size[2] / yrstep / 2, RoundUp)
-    # Construct iterators over pixel indexes
-    xpiter = xp-x_offset:xp+x_offset
-    ypiter = yp-y_offset:yp+y_offset
-    # Get real-space coordinates of rounded pixel center
-    xrc = histogram_data(xp + 1//2, edges[1])  # Add 0.5 to get pixel midpoint, rather than index
-    xr_offset = x_offset * xrstep
-    xriter = xrc-xr_offset:xrstep:xrc+xr_offset
-    yrc = histogram_data(yp + 1//2, edges[2]) # Add 0.5 to get pixel midpoint, rather than index
-    yr_offset = y_offset * yrstep
-    yriter = yrc-yr_offset:yrstep:yrc+yr_offset
+    # Construct iterators over pixel indexes, verifying safe bounds for @turbo loop
+    xpiter = max(firstindex(data, 1), xp - x_offset):min(lastindex(data, 1), xp + x_offset)
+    ypiter = max(firstindex(data, 2), yp - y_offset):min(lastindex(data, 2), yp + y_offset)
+    # Using a range defined by a step length (e.g., xrstep) can result in the range having 1 too
+    # few elements as the range is defined according to the following rule:
+    # If length is not specified and stop - start is not an integer multiple of step,
+    # a range that ends before stop will be produced.
+    xriter = range(histogram_data(first(xpiter) + 1//2, edges[1]),
+                   histogram_data(last(xpiter) + 1//2, edges[1]); length=length(xpiter))
+    yriter = range(histogram_data(first(ypiter) + 1//2, edges[2]),
+                   histogram_data(last(ypiter) + 1//2, edges[2]); length=length(ypiter))
     # Half the step widths are needed for evaluate call
     halfxstep, halfystep = xrstep / 2, yrstep / 2
     # Double loop over x and y
-    # Above code takes ~200ns so loop typically dominates runtime
-    # because evaluate(...) can take 20--60 ns per call
-    for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
-        if checkbounds(Bool, data, xind, yind) # check bounds on data
+    # Above takes ~200ns, so this loop dominates runtime if size(obj) > (2,2) or so
+    # for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
+    if (length(xpiter) > 1) && (length(ypiter) > 1) # Don't run if loop indices empty; safety for @turbo
+        @turbo for i=eachindex(xpiter, xriter), j=eachindex(ypiter, yriter)
+            @inbounds xind, xreal = xpiter[i], xriter[i]
+            @inbounds yind, yreal = ypiter[j], yriter[j]
             @inbounds data[xind, yind] += evaluate(obj, xreal, yreal, halfxstep, halfystep)
         end
     end
