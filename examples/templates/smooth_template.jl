@@ -13,6 +13,8 @@ plt.rc("font", family="serif", serif=["Computer Modern"], size=14)
 # plt.rc("font", family="serif", serif=["cmr10"], size=14)
 plt.rc("figure", figsize=(5,5))
 plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
+# https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
+plt.rc("image", interpolation="none")
 # Disable interactive plotting when running on CI or building docs
 # if ("CI" in keys(ENV) && (ENV["CI"] == "true")) |
 #     (("DOCS_RUN" in keys(ENV)) && (ENV["DOCS_RUN"] == "true"))
@@ -124,10 +126,6 @@ end
 
 ############################################################################
 # Plot
-# Type of interpolation to use for the PyPlot imshow calls;
-# "none" to turn interpolation off, "antialiased" is default, also see
-# https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
-plot_interp = "none"
 
 fig,axs=plt.subplots(nrows=1, ncols=4, sharex=true, sharey=true, figsize=(20,5))
 fig.subplots_adjust(hspace=0.0, wspace=0.0)
@@ -144,7 +142,7 @@ im1 = axs[3].imshow(permutedims(template.weights), origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", cmap="Greys",
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
-                        log10(template_norm/1e7)), interpolation=plot_interp)
+                        log10(template_norm/1e7)))
 axs[3].text(0.05, 0.95, "c) Smooth Model",
             transform=axs[3].transAxes, va="top", ha="left")
 
@@ -153,13 +151,13 @@ axs[2].imshow(permutedims(obs_hess), origin="lower",
               aspect="auto", cmap="Greys",
               norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
-              label="CMD-Sampled", interpolation=plot_interp)
+              label="CMD-Sampled")
 axs[2].text(0.05, 0.95, "b) Sampled Hess Diagram", transform=axs[2].transAxes,
             va="top", ha="left")
 
 im4 = axs[4].imshow(signif, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
-                    aspect="auto", clim=(-2,2), interpolation=plot_interp)
+                    aspect="auto", clim=(-2,2))
 axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
             transform=axs[4].transAxes, va="top", ha="left")
 
