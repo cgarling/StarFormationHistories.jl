@@ -166,7 +166,7 @@ for i in eachindex(axs)
     axs[i].set_xlabel(L"F090W$-$F150W")
     if plot_isochrones & (i != 4) # Don't plot on residual
         axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange",
-                       s=1, alpha=0.3)
+                       s=1, alpha=1.0)
     end
 end
 axs[1].set_ylabel("F150W")
