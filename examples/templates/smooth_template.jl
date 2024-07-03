@@ -42,8 +42,8 @@ template_norm::Float64 = 1e7
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
 F150W_complete(m) = SFH.Martin2016_complete(m, 1.0, 27.5, 0.7)
-F090W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4 )
-F150W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4 )
+F090W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
+F150W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
 
 # Set IMF
 imf = Kroupa2001(0.08, 100.0)
@@ -58,7 +58,7 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   [F090W_complete, F150W_complete]; 
                                   dmod=distmod,
                                   normalize_value=template_norm,
-                                  edges=edges )
+                                  edges=edges)
 
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W],
@@ -124,6 +124,11 @@ end
 
 ############################################################################
 # Plot
+# Type of interpolation to use for the PyPlot imshow calls;
+# "none" to turn interpolation off, "antialiased" is default, also see
+# https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
+plot_interp = "none"
+
 fig,axs=plt.subplots(nrows=1, ncols=4, sharex=true, sharey=true, figsize=(20,5))
 fig.subplots_adjust(hspace=0.0, wspace=0.0)
 # fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
@@ -139,7 +144,7 @@ im1 = axs[3].imshow(permutedims(template.weights), origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", cmap="Greys",
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
-                        log10(template_norm/1e7)), rasterized=true)
+                        log10(template_norm/1e7)), interpolation=plot_interp)
 axs[3].text(0.05, 0.95, "c) Smooth Model",
             transform=axs[3].transAxes, va="top", ha="left")
 
@@ -148,13 +153,13 @@ axs[2].imshow(permutedims(obs_hess), origin="lower",
               aspect="auto", cmap="Greys",
               norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
-              rasterized=true, label="CMD-Sampled")
+              label="CMD-Sampled", interpolation=plot_interp)
 axs[2].text(0.05, 0.95, "b) Sampled Hess Diagram", transform=axs[2].transAxes,
             va="top", ha="left")
 
 im4 = axs[4].imshow(signif, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
-                    aspect="auto", clim=(-2,2), rasterized=true)
+                    aspect="auto", clim=(-2,2), interpolation=plot_interp)
 axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
             transform=axs[4].transAxes, va="top", ha="left")
 
