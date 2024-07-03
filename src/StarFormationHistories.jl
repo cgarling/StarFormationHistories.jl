@@ -424,20 +424,23 @@ midpoints(v::AbstractRange, ranges::Bool=true) = first(v) + step(v)/2:step(v):la
 """
     calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
 
-Function to calculate the bin edges for 2D histograms.
-Returns `(xbins, ybins)` with both entries being ranges. 
+Function to calculate the bin edges for 2D histograms. Returns `(xbins, ybins)` with both entries being ranges.
 
 # Keyword Arguments
- - `edges` is a tuple of vectors-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it will simply be returned.
- - `xlim`; a length-2 indexable object (e.g., a Vector{Float64} or NTuple{2,Float64)) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges==nothing`.
- - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25, 20]`. This is only used if `edges==nothing`.
+ - `edges` is a tuple of ranges defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it will simply be returned.
+ - `xlim` is a length-2 indexable object (e.g., a Vector{Float64} or NTuple{2,Float64)) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges==nothing`.
+ - `ylim` is like `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25, 20]`. This is only used if `edges==nothing`.
  - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges==nothing`.
- - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges==nothing` and `nbins==nothing`. Example: `0.1`. 
- - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
+ - `xwidth` is the bin width along the x-axis for the `colors` array. This is only used if `edges==nothing` and `nbins==nothing`. Example: `0.1`. 
+ - `ywidth` is like `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
 function calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     if edges !== nothing
-        return edges
+        if edges isa Tuple{<:AbstractRange, <:AbstractRange}
+            return edges
+        else
+            throw(ArgumentError("When passing the `edges` keyword directly, it must be of type `Tuple{<:AbstractRange, <:AbstractRange}`; for example, `edges = (-1.0:0.1:1.5, 22:0.1:27.2)`."))
+        end
     else 
         xlim, ylim = sort(xlim), sort(ylim)
         # Calculate nbins if it hasn't been provided. 
@@ -513,16 +516,16 @@ histogram_data(x, edges::AbstractRange) = (x - 1) * step(edges) + first(edges)
                xwidth = nothing,
                ywidth = nothing)
 
-Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
+Returns a `StatsBase.Histogram` type containing the Hess diagram from the provided x-axis photometric `colors` and y-axis photometric magnitudes `mags`. These must all be vectors equal in length. You can either specify the bin edges directly via the `edges` keyword (e.g., `edges = (range(-0.5, 1.6, length=100), range(17.0, 26.0, length=100))`), or you can set the x- and y-limits via `xlim` and `ylim` and the number of bins as `nbins`, or you can omit `nbins` and instead pass the bin width in the x and y directions, `xwidth` and `ywidth`. See below for more info on the keyword arguments. To plot this with `PyPlot.jl` you should do `PyPlot.imshow(permutedims(result.weights), origin="lower", extent=(extrema(result.edges[1])..., extrema(result.edges[2]), kws...)` where `kws...` are any other keyword arguments you wish to pass to `PyPlot.imshow`.
 
 # Keyword Arguments
  - `weights::AbstractVector{<:Number}` is a array of length equal to `colors` and `mags` that contains the probabilistic weights associated with each point. This is passed to `StatsBase.fit` as `StatsBase.Weights(weights)`. The following keyword arguments are passed to [`StarFormationHistories.calculate_edges`](@ref) to determine the bin edges of the histogram.
- - `edges` is a tuple of vector-like objects defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
- - `xlim`; a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
- - `ylim`; as `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
- - `nbins::NTuple{2,<:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
- - `xwidth`; the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
- - `ywidth`; as `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
+ - `edges` is a tuple of ranges defining the left-side edges of the bins along the x-axis (edges[1]) and the y-axis (edges[2]). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, `weights` is the only other keyword that will be read; `edges` supercedes the other construction methods. 
+ - `xlim` is a length-2 indexable object (e.g., a vector or tuple) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `[-1.0, 1.5]`. This is only used if `edges` is not provided. 
+ - `ylim` is like `xlim` but  for the y-axis corresponding to the provided `mags` array. Example `[25.0, 20.0]`. This is only used if `edges` is not provided.
+ - `nbins::NTuple{2, <:Integer}` is a 2-tuple of integers providing the number of bins to use along the x- and y-axes. This is only used if `edges` is not provided.
+ - `xwidth` is the bin width along the x-axis for the `colors` array. This is only used if `edges` and `nbins` are not provided. Example: `0.1`. 
+ - `ywidth` is like `xwidth` but for the y-axis corresponding to the provided `mags` array. Example: `0.1`.
 """
 function bin_cmd(colors::AbstractVector{<:Number},
                  mags::AbstractVector{<:Number};
@@ -543,12 +546,12 @@ end
                        mag_err;
                        weights = ones(promote_type(eltype(colors), eltype(mags)),
                                       size(colors)),
-                       edges=nothing,
-                       xlim=extrema(colors),
-                       ylim=extrema(mags),
-                       nbins=nothing,
-                       xwidth=nothing,
-                       ywidth=nothing)
+                       edges   = nothing,
+                       xlim    = extrema(colors),
+                       ylim    = extrema(mags),
+                       nbins   = nothing,
+                       xwidth  = nothing,
+                       ywidth  = nothing)
 
 Returns a `StatsBase.Histogram` type containing the Hess diagram where the points have been smoothed using a 2D asymmetric Gaussian with widths given by the provided `color_err` and `mag_err` and weighted by the given `weights`. These arrays must all be equal in size. This is akin to a KDE where each point is broadened by its own probability distribution. Keyword arguments are as explained in [`bin_cmd_smooth`](@ref) and [`StarFormationHistories.calculate_edges`](@ref). To plot this with `PyPlot` you should do `plt.imshow(result.weights', origin="lower", ...)`.
 
