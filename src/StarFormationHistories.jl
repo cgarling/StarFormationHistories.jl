@@ -336,8 +336,8 @@ can_turbo(::typeof(evaluate), ::Val{5}) = true
 function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}=size(obj))
     @assert length(image) > 1
     x,y = round.(Int, centroid(obj)) # get the center of the object to be inserted, in pixel space
-    x_offset = cutout_size[1] ÷ 2
-    y_offset = cutout_size[2] ÷ 2
+    x_offset = max(1, cutout_size[1] ÷ 2)
+    y_offset = max(1, cutout_size[2] ÷ 2)
     # Need to eval at pixel midpoint, so add 0.5
     onehalf = eltype(image)(1//2)
     # Define loop indices, verifying safe bounds for @turbo loop
@@ -366,8 +366,8 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     xp,yp = histogram_pix(xr, edges[1]), histogram_pix(yr, edges[2]) # Convert to fractional pixel space
     xp,yp = round(Int, xp, RoundUp), round(Int, yp, RoundUp) # Round to nearest integer index
     # Convert cutout_size into pixel-space and take half width
-    x_offset = round(Int, cutout_size[1] / xrstep / 2, RoundUp)
-    y_offset = round(Int, cutout_size[2] / yrstep / 2, RoundUp)
+    x_offset = max(1, round(Int, cutout_size[1] / xrstep / 2, RoundUp))
+    y_offset = max(1, round(Int, cutout_size[2] / yrstep / 2, RoundUp))
     # Construct iterators over pixel indexes, verifying safe bounds for @turbo loop
     xpiter = max(firstindex(data, 1), xp - x_offset):min(lastindex(data, 1), xp + x_offset)
     ypiter = max(firstindex(data, 2), yp - y_offset):min(lastindex(data, 2), yp + y_offset)
