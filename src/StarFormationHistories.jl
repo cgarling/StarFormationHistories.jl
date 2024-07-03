@@ -294,7 +294,7 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-Base.size(model::GaussianPSFCovariant) = (10 * model.σx, 10 * model.σy)
+Base.size(model::GaussianPSFCovariant) = (20 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 # This is the PSF but we really want the integral PRF
 # @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
