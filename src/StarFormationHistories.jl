@@ -293,7 +293,7 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-Base.size(model::GaussianPSFCovariant) = (15 * model.σx, 10 * model.σy)
+Base.size(model::GaussianPSFCovariant) = (10 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 # This is the PSF but we really want the integral PRF
 # @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
@@ -374,10 +374,10 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     xpiter = xp-x_offset:xp+x_offset
     ypiter = yp-y_offset:yp+y_offset
     # Get real-space coordinates of rounded pixel center
-    xrc = histogram_data(xp + 0.5, edges[1])  # Add 0.5 to get pixel midpoint, rather than index
+    xrc = histogram_data(xp + 1//2, edges[1])  # Add 0.5 to get pixel midpoint, rather than index
     xr_offset = x_offset * xrstep
     xriter = xrc-xr_offset:xrstep:xrc+xr_offset
-    yrc = histogram_data(yp + 0.5, edges[2]) # Add 0.5 to get pixel midpoint, rather than index
+    yrc = histogram_data(yp + 1//2, edges[2]) # Add 0.5 to get pixel midpoint, rather than index
     yr_offset = y_offset * yrstep
     yriter = yrc-yr_offset:yrstep:yrc+yr_offset
     # Half the step widths are needed for evaluate call
@@ -595,7 +595,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
             # Construct the star object
             obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0.0)
             # Insert the star object
-            cutout_size = size(obj) # .* 2 # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
+            cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
             addstar!(hist, obj, cutout_size)
         end
     end

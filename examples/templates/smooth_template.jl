@@ -30,11 +30,11 @@ F090W = isochrone[:,2]
 F150W = isochrone[:,3]
 
 # Set distance modulus for example
-distmod::Float64 = 25.0 # Distance modulus 
+distmod::Float64 = 25.0 # Distance modulus
 
 # Set bins for Hess diagram
 edges = (range(-0.2, 1.2, length=75),
-         range(distmod-6.0, distmod+5.0, length=75))
+         range(distmod-6.0, distmod+5.0, length=200))
 
 # Set total stellar mass to normalize template to
 template_norm::Float64 = 1e7
@@ -129,7 +129,7 @@ fig.subplots_adjust(hspace=0.0, wspace=0.0)
 # fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
 
 axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
-               s=1, marker=".", c="k", alpha=0.05, rasterized=true,
+               s=1, marker=".", c="k", alpha=0.1, rasterized=true,
                label="CMD-Sampled")
 axs[1].text(0.05, 0.95,
             @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
