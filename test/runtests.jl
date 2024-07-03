@@ -503,8 +503,6 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 end
             end
         end
-
-        @safetestset "Template Construction" include("templates/template_test.jl")
         
         # Benchmarking
         # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
@@ -513,6 +511,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         #     @btime SFH.fg($M[1], $M[1], $N)
         #     @btime SFH.fg!($true, $G, $x, $M, $N, $C)
         # end
+        
+        @safetestset "Template Kernels" include("templates/kernel_test.jl")
+        @safetestset "Template Construction" include("templates/template_test.jl")
 
         @testset verbose=true "Solving" begin
             @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
@@ -683,7 +684,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
 
     @testset "utilities" begin
-        # Uses extensions, requires Julia >= 1.9
+        # Artifical star tests use extensions, requires Julia >= 1.9
         if VERSION >= v"1.9"
             @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
         end

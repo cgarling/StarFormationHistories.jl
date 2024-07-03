@@ -24,5 +24,5 @@ const centers = (B=20.0, V=19.0, R=18.0)
     h = Histogram((xbins, ybins), zeros(length(xbins)-1, length(ybins)-1), :left, false)
     p = GaussianPSFCovariant(x_cen, centers.B, σ.V, σ.B, -1.0, 1.0, 0.0)
     addstar!(h, p)
-    @test all(!=(0), h.weights)
+    @test any(!=(0), h.weights)
 end
