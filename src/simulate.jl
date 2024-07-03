@@ -456,7 +456,8 @@ Simple method for modelling photometric error and incompleteness to "mock observ
 # Notes
  - This is a simple implementation that seeks to show a simple example of how one can post-process catalogs of "pure" stars from methods like [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref) to include observational effects. This method assumes Gaussian photometric errors, which may not, in general, be accurate. It also assumes that the total detection probability can be modelled as the product of the single-filter detection probabilities as computed by `completefuncs` (i.e., that the completeness functions are separable across filters). This can be a reasonable assumption when you have separate photometric catalogs derived for each filter and you only collate them afterwards, but it is generally not a good assumption for detection algorithms that operate on simultaneously on multi-band photometry -- the completeness functions for these types of algorithms are generally not separable.
 """
-function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
+function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs;
+                   rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
     !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
@@ -469,17 +470,19 @@ function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs; rng::Abstra
         end
     end
     # Pick out the entries where the random number is less than the product of the single-band completeness values 
-    good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
+    good = findall(map(<=, randsamp, completeness)) # findall( randsamp .<= completeness )
     ret_mags = mags[good] # Get the good mags to be returned.
+    # Calculate and add photometric errors
     for i in eachindex(ret_mags)
         for j in eachindex(errfuncs)
-            ret_mags[i][j] += ( randn(rng) * errfuncs[j](ret_mags[i][j]) ) # Add error. 
+            ret_mags[i][j] += (randn(rng) * errfuncs[j](ret_mags[i][j]))
         end
     end
     return ret_mags
 end
 # This is slower than the above implementation but I don't care to optimize it at the moment.
-function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs; rng::AbstractRNG=default_rng()) where {N, T <: Number}
+function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs;
+                   rng::AbstractRNG=default_rng()) where {N, T <: Number}
     nstars = length(mags)
     nfilters = length(first(mags))
     !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
@@ -492,12 +495,13 @@ function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs; 
         end
     end
     # Pick out the entries where the random number is less than the product of the single-band completeness values 
-    good = findall( map(<=, randsamp, completeness) ) # findall( randsamp .<= completeness )
+    good = findall(map(<=, randsamp, completeness)) # findall( randsamp .<= completeness )
     good_mags = mags[good] # Get the good mags to be returned.
     ret_mags = similar(good_mags) 
+    # Calculate and add photometric errors
     for i in eachindex(good_mags)
         err_scale = sacollect(SVector{N,T}, errfuncs[j](good_mags[i][j]) for j in eachindex(errfuncs))
-        ret_mags[i] = good_mags[i] .+ ( randn(rng,SVector{N,T}) .* err_scale)
+        ret_mags[i] = good_mags[i] .+ (randn(rng,SVector{N,T}) .* err_scale)
     end
     return ret_mags
 end
