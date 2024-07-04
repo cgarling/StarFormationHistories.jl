@@ -380,7 +380,7 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     yriter = range(histogram_data(first(ypiter) + 1//2, edges[2]),
                    histogram_data(last(ypiter) + 1//2, edges[2]); length=length(ypiter))
     # Half the step widths are needed for evaluate call
-    halfxstep, halfystep = xrstep / 2, yrstep / 2
+    halfxstep, halfystep = step(xriter) / 2, step(yriter) / 2
     # Double loop over x and y
     # Above takes ~200ns, so this loop dominates runtime if size(obj) > (2,2) or so
     # for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
