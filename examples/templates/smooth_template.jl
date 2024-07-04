@@ -32,14 +32,14 @@ F090W = isochrone[:,2]
 F150W = isochrone[:,3]
 
 # Set distance modulus for example
-distmod::Float64 = 25.0 # Distance modulus
+distmod = 25.0 # Distance modulus
 
 # Set bins for Hess diagram
 edges = (range(-0.2, 1.2, length=75),
          range(distmod-6.0, distmod+5.0, length=200))
 
 # Set total stellar mass to normalize template to
-template_norm::Float64 = 1e7
+template_norm = 1e7
 
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
@@ -161,7 +161,7 @@ im4 = axs[4].imshow(signif, origin="lower",
 axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
             transform=axs[4].transAxes, va="top", ha="left")
 
-plot_isochrones::Bool = true
+plot_isochrones = true
 for i in eachindex(axs)
     axs[i].set_xlabel(L"F090W$-$F150W")
     if plot_isochrones & (i != 4) # Don't plot on residual
@@ -187,6 +187,7 @@ plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
 # Distribution of σ discrepancies
 import Distributions: pdf, Normal, Poisson
 import StatsBase: mean, std
+
 fig, ax1 = plt.subplots()
 hist1 = ax1.hist(filter(isfinite, signif), range=(-4,4), bins=25, density=true)
 ax1.set_xlim(extrema(hist1[2]))
