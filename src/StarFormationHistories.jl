@@ -177,20 +177,7 @@ abstract type RealSpaceKernel <: AbstractKernel end
     gaussian_int_general(Δx::Real, Δy::Real, halfxstep::Real, halfystep::Real,
                          σx::Real, σy::Real, A::Real, B::Real)
 
-Returns the exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric, *possibly* covariant 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
-
-# Notes
-
-Let `Δx` and `Δy` be offsets from the centroid `(x0, y0)` of a 2-D Gaussian such that the midpoint of integration is `(x, y) = (x0, y0) .+ (Δx, Δy)` in the case of no covariance. There are two additional simple covariance patterns;
- - if "B" and "V" are independently sampled from normal distributions, and `y="B"` and `x="B"-"V"`
- - ... and `y="V"` and `x="B"-"V"`
-This covariance can be modelled by substituting
-`Δx = x - x0 + (Δy * cov_mult)`
-with specific values of `cov_mult`:
- - `1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B"-"V"`,
- - `-1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B"-"V"`,
- - `0` for `y="R"` and `x="B-V"`.
-As only the offsets are required for the integration, this substitution be done prior to calling this method. This is handled by [`StarFormationHistories.gaussian_psf_covariant](@ref).
+Returns the exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
 """
 @inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
                                       σx::T, σy::T, A::T, B::T) where T <: Real
@@ -294,7 +281,7 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-Base.size(model::GaussianPSFCovariant) = (20 * model.σx, 10 * model.σy)
+Base.size(model::GaussianPSFCovariant) = (15 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 # This is the PSF but we really want the integral PRF
 # @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
@@ -303,6 +290,9 @@ centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 #     δx = x - x0 + (δy * cov_mult)
 #     return (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
 # end
+# Gauss-Legendre nodes and weights for integration from -1 < x < 1
+const legendre_x_halfpix = SVector{3, Float64}(-0.7745966692414834, 0.0, 0.7745966692414834)
+const legendre_w_halfpix = SVector{3, Float64}(0.5555555555555556, 0.8888888888888888, 0.5555555555555556)
 """
     gaussian_psf_covariant(x::Real, y::Real, halfxstep::Real, halfystep::Real, x0::Real, 
                            y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
@@ -315,10 +305,22 @@ Exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfyste
 """
 @inline function gaussian_psf_covariant(x::T, y::T, halfxstep::T, halfystep::T, x0::T, y0::T, σx::T,
                                         σy::T, cov_mult::T, A::T, B::T) where T <: Real
-    Δy = y - y0
-    Δx = x - x0 + (Δy * cov_mult)
-    return gaussian_int_general(Δx, Δy, halfxstep, halfystep, σx, σy, A, B)
-
+    dx = x - x0
+    prefac = A / 2 / sqrt(T(2π)) / σy
+    sqrt2 = sqrt(T(2))
+    # Scale Gauss-Legendre nodes
+    yvals = (legendre_x_halfpix .* halfystep) .+ y
+    # Scale Gauss-Legendre weights
+    yweights = legendre_w_halfpix .* halfystep
+    result = zero(T)
+    for i in eachindex(yvals, yweights)
+        @inbounds Δy = yvals[i] - y0
+        Δx = dx + (Δy * cov_mult)
+        @inbounds result += yweights[i] * exp(-(Δy/σy)^2 / 2) *
+            (erf((Δx + halfxstep) / sqrt2 / σx) +
+             erf((-Δx + halfxstep) / sqrt2 / σx))
+    end
+    return result * prefac
 end
 @inline gaussian_psf_covariant(args::Vararg{Real,11}) = 
     gaussian_psf_covariant(promote(args...)...)
@@ -364,10 +366,10 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     yrstep = step(edges[2])
     xr,yr = centroid(obj) # Get the center of the object to be inserted, in real space
     xp,yp = histogram_pix(xr, edges[1]), histogram_pix(yr, edges[2]) # Convert to fractional pixel space
-    xp,yp = round(Int, xp, RoundUp), round(Int, yp, RoundUp) # Round to nearest integer index
+    xp,yp = round(Int, xp, RoundNearest), round(Int, yp, RoundNearest) # Round to nearest integer index
     # Convert cutout_size into pixel-space and take half width
-    x_offset = max(1, round(Int, cutout_size[1] / xrstep / 2, RoundUp))
-    y_offset = max(1, round(Int, cutout_size[2] / yrstep / 2, RoundUp))
+    x_offset = max(1, round(Int, cutout_size[1] / xrstep / 2, RoundNearest))
+    y_offset = max(1, round(Int, cutout_size[2] / yrstep / 2, RoundNearest))
     # Construct iterators over pixel indexes, verifying safe bounds for @turbo loop
     xpiter = max(firstindex(data, 1), xp - x_offset):min(lastindex(data, 1), xp + x_offset)
     ypiter = max(firstindex(data, 2), yp - y_offset):min(lastindex(data, 2), yp + y_offset)
@@ -384,6 +386,8 @@ function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,
     # Double loop over x and y
     # Above takes ~200ns, so this loop dominates runtime if size(obj) > (2,2) or so
     # for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
+    #     data[xind, yind] += evaluate(obj, xreal, yreal, halfxstep, halfystep)
+    # end
     if (length(xpiter) > 1) && (length(ypiter) > 1) # Don't run if loop indices empty; safety for @turbo
         @turbo for i=eachindex(xpiter, xriter), j=eachindex(ypiter, yriter)
             @inbounds xind, xreal = xpiter[i], xriter[i]
@@ -589,7 +593,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
             σx = color_err[i] / xwidth
             σy = mag_err[i] / ywidth
             # Construct the star object
-            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0.0)
+            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0)
             # Insert the star object
             cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
             addstar!(hist, obj, cutout_size)
@@ -597,7 +601,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     else # Case: (y=V and x=B-V) or (y=B and x=B-V)
         for i in eachindex(colors)
             # Construct the star object
-            obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0.0)
+            obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0)
             # Insert the star object
             cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
             addstar!(hist, obj, cutout_size)

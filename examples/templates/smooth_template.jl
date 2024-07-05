@@ -186,7 +186,7 @@ plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
 #################################
 # Distribution of σ discrepancies
 import Distributions: pdf, Normal, Poisson
-import StatsBase: mean, std
+import StatsBase: mean, median, std
 
 fig, ax1 = plt.subplots()
 hist1 = ax1.hist(filter(isfinite, signif), range=(-4,4), bins=25, density=true)
@@ -194,10 +194,9 @@ ax1.set_xlim(extrema(hist1[2]))
 ax1.set_xlabel("Residual / Standard Deviation")
 ax1.set_ylabel("PDF")
 let xplot = first(hist1[2]):0.01:last(hist1[2])
-    # mean_σ = mean(filter(Base.Fix1(<,-5), filter(isfinite,signif)))
-    tmpgood = filter(x -> first(hist1[2]) <= x <= last(hist1[2]),
-                     filter(isfinite,signif))
+    tmpgood = signif |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
     mean_σ = mean(tmpgood)
+    med_σ = median(tmpgood)
     std_σ = std(tmpgood)
     ax1.plot(xplot, pdf.(Normal(0.0,1.0),xplot), label="Ideal")
     ax1.plot(xplot, pdf.(Normal(mean_σ,std_σ),xplot),
@@ -205,6 +204,7 @@ let xplot = first(hist1[2]):0.01:last(hist1[2])
     ax1.axvline(mean_σ, c="k", ls="--")
     ax1.text(0.05, 0.95,
              (@sprintf("Mean: %.2f\n\$\\sigma\$: %.2f", mean_σ, std_σ)),
+             # (@sprintf("Mean: %.2f\nMedian: %.2f\n\$\\sigma\$: %.2f", mean_σ, med_σ, std_σ)),
              transform=ax1.transAxes, va="top", ha="left")
 end
 ax1.legend(loc="upper right")
