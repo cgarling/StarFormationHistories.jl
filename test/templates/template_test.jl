@@ -71,27 +71,32 @@ end
     # Construct error and completeness functions
     F090W_complete(m) = Martin2016_complete(m, 1.0, 28.5, 0.7)
     F150W_complete(m) = Martin2016_complete(m, 1.0, 27.5, 0.7)
+    F277W_complete(m) = Martin2016_complete(m, 1.0, 26.5, 0.7)
     F090W_error(m) = min(exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
     F150W_error(m) = min(exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
+    F277W_error(m) = min(exp_photerr(m, 1.03, 15.0, 34.0, 0.02), 0.4)
     # Set IMF
     imf = Kroupa2001(0.08, 100.0)
     # Construct template
-    template = partial_cmd_smooth(m_ini,
-                                  [F090W, F150W],
-                                  [F090W_error, F150W_error],
-                                  2,
-                                  [1,2],
-                                  imf,
-                                  [F090W_complete, F150W_complete]; 
-                                  dmod=distmod,
-                                  normalize_value=template_norm,
-                                  edges=edges)
-    @test template isa Histogram
-    data = template.weights
-    @test data isa Matrix{Float64}
-    @test size(data) == (length(edges[1])-1, length(edges[2])-1)
-    @test template.edges == edges
-    @test template.isdensity == false
+    for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
+        template = partial_cmd_smooth(m_ini,
+                                      [F090W, F150W, F277W],
+                                      [F090W_error, F150W_error, F277W_error],
+                                      2,
+                                      [1,2],
+                                      imf,
+                                      [F090W_complete, F150W_complete, F277W_complete]; 
+                                      dmod=distmod,
+                                      normalize_value=template_norm,
+                                      edges=edges)
+        @test template isa Histogram
+        data = template.weights
+        @test data isa Matrix{Float64}
+        @test any(!=(0), data)
+        @test size(data) == (length(edges[1])-1, length(edges[2])-1)
+        @test template.edges == edges
+        @test template.isdensity == false
+    end
 end
 # 2.5 ms
 # ~1.25 ms in bin_cmd_smooth
