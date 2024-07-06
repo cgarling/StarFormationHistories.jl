@@ -82,8 +82,8 @@ end
         template = partial_cmd_smooth(m_ini,
                                       [F090W, F150W, F277W],
                                       [F090W_error, F150W_error, F277W_error],
-                                      2,
-                                      [1,2],
+                                      y_index,
+                                      color_indices,
                                       imf,
                                       [F090W_complete, F150W_complete, F277W_complete]; 
                                       dmod=distmod,
