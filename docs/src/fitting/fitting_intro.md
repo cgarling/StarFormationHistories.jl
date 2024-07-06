@@ -56,6 +56,8 @@ The method used to create these smooth Hess diagram templates is [`partial_cmd_s
 partial_cmd_smooth
 ```
 
+The user-provided functions returning magnitude errors (`mag_err_funcs`) and completeness values (`completness_functions`) given a star's intrinsic apparent magnitude are important for deriving good templates. These are typically derived from catalogs of artificial star tests. Some helper functions for constructing these are provided [here](@ref phot_helpers).
+
 We note that in many cases it can also be helpful to add in a foreground/background template that models contamination of the Hess diagram from stars not in your population of interest -- this is often done using observations of parallel fields though there are several other possible methods.
 
 Photometric catalogs can be processed into Hess diagrams meeting our formatting requirements with the method [`bin_cmd`](@ref StarFormationHistories.bin_cmd).

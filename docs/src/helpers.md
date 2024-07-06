@@ -22,7 +22,7 @@ StarFormationHistories.Z_from_MH
 StarFormationHistories.mdf_amr
 ```
 
-## Photometric Error and Completeness Models
+## [Photometric Error and Completeness Models](@id phot_helpers)
 
 ```@docs
 StarFormationHistories.Martin2016_complete
