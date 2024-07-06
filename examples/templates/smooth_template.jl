@@ -15,12 +15,9 @@ plt.rc("figure", figsize=(5,5))
 plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
 # https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
 plt.rc("image", interpolation="none")
-# Disable interactive plotting when running on CI or building docs
-# if ("CI" in keys(ENV) && (ENV["CI"] == "true")) |
-#     (("DOCS_RUN" in keys(ENV)) && (ENV["DOCS_RUN"] == "true"))
-#     ENV["MPLBACKEND"] = "agg"
-#     plt.ioff()
-# end
+
+# Bool whether to save figure as .svg or not; only save on CI
+savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
 
 # Load example isochrone
 # Path is relative to location of script, so use @__DIR__
@@ -95,7 +92,8 @@ obs_hess = SFH.bin_cmd(view(obs_mags,1,:) .- view(obs_mags,2,:),
 # Residual / σ; sometimes called Pearson residual
 signif = (permutedims(obs_hess) .- permutedims(template.weights)) ./
     sqrt.(permutedims(template.weights))
-signif[permutedims(obs_hess) .== 0] .= NaN
+signif_plot = copy(signif)
+signif_plot[permutedims(obs_hess) .== 0] .= NaN
 
 # Test comparison of random Hess diagram with another random Hess diagram
 function test_r_r(niter::Integer)
@@ -140,7 +138,7 @@ axs[1].text(0.05, 0.95,
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
-                    aspect="auto", cmap="Greys",
+                    aspect="auto", cmap="Greys", rasterized=true,
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                         log10(template_norm/1e7)))
 axs[3].text(0.05, 0.95, "c) Smooth Model",
@@ -148,16 +146,16 @@ axs[3].text(0.05, 0.95, "c) Smooth Model",
 
 axs[2].imshow(permutedims(obs_hess), origin="lower",
               extent=(extrema(edges[1])..., extrema(edges[2])...), 
-              aspect="auto", cmap="Greys",
+              aspect="auto", cmap="Greys", rasterized=true,
               norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
               label="CMD-Sampled")
 axs[2].text(0.05, 0.95, "b) Sampled Hess Diagram", transform=axs[2].transAxes,
             va="top", ha="left")
 
-im4 = axs[4].imshow(signif, origin="lower",
+im4 = axs[4].imshow(signif_plot, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
-                    aspect="auto", clim=(-2,2))
+                    aspect="auto", clim=(-2,2), rasterized=true)
 axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
             transform=axs[4].transAxes, va="top", ha="left")
 
@@ -181,7 +179,10 @@ fig.colorbar(im4, ax=axs[4], pad=0.015)
 #     sum(obs_hess))
 # println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .-
 #     permutedims(template.weights)) )
-plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
+# plt.savefig("template_compare.pdf", bbox_inches="tight")
+if savefig
+    plt.savefig(joinpath(@__DIR__, "template_compare.svg"), bbox_inches="tight")
+end
 
 #################################
 # Distribution of σ discrepancies
@@ -189,24 +190,29 @@ import Distributions: pdf, Normal, Poisson
 import StatsBase: mean, median, std
 
 fig, ax1 = plt.subplots()
-hist1 = ax1.hist(filter(isfinite, signif), range=(-4,4), bins=25, density=true)
+hist1 = ax1.hist(filter(isfinite, signif_plot), range=(-3,3), bins=25, density=true)
 ax1.set_xlim(extrema(hist1[2]))
 ax1.set_xlabel("Residual / Standard Deviation")
 ax1.set_ylabel("PDF")
 let xplot = first(hist1[2]):0.01:last(hist1[2])
-    tmpgood = signif |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
-    mean_σ = mean(tmpgood)
-    med_σ = median(tmpgood)
-    std_σ = std(tmpgood)
+    tmpgood   = signif |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
+    tmpgood_p = signif_plot |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
+    mean_σ = mean(tmpgood_p)
+    med_σ = median(tmpgood_p)
+    std_σ = std(tmpgood_p)
     ax1.plot(xplot, pdf.(Normal(0.0,1.0),xplot), label="Ideal")
     ax1.plot(xplot, pdf.(Normal(mean_σ,std_σ),xplot),
              label="Observed", c="magenta")
     ax1.axvline(mean_σ, c="k", ls="--")
     ax1.text(0.05, 0.95,
+             # (@sprintf("Median: %.2f\n\$\\sigma\$: %.2f", med_σ, std_σ)),
              (@sprintf("Mean: %.2f\n\$\\sigma\$: %.2f", mean_σ, std_σ)),
              # (@sprintf("Mean: %.2f\nMedian: %.2f\n\$\\sigma\$: %.2f", mean_σ, med_σ, std_σ)),
              transform=ax1.transAxes, va="top", ha="left")
 end
 ax1.legend(loc="upper right")
-plt.savefig(joinpath(@__DIR__,"sigma_distribution.svg"), bbox_inches="tight")
-
+# plt.savefig("sigma_distribution.pdf", bbox_inches="tight")
+if savefig
+    plt.savefig(joinpath(@__DIR__, "sigma_distribution.svg"), bbox_inches="tight")
+end
+!plt.isinteractive() && plt.close("all");

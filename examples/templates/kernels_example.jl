@@ -15,12 +15,14 @@ plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
 # Y=V, X=B-V
 # Y=R, X=B-V
 
+# Bool whether to save figure as .svg or not; only save on CI
+savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
+
 npoints = 100_000
 mags = ("B", "V", "R")
-σ = (B=0.1, V=0.1, R=0.1) # Magnitude errors
+σ = (B=0.02, V=0.03, R=0.05) # Magnitude errors
 centers = (B=20.0, V=19.0, R=18.0)
 hist_size = (50, 100)
-
 
 ##################################################################################
 # For mags {B,V,R}, test case y=B, x=B-V
@@ -85,6 +87,9 @@ for ax in axs
 end
 
 fig.colorbar(hist_im, ax=axs[1:2], pad=0.0, fraction=0.15)
+if savefig
+    plt.savefig(joinpath(@__DIR__,"covar_m1.svg"), bbox_inches="tight")
+end
 
 ##################################################################################
 # For mags {B,V,R}, test case y=V, x=B-V
@@ -92,7 +97,7 @@ fig.colorbar(hist_im, ax=axs[1:2], pad=0.0, fraction=0.15)
 yy = randn(npoints) .* σ.V .+ centers.V
 xx = (randn(npoints) .* σ.B .+ centers.B) .- yy
 # cov_mult = 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-model = GaussianPSFCovariant(centers.B - centers.V, centers.V, σ.V, σ.B, 1.0, 1.0, 0.0)
+model = GaussianPSFCovariant(centers.B - centers.V, centers.V, σ.B, σ.V, 1.0, 1.0, 0.0)
 
 fig,axs=plt.subplots(nrows=1, ncols=3, sharex=true, sharey=true, figsize=(15,5))
 axs[1].set_ylabel("V")
@@ -133,6 +138,9 @@ for ax in axs
 end
 
 fig.colorbar(hist_im, ax=axs[1:2], pad=0.0, fraction=0.15)
+if savefig
+    plt.savefig(joinpath(@__DIR__,"covar_1.svg"), bbox_inches="tight")
+end
 
 ##################################################################################
 # For mags {B,V,R}, test case y=R, x=B-V
@@ -190,3 +198,7 @@ for ax in axs
 end
 
 fig.colorbar(hist_im, ax=axs[1:2], pad=0.0, fraction=0.15)
+if savefig
+    plt.savefig(joinpath(@__DIR__,"covar_0.svg"), bbox_inches="tight")
+end
+!plt.isinteractive() && plt.close("all");

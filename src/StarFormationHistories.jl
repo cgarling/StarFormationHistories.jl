@@ -194,7 +194,7 @@ end
     return A / 4 * (verf((Δx - halfxstep) / (sqrt2 * σx)) - verf((Δx + halfxstep) / (sqrt2 * σx))) *
         (verf((Δy - halfystep) / (sqrt2 * σy)) - verf((Δy + halfystep) / (sqrt2 * σy))) + B
 end
-@inline gaussian_int_general(args::Vararg{Real,8}) = gaussian_int_general(promote(args...)...)
+@inline gaussian_int_general(args::Vararg{Real, 8}) = gaussian_int_general(promote(args...)...)
 
 """
     GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
@@ -291,8 +291,8 @@ centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
 #     return (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
 # end
 # Gauss-Legendre nodes and weights for integration from -1 < x < 1
-const legendre_x_halfpix = SVector{3, Float64}(-0.7745966692414834, 0.0, 0.7745966692414834)
-const legendre_w_halfpix = SVector{3, Float64}(0.5555555555555556, 0.8888888888888888, 0.5555555555555556)
+const legendre_x_halfpix = (-0.7745966692414834, 0.0, 0.7745966692414834) # SVector{3, Float64}
+const legendre_w_halfpix = (0.5555555555555556, 0.8888888888888888, 0.5555555555555556)
 """
     gaussian_psf_covariant(x::Real, y::Real, halfxstep::Real, halfystep::Real, x0::Real, 
                            y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
@@ -313,6 +313,7 @@ Exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfyste
     # Scale Gauss-Legendre weights
     yweights = legendre_w_halfpix .* halfystep
     result = zero(T)
+    # Compiler unrolls this loop
     for i in eachindex(yvals, yweights)
         @inbounds Δy = yvals[i] - y0
         Δx = dx + (Δy * cov_mult)
@@ -322,7 +323,7 @@ Exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfyste
     end
     return result * prefac
 end
-@inline gaussian_psf_covariant(args::Vararg{Real,11}) = 
+@inline gaussian_psf_covariant(args::Vararg{Real, 11}) = 
     gaussian_psf_covariant(promote(args...)...)
 @inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real, halfxstep::Real, halfystep::Real) = 
     gaussian_psf_covariant(x, y, halfxstep, halfystep, parameters(model)...)

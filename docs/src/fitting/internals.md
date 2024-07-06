@@ -1,4 +1,4 @@
-# Developer Internals
+# Low-Level Functions
 
 ```@docs
 StarFormationHistories.composite!
