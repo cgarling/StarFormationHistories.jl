@@ -31,6 +31,11 @@ jobs:
           - ubuntu-latest
         arch:
           - x64
+        include:
+          - os: macos-latest
+            version: '1'
+          - os: windows-latest
+            version: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
