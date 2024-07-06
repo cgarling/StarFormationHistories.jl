@@ -1,13 +1,18 @@
 using Documenter
 using StarFormationHistories
 
-
 # Run examples
 import PyPlot as plt
 plt.ioff()
 ENV["MPLBACKEND"] = "agg"
-# Run smooth_template.jl
+# Run examples to generate plots
+# Set environment variable to save figures
+ENV["DOCSBUILD"] = "true"
+@info "Running example: smooth_template.jl"
 include("../examples/templates/smooth_template.jl")
+@info "Running example: kernels_example.jl"
+include("../examples/templates/kernels_example.jl")
+@info "Finished examples"
 # Can't move yet as makedocs will clear the build folder.
 # Moving and showing in docs/src/fitting/fitting_intro.md.
 
@@ -38,7 +43,8 @@ makedocs(
                       ["fitting/linear_amr.md",
                        "fitting/log_amr.md",
                        "fitting/fixed_amr.md"],
-                  "fitting/internals.md"],
+                  "Internals" => ["fitting/internals.md",
+                                  "fitting/kernels.md"]],
              "examples.md",
              "simulate.md",
              "binaries.md",

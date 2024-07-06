@@ -1,0 +1,326 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 13.2' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[     11770,        318]
+NotebookOptionsPosition[     10506,        288]
+NotebookOutlinePosition[     10921,        304]
+CellTagsIndexPosition[     10878,        301]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell["Asymmetric, non-covariant Gaussian kernel", "Subsection",
+ CellChangeTimes->{{3.929185234663006*^9, 
+  3.9291852476543264`*^9}},ExpressionUUID->"7f1352b4-f129-4030-a850-\
+46acccaa1d2a"],
+
+Cell["\<\
+In the case of the asymmetric but non-covariant 2-D Gaussian probability \
+distribution, integration of the PDF across a single grid bin (or matrix \
+pixel) is relatively straightforward as the kernel can be easily defined in \
+pixel-space, such that we need only integrate over bins (i.e., from \
+\[CapitalDelta]x[x,x0]-step to \[CapitalDelta]x[x,x0]+step, with step=0.5, \
+and identically for \[CapitalDelta]y). \
+\>", "Text",
+ CellChangeTimes->{{3.9291852663585796`*^9, 3.929185422795603*^9}, {
+  3.9291854621993885`*^9, 3.9291854644923425`*^9}, {3.929185550015588*^9, 
+  3.929185551247083*^9}, {3.9291859884980483`*^9, 
+  3.9291859886774454`*^9}},ExpressionUUID->"56a67edc-db10-48b4-b74d-\
+6f15cda72657"],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[{
+ RowBox[{
+  RowBox[{"\[CapitalDelta]x", "[", 
+   RowBox[{"x_", ",", "x0_"}], "]"}], ":=", 
+  RowBox[{"x", "-", "x0"}]}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"\[CapitalDelta]y", "[", 
+   RowBox[{"y_", ",", "y0_"}], "]"}], ":=", 
+  RowBox[{"y", "-", "y0"}]}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"PRF", "[", 
+   RowBox[{
+   "x_", ",", "y_", ",", "x0_", ",", "y0_", ",", "\[Sigma]x_", ",", 
+    "\[Sigma]y_", ",", "A_", ",", "step_"}], "]"}], ":=", 
+  RowBox[{
+   SubsuperscriptBox["\[Integral]", 
+    RowBox[{
+     RowBox[{"\[CapitalDelta]x", "[", 
+      RowBox[{"x", ",", "x0"}], "]"}], "-", "step"}], 
+    RowBox[{
+     RowBox[{"\[CapitalDelta]x", "[", 
+      RowBox[{"x", ",", "x0"}], "]"}], "+", "step"}]], 
+   RowBox[{
+    SubsuperscriptBox["\[Integral]", 
+     RowBox[{
+      RowBox[{"\[CapitalDelta]y", "[", 
+       RowBox[{"y", ",", "y0"}], "]"}], "-", "step"}], 
+     RowBox[{
+      RowBox[{"\[CapitalDelta]y", "[", 
+       RowBox[{"y", ",", "y0"}], "]"}], "+", "step"}]], 
+    RowBox[{
+     FractionBox["A", 
+      RowBox[{"\[Sigma]y", " ", "\[Sigma]x", " ", "2", "\[Pi]"}]], 
+     RowBox[{"Exp", "[", 
+      RowBox[{"-", 
+       FractionBox[
+        SuperscriptBox[
+         RowBox[{"\[CapitalDelta]x", "[", 
+          RowBox[{"x", ",", "x0"}], "]"}], "2"], 
+        RowBox[{"2", 
+         SuperscriptBox["\[Sigma]x", "2"]}]]}], "]"}], 
+     RowBox[{"Exp", "[", 
+      RowBox[{"-", 
+       FractionBox[
+        SuperscriptBox[
+         RowBox[{"\[CapitalDelta]y", "[", 
+          RowBox[{"y", ",", "y0"}], "]"}], "2"], 
+        RowBox[{"2", 
+         SuperscriptBox["\[Sigma]y", "2"]}]]}], "]"}], 
+     RowBox[{"\[DifferentialD]", "y"}], 
+     RowBox[{"\[DifferentialD]", "x"}]}]}]}]}], "\[IndentingNewLine]", 
+ RowBox[{"PRF", "[", 
+  RowBox[{
+  "x", ",", "y", ",", "x0", ",", "y0", ",", "\[Sigma]x", ",", "\[Sigma]y", 
+   ",", "A", ",", "step"}], "]"}]}], "Input",
+ CellChangeTimes->{{3.929184279474619*^9, 3.9291844276933346`*^9}, {
+  3.929184462073804*^9, 3.9291845029716244`*^9}, {3.929184542161474*^9, 
+  3.929184547309645*^9}, {3.9291845823223205`*^9, 3.9291846422573347`*^9}, {
+  3.929184673309617*^9, 3.9291846984207773`*^9}, {3.929184737302064*^9, 
+  3.929184768652455*^9}, {3.9291848725753126`*^9, 3.929184912060364*^9}, {
+  3.9291849908910913`*^9, 3.9291849913696833`*^9}, {3.92918503663616*^9, 
+  3.9291850375276213`*^9}, {3.92918509792736*^9, 3.9291851052282085`*^9}, {
+  3.9291851732536564`*^9, 3.9291851981135063`*^9}},
+ CellLabel->"In[47]:=",ExpressionUUID->"7ff12079-c671-4050-98a1-27e3f9b5fea5"],
+
+Cell[BoxData[
+ RowBox[{
+  FractionBox["1", "4"], " ", "A", " ", 
+  RowBox[{"(", 
+   RowBox[{
+    RowBox[{"Erf", "[", 
+     FractionBox[
+      RowBox[{"step", "+", "x", "-", 
+       RowBox[{"2", " ", "x0"}]}], 
+      RowBox[{
+       SqrtBox["2"], " ", "\[Sigma]x"}]], "]"}], "+", 
+    RowBox[{"Erf", "[", 
+     FractionBox[
+      RowBox[{"step", "-", "x", "+", 
+       RowBox[{"2", " ", "x0"}]}], 
+      RowBox[{
+       SqrtBox["2"], " ", "\[Sigma]x"}]], "]"}]}], ")"}], " ", 
+  RowBox[{"(", 
+   RowBox[{
+    RowBox[{"Erf", "[", 
+     FractionBox[
+      RowBox[{"step", "+", "y", "-", 
+       RowBox[{"2", " ", "y0"}]}], 
+      RowBox[{
+       SqrtBox["2"], " ", "\[Sigma]y"}]], "]"}], "+", 
+    RowBox[{"Erf", "[", 
+     FractionBox[
+      RowBox[{"step", "-", "y", "+", 
+       RowBox[{"2", " ", "y0"}]}], 
+      RowBox[{
+       SqrtBox["2"], " ", "\[Sigma]y"}]], "]"}]}], ")"}]}]], "Output",
+ CellChangeTimes->{3.929185108805773*^9, 3.929185202170008*^9},
+ CellLabel->"Out[50]=",ExpressionUUID->"3f1acc96-238f-484b-8b2b-150739a304c3"]
+}, Open  ]]
+}, Open  ]],
+
+Cell[CellGroupData[{
+
+Cell["Asymmetric, covariant Gaussian kernel", "Subsection",
+ CellChangeTimes->{{3.929185499137336*^9, 
+  3.9291855055219154`*^9}},ExpressionUUID->"abfdcbde-1bfb-41d9-a4a0-\
+fa9057e114b3"],
+
+Cell["\<\
+In the covariant case, we need to change the definition of the PSF. In the \
+case that the Hess diagram is defined using 2-band imaging (we will use \
+photometric filters \[OpenCurlyDoubleQuote]B\[CloseCurlyDoubleQuote] and \
+\[OpenCurlyDoubleQuote]V\[CloseCurlyDoubleQuote] as examples), the color on \
+the x-axis (B-V) will be covariant with the magnitude on the y-axis. This \
+covariance can be handled with a simple alteration to the Gaussian 2-D PDF. \
+There are two possible covariance patterns; 1) x=B-V, y=B; 2) x=B-V, y=V. \
+Both can be handled by a single PDF expression if we introduce the concept of \
+a covariance multiplier (we call this cov_mult in the code). cov_mult has the \
+following values:
+ - cov_mult = -1 for x=B-V, y=B
+ - cov_mult = 1 if x=B-V, y=V,
+ and we reproduce the above asymmetric, non-covariant case when the y-axis \
+magnitude does not appear in the x-axis color, as in
+  - cov_mult = 0 for y=R and x=B-V. \
+\>", "Text",
+ CellChangeTimes->{{3.9291855064347935`*^9, 3.929185530863987*^9}, {
+  3.9291855748526316`*^9, 3.929185665037631*^9}, {3.9291859411310415`*^9, 
+  3.9291860086676645`*^9}, {3.929186042699819*^9, 
+  3.9291862239082794`*^9}},ExpressionUUID->"89010697-318e-49d9-a676-\
+24ab4f9dd2c3"],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[{
+ RowBox[{
+  RowBox[{"\[CapitalDelta]y", "[", 
+   RowBox[{"y_", ",", "y0_"}], "]"}], ":=", 
+  RowBox[{"y", "-", "y0"}]}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"\[CapitalDelta]x", "[", 
+   RowBox[{"x_", ",", "x0_", ",", "y_", ",", "y0_", ",", "covmult_"}], "]"}], 
+  ":=", 
+  RowBox[{"x", "-", "x0", " ", "+", " ", 
+   RowBox[{"(", 
+    RowBox[{
+     RowBox[{"\[CapitalDelta]y", "[", 
+      RowBox[{"y", ",", "y0"}], "]"}], " ", "*", " ", "covmult"}], 
+    ")"}]}]}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"PRF", "[", 
+   RowBox[{
+   "x_", ",", "y_", ",", "x0_", ",", "y0_", ",", "\[Sigma]x_", ",", 
+    "\[Sigma]y_", ",", "A_", ",", "xstep_", ",", "ystep_", ",", "covmult_"}], 
+   "]"}], ":=", 
+  RowBox[{
+   SubsuperscriptBox["\[Integral]", 
+    RowBox[{"y", "-", "ystep"}], 
+    RowBox[{"y", "+", "ystep"}]], 
+   RowBox[{
+    SubsuperscriptBox["\[Integral]", 
+     RowBox[{"x", "-", "xstep"}], 
+     RowBox[{"x", "+", "xstep"}]], 
+    RowBox[{
+     FractionBox["A", 
+      RowBox[{"\[Sigma]y", " ", "\[Sigma]x", " ", "2", "\[Pi]"}]], 
+     RowBox[{"Exp", "[", 
+      RowBox[{"-", 
+       FractionBox[
+        SuperscriptBox[
+         RowBox[{"\[CapitalDelta]x", "[", 
+          RowBox[{"x", ",", "x0", ",", "y", ",", "y0", ",", "covmult"}], 
+          "]"}], "2"], 
+        RowBox[{"2", 
+         SuperscriptBox["\[Sigma]x", "2"]}]]}], "]"}], 
+     RowBox[{"Exp", "[", 
+      RowBox[{"-", 
+       FractionBox[
+        SuperscriptBox[
+         RowBox[{"\[CapitalDelta]y", "[", 
+          RowBox[{"y", ",", "y0"}], "]"}], "2"], 
+        RowBox[{"2", 
+         SuperscriptBox["\[Sigma]y", "2"]}]]}], "]"}], 
+     RowBox[{"\[DifferentialD]", "x"}], 
+     RowBox[{"\[DifferentialD]", "y"}]}]}]}]}], "\[IndentingNewLine]", 
+ RowBox[{"PRF", "[", 
+  RowBox[{
+  "x", ",", "y", ",", "x0", ",", "y0", ",", "\[Sigma]x", ",", "\[Sigma]y", 
+   ",", "A", ",", "xstep", ",", "ystep", ",", "covmult"}], "]"}]}], "Input",
+ CellChangeTimes->{{3.9291870435631013`*^9, 3.9291870505118375`*^9}, {
+  3.929190083586762*^9, 3.929190094743618*^9}, {3.9291994667803755`*^9, 
+  3.9291994753596287`*^9}},
+ CellLabel->"In[1]:=",ExpressionUUID->"10636d73-cfe9-4a90-8d48-7a00c713d4c1"],
+
+Cell[BoxData[
+ RowBox[{
+  SubsuperscriptBox["\[Integral]", 
+   RowBox[{"y", "-", "ystep"}], 
+   RowBox[{"y", "+", "ystep"}]], 
+  RowBox[{
+   FractionBox[
+    RowBox[{"A", " ", 
+     SuperscriptBox["\[ExponentialE]", 
+      RowBox[{"-", 
+       FractionBox[
+        SuperscriptBox[
+         RowBox[{"(", 
+          RowBox[{"y", "-", "y0"}], ")"}], "2"], 
+        RowBox[{"2", " ", 
+         SuperscriptBox["\[Sigma]y", "2"]}]]}]], " ", 
+     RowBox[{"(", 
+      RowBox[{
+       RowBox[{"Erf", "[", 
+        FractionBox[
+         RowBox[{"x", "-", "x0", "+", "xstep", "+", 
+          RowBox[{"covmult", " ", "y"}], "-", 
+          RowBox[{"covmult", " ", "y0"}]}], 
+         RowBox[{
+          SqrtBox["2"], " ", "\[Sigma]x"}]], "]"}], "+", 
+       RowBox[{"Erf", "[", 
+        FractionBox[
+         RowBox[{
+          RowBox[{"-", "x"}], "+", "x0", "+", "xstep", "-", 
+          RowBox[{"covmult", " ", "y"}], "+", 
+          RowBox[{"covmult", " ", "y0"}]}], 
+         RowBox[{
+          SqrtBox["2"], " ", "\[Sigma]x"}]], "]"}]}], ")"}]}], 
+    RowBox[{"2", " ", 
+     SqrtBox[
+      RowBox[{"2", " ", "\[Pi]"}]], " ", "\[Sigma]y"}]], 
+   RowBox[{"\[DifferentialD]", "y"}]}]}]], "Output",
+ CellChangeTimes->{3.929187146543584*^9, 3.9291901874382925`*^9, 
+  3.9291995709786572`*^9},
+ CellLabel->"Out[4]=",ExpressionUUID->"2e17210a-dbff-4327-af04-b554d9537805"]
+}, Open  ]],
+
+Cell["\<\
+The outer integral over y is not analytic, so we use Gauss-Legendre \
+integration to finish the calculation.\
+\>", "Text",
+ CellChangeTimes->{{3.9291878621139116`*^9, 3.9291879009676523`*^9}, {
+  3.9291889713915253`*^9, 
+  3.92918897172964*^9}},ExpressionUUID->"ff70011c-bcf2-4fee-8cdc-\
+958dbd53bdf9"]
+}, Open  ]]
+},
+WindowSize->{782.25, 505.5},
+WindowMargins->{{387.75, Automatic}, {213.75, Automatic}},
+FrontEndVersion->"13.2 for Microsoft Windows (64-bit) (November 18, 2022)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"3126bf40-549b-4309-8cb2-0ea311068b51"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[580, 22, 191, 3, 54, "Subsection",ExpressionUUID->"7f1352b4-f129-4030-a850-46acccaa1d2a"],
+Cell[774, 27, 718, 12, 104, "Text",ExpressionUUID->"56a67edc-db10-48b4-b74d-6f15cda72657"],
+Cell[CellGroupData[{
+Cell[1517, 43, 2553, 63, 132, "Input",ExpressionUUID->"7ff12079-c671-4050-98a1-27e3f9b5fea5"],
+Cell[4073, 108, 1036, 32, 54, "Output",ExpressionUUID->"3f1acc96-238f-484b-8b2b-150739a304c3"]
+}, Open  ]]
+}, Open  ]],
+Cell[CellGroupData[{
+Cell[5158, 146, 187, 3, 54, "Subsection",ExpressionUUID->"abfdcbde-1bfb-41d9-a4a0-fa9057e114b3"],
+Cell[5348, 151, 1245, 21, 265, "Text",ExpressionUUID->"89010697-318e-49d9-a676-24ab4f9dd2c3"],
+Cell[CellGroupData[{
+Cell[6618, 176, 2182, 58, 132, "Input",ExpressionUUID->"10636d73-cfe9-4a90-8d48-7a00c713d4c1"],
+Cell[8803, 236, 1360, 39, 100, "Output",ExpressionUUID->"2e17210a-dbff-4327-af04-b554d9537805"]
+}, Open  ]],
+Cell[10178, 278, 312, 7, 35, "Text",ExpressionUUID->"ff70011c-bcf2-4fee-8cdc-958dbd53bdf9"]
+}, Open  ]]
+}
+]
+*)
+

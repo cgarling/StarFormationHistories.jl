@@ -1,7 +1,10 @@
+import DelimitedFiles: readdlm
 using Distributions: Normal, ContinuousUnivariateDistribution
 import Distributions: pdf
 using Test
-using StarFormationHistories: mini_spacing, dispatch_imf, mean
+import StatsBase: Histogram
+import InitialMassFunctions: Kroupa2001
+using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr
 
 
 @testset "mini_spacing" begin
@@ -18,6 +21,15 @@ using StarFormationHistories: mini_spacing, dispatch_imf, mean
                                    0.1, true)
     @test spacing isa Vector{Float64}
     @test spacing ≈ diff(result)
+end
+
+@testset "midpoints" begin
+    @test midpoints(0.5:0.1:1.0) ≈ 0.55:0.1:0.95
+    @test midpoints(1.0:-0.1:0.5) ≈ 0.95:-0.1:0.55
+    @test midpoints(collect(0.5:0.1:1.0), true) ≈ 0.55:0.1:0.95
+    @test midpoints(collect(1.0:-0.1:0.5), true) ≈ 0.95:-0.1:0.55
+    @test midpoints([1.0,2.0,2.2,2.1]) ≈ [1.5, 2.1, 2.15]
+    @test midpoints([1.0,2.0,2.2,2.1]) ≈ [1.5, 2.1, 2.15]
 end
 
 # Make a test type that is a duplicate of Normal
@@ -39,3 +51,64 @@ end
 @testset "mean" begin
     @test mean(TestType(1.0,1.0)) ≈ mean(Normal(1.0,1.0))
 end
+
+@testset "partial_cmd_smooth" begin
+    # Load example isochrone
+    isochrone, mag_names = readdlm(joinpath(@__DIR__, "../../data/isochrone.txt"), ' ',
+                                   Float64, '\n'; header=true)
+    # Unpack
+    m_ini = isochrone[:,1]
+    F090W = isochrone[:,2]
+    F150W = isochrone[:,3]
+    F277W = isochrone[:,4]
+    # Set distance modulus
+    distmod = 25.0
+    # Set bins for Hess diagram
+    edges = (range(-0.2, 1.2, length=75),
+             range(distmod-6.0, distmod+5.0, length=100))
+    # Set total stellar mass to normalize template to
+    template_norm = 1e7
+    # Construct error and completeness functions
+    F090W_complete(m) = Martin2016_complete(m, 1.0, 28.5, 0.7)
+    F150W_complete(m) = Martin2016_complete(m, 1.0, 27.5, 0.7)
+    F277W_complete(m) = Martin2016_complete(m, 1.0, 26.5, 0.7)
+    F090W_error(m) = min(exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
+    F150W_error(m) = min(exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
+    F277W_error(m) = min(exp_photerr(m, 1.03, 15.0, 34.0, 0.02), 0.4)
+    # Set IMF
+    imf = Kroupa2001(0.08, 100.0)
+    # Construct template
+    for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
+        template = partial_cmd_smooth(m_ini,
+                                      [F090W, F150W, F277W],
+                                      [F090W_error, F150W_error, F277W_error],
+                                      y_index,
+                                      color_indices,
+                                      imf,
+                                      [F090W_complete, F150W_complete, F277W_complete]; 
+                                      dmod=distmod,
+                                      normalize_value=template_norm,
+                                      edges=edges)
+        @test template isa Histogram
+        data = template.weights
+        @test data isa Matrix{Float64}
+        @test any(!=(0), data)
+        @test size(data) == (length(edges[1])-1, length(edges[2])-1)
+        @test template.edges == edges
+        @test template.isdensity == false
+    end
+end
+# 2.5 ms
+# ~1.25 ms in bin_cmd_smooth
+# ~0.75 ms calculating weights
+# ~0.75 ms interpolating isochrone mags and calculating errors and completeness values
+# @benchmark partial_cmd_smooth($m_ini,
+#                               $[F090W, F150W],
+#                               $[F090W_error, F150W_error],
+#                               $2,
+#                               $[1,2],
+#                               $imf,
+#                               $[F090W_complete, F150W_complete];
+#                               dmod=$distmod,
+#                               normalize_value=$template_norm,
+#                               edges=$edges)

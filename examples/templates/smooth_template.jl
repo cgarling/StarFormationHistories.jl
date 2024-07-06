@@ -13,12 +13,11 @@ plt.rc("font", family="serif", serif=["Computer Modern"], size=14)
 # plt.rc("font", family="serif", serif=["cmr10"], size=14)
 plt.rc("figure", figsize=(5,5))
 plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
-# Disable interactive plotting when running on CI or building docs
-# if ("CI" in keys(ENV) && (ENV["CI"] == "true")) |
-#     (("DOCS_RUN" in keys(ENV)) && (ENV["DOCS_RUN"] == "true"))
-#     ENV["MPLBACKEND"] = "agg"
-#     plt.ioff()
-# end
+# https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
+plt.rc("image", interpolation="none")
+
+# Bool whether to save figure as .svg or not; only save on CI
+savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
 
 # Load example isochrone
 # Path is relative to location of script, so use @__DIR__
@@ -30,20 +29,20 @@ F090W = isochrone[:,2]
 F150W = isochrone[:,3]
 
 # Set distance modulus for example
-distmod::Float64 = 25.0 # Distance modulus 
+distmod = 25.0 # Distance modulus
 
 # Set bins for Hess diagram
 edges = (range(-0.2, 1.2, length=75),
-         range(distmod-6.0, distmod+5.0, length=75))
+         range(distmod-6.0, distmod+5.0, length=200))
 
 # Set total stellar mass to normalize template to
-template_norm::Float64 = 1e7
+template_norm = 1e7
 
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
 F150W_complete(m) = SFH.Martin2016_complete(m, 1.0, 27.5, 0.7)
-F090W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4 )
-F150W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4 )
+F090W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
+F150W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
 
 # Set IMF
 imf = Kroupa2001(0.08, 100.0)
@@ -58,7 +57,7 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   [F090W_complete, F150W_complete]; 
                                   dmod=distmod,
                                   normalize_value=template_norm,
-                                  edges=edges )
+                                  edges=edges)
 
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W],
@@ -93,7 +92,8 @@ obs_hess = SFH.bin_cmd(view(obs_mags,1,:) .- view(obs_mags,2,:),
 # Residual / σ; sometimes called Pearson residual
 signif = (permutedims(obs_hess) .- permutedims(template.weights)) ./
     sqrt.(permutedims(template.weights))
-signif[permutedims(obs_hess) .== 0] .= NaN
+signif_plot = copy(signif)
+signif_plot[permutedims(obs_hess) .== 0] .= NaN
 
 # Test comparison of random Hess diagram with another random Hess diagram
 function test_r_r(niter::Integer)
@@ -124,12 +124,13 @@ end
 
 ############################################################################
 # Plot
+
 fig,axs=plt.subplots(nrows=1, ncols=4, sharex=true, sharey=true, figsize=(20,5))
 fig.subplots_adjust(hspace=0.0, wspace=0.0)
 # fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
 
 axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
-               s=1, marker=".", c="k", alpha=0.05, rasterized=true,
+               s=1, marker=".", c="k", alpha=0.1, rasterized=true,
                label="CMD-Sampled")
 axs[1].text(0.05, 0.95,
             @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
@@ -137,33 +138,33 @@ axs[1].text(0.05, 0.95,
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
-                    aspect="auto", cmap="Greys",
+                    aspect="auto", cmap="Greys", rasterized=true,
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
-                        log10(template_norm/1e7)), rasterized=true)
+                        log10(template_norm/1e7)))
 axs[3].text(0.05, 0.95, "c) Smooth Model",
             transform=axs[3].transAxes, va="top", ha="left")
 
 axs[2].imshow(permutedims(obs_hess), origin="lower",
               extent=(extrema(edges[1])..., extrema(edges[2])...), 
-              aspect="auto", cmap="Greys",
+              aspect="auto", cmap="Greys", rasterized=true,
               norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
-              rasterized=true, label="CMD-Sampled")
+              label="CMD-Sampled")
 axs[2].text(0.05, 0.95, "b) Sampled Hess Diagram", transform=axs[2].transAxes,
             va="top", ha="left")
 
-im4 = axs[4].imshow(signif, origin="lower",
+im4 = axs[4].imshow(signif_plot, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", clim=(-2,2), rasterized=true)
 axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
             transform=axs[4].transAxes, va="top", ha="left")
 
-plot_isochrones::Bool = true
+plot_isochrones = true
 for i in eachindex(axs)
     axs[i].set_xlabel(L"F090W$-$F150W")
     if plot_isochrones & (i != 4) # Don't plot on residual
         axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange",
-                       s=1, alpha=0.3)
+                       s=1, alpha=1.0)
     end
 end
 axs[1].set_ylabel("F150W")
@@ -178,31 +179,40 @@ fig.colorbar(im4, ax=axs[4], pad=0.015)
 #     sum(obs_hess))
 # println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .-
 #     permutedims(template.weights)) )
-plt.savefig(joinpath(@__DIR__,"template_compare.svg"), bbox_inches="tight")
+# plt.savefig("template_compare.pdf", bbox_inches="tight")
+if savefig
+    plt.savefig(joinpath(@__DIR__, "template_compare.svg"), bbox_inches="tight")
+end
 
 #################################
 # Distribution of σ discrepancies
 import Distributions: pdf, Normal, Poisson
-import StatsBase: mean, std
+import StatsBase: mean, median, std
+
 fig, ax1 = plt.subplots()
-hist1 = ax1.hist(filter(isfinite, signif), range=(-4,4), bins=25, density=true)
+hist1 = ax1.hist(filter(isfinite, signif_plot), range=(-3,3), bins=25, density=true)
 ax1.set_xlim(extrema(hist1[2]))
 ax1.set_xlabel("Residual / Standard Deviation")
 ax1.set_ylabel("PDF")
 let xplot = first(hist1[2]):0.01:last(hist1[2])
-    # mean_σ = mean(filter(Base.Fix1(<,-5), filter(isfinite,signif)))
-    tmpgood = filter(x -> first(hist1[2]) <= x <= last(hist1[2]),
-                     filter(isfinite,signif))
-    mean_σ = mean(tmpgood)
-    std_σ = std(tmpgood)
+    tmpgood   = signif |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
+    tmpgood_p = signif_plot |> filter(isfinite) |> filter(x -> first(hist1[2]) <= x <= last(hist1[2]))
+    mean_σ = mean(tmpgood_p)
+    med_σ = median(tmpgood_p)
+    std_σ = std(tmpgood_p)
     ax1.plot(xplot, pdf.(Normal(0.0,1.0),xplot), label="Ideal")
     ax1.plot(xplot, pdf.(Normal(mean_σ,std_σ),xplot),
              label="Observed", c="magenta")
     ax1.axvline(mean_σ, c="k", ls="--")
     ax1.text(0.05, 0.95,
+             # (@sprintf("Median: %.2f\n\$\\sigma\$: %.2f", med_σ, std_σ)),
              (@sprintf("Mean: %.2f\n\$\\sigma\$: %.2f", mean_σ, std_σ)),
+             # (@sprintf("Mean: %.2f\nMedian: %.2f\n\$\\sigma\$: %.2f", mean_σ, med_σ, std_σ)),
              transform=ax1.transAxes, va="top", ha="left")
 end
 ax1.legend(loc="upper right")
-plt.savefig(joinpath(@__DIR__,"sigma_distribution.svg"), bbox_inches="tight")
-
+# plt.savefig("sigma_distribution.pdf", bbox_inches="tight")
+if savefig
+    plt.savefig(joinpath(@__DIR__, "sigma_distribution.svg"), bbox_inches="tight")
+end
+!plt.isinteractive() && plt.close("all");
