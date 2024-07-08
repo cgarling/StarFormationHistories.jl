@@ -38,11 +38,15 @@ edges = (range(-0.2, 1.2, length=75),
 # Set total stellar mass to normalize template to
 template_norm = 1e7
 
+# Set binary model to use
+binary_model = SFH.RandomBinaryPairs(1.0)
+# binary_model = SFH.NoBinaries()
+
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
 F150W_complete(m) = SFH.Martin2016_complete(m, 1.0, 27.5, 0.7)
-F090W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
-F150W_error(m) = min( SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
+F090W_error(m) = min(SFH.exp_photerr(m, 1.03, 15.0, 36.0, 0.02), 0.4)
+F150W_error(m) = min(SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
 
 # Set IMF
 imf = Kroupa2001(0.08, 100.0)
@@ -57,13 +61,13 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   [F090W_complete, F150W_complete]; 
                                   dmod=distmod,
                                   normalize_value=template_norm,
-                                  edges=edges)
+                                  edges=edges, binary_model=binary_model)
 
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W],
                                        ["F090W", "F150W"], template_norm, imf;
                                        dist_mod=distmod,
-                                       binary_model=SFH.NoBinaries())[2] 
+                                       binary_model=binary_model)[2] 
 
 # Model photometric error and incompleteness
 obs_mags = SFH.model_cmd(starcat_mags, [F090W_error, F150W_error],

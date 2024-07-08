@@ -576,7 +576,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     hist = Histogram(edges, mat, :left, false)
     if cov_mult == 0 # Case: y=R and x=B-V
         for i in eachindex(colors)
-            # Skip stars that are 3σ away from the histogram region in either x or y. 
+            # Skip stars that are 3σ away from the histogram region in either x or y.
             # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
             #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
             #     |
@@ -647,7 +647,8 @@ end
 #     colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
 #     return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
 # end
-function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+    Base.require_one_based_indexing(m_ini)
     Base.require_one_based_indexing(mags)
     @assert all(length(i) == length(m_ini) for i in mags)
     # npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
@@ -665,7 +666,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             end
             ΔMs = mini_spacing[j]
             Msint = dispatch_imf(imf, m_ini[j]) + dispatch_imf(imf, m_ini[j+1])
-            binary_weights[prodidx] = ΔMp * ΔMs * (Mpint + Msint) / 4 * normalize_value / mean_mass
+            binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * normalize_value / mean_mass / 4 * 1.31828
             prodidx += 1 # Increment index counter
         end
     end
@@ -678,9 +679,55 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
             completeness_funcs[y_index].( [binary_mags, y_index] )
     end
-    # println(sum(binary_weights))
     colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
-    return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
+    hist = fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
+    hist_weights = vec(hist.weights)
+    # mag_err = [mag_err_funcs[i].(binary_mags[i][good]) for i in eachindex(binary_mags)]
+    # Filter for only useful bins
+    good = findall(!=(0), hist_weights)
+    # Get bin centers and magnitude errors and call bin_cmd_smooth
+    centers = (hist.edges[1][begin:end-1] .+ step(hist.edges[1]) / 2,
+               hist.edges[2][begin:end-1] .+ step(hist.edges[2]) / 2)
+    # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
+    h_colors = repeat(centers[1]; outer=length(centers[2]))[good]
+    h_mags = repeat(centers[2]; inner=length(centers[1]))[good]
+    ymag_err = repeat(mag_err_funcs[y_index].(centers[2]); inner=length(centers[1]))[good]
+
+    if y_index in color_indices
+        if y_index == first(color_indices)
+            xmags = h_mags .- h_colors
+        else
+            xmags = h_mags .+ h_colors
+        end
+        x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
+        color_err = mag_err_funcs[x_c_idx].(xmags)
+        cov_mult = (y_index == first(color_indices)) ? -1 : 1
+    else
+        
+    end
+    # return hist
+    return bin_cmd_smooth(h_colors, h_mags,
+                          color_err, ymag_err, cov_mult;
+                          weights=hist_weights[good], edges=edges)
+end
+# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), 0, Mp)[1],0,Inf) is equal to mean(imf)
+
+# bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
+#                         weights = ones(promote_type(eltype(colors), eltype(mags)),
+#                                        size(colors)), edges=nothing,
+#                         xlim=extrema(colors), ylim=extrema(mags), nbins=nothing,
+#                         xwidth=nothing, ywidth=nothing)
+function pure_hess_smooth(pure_hess::Histogram, color_err, mag_err, cov_mult::Int=0)
+    @assert pure_hess.closed == :left
+    # Get bin centers
+    edges = (pure_hess.edges[1][begin:end-1] .+ step(pure_hess.edges[1]) / 2,
+             pure_hess.edges[2][begin:end-1] .+ step(pure_hess.edges[2]) / 2)
+    # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
+    colors = repeat(edges[1]; outer=length(edges[2]))
+    mags = repeat(edges[2]; inner=length(edges[1]))
+
+    return bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult;
+                          edges=pure_hess.edges, weights=vec(pure_hess.weights))
 end
 
 ##########################################
@@ -799,8 +846,10 @@ This method returns the Hess diagram as a `StatsBase.Histogram`; you should refe
 function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mags::AbstractVector{<:AbstractVector{<:Number}},
                             mag_err_funcs, y_index, color_indices, imf,
-                            completeness_funcs=[one for i in mags]; dmod::Number=0,
-                            normalize_value::Number=1, mean_mass::Number=mean(imf),
+                            completeness_funcs=[one for i in mags];
+                            dmod::Number=0, normalize_value::Number=1,
+                            binary_model::AbstractBinaryModel=NoBinaries(),
+                            mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
     @assert length(color_indices) == 2
@@ -826,7 +875,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # to be the single-band error for the filter in the x-axis color which
         # does not appear on the y axis; i.e. if y=V and x=B-V, color_err should
         # simply be σB.
-        x_c_idx = color_indices[findfirst(x -> x !== y_index, color_indices)]
+        x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
         color_err = mag_err[x_c_idx]
         # Calculate vector of completeness products; product of the two involved magnitudes
         completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
@@ -847,10 +896,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    println(sum(weights))
-    # return midpoints(new_mini), [midpoints(i) for i in new_iso_mags], y_index, color_indices, midpoints(completeness_vec), weights
-    # binary_hess(model::AbstractBinaryModel, m_ini::AbstractVector, mags::AbstractArray, y_index, color_indices, completeness_funcs, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
-    ds = 4 # Factor by which to downsample the single-star vectors
+    ds = 1 # Factor by which to downsample the single-star vectors
     # return binary_hess(RandomBinaryPairs(0.3),
     #                    midpoints(new_mini)[begin:ds:end],
     #                    stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
@@ -871,23 +917,36 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     #                    completeness_funcs,
     #                    weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
     #                    edges)
-    return (RandomBinaryPairs(0.3),
-            new_mini[begin:ds:end],
-            # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
-            [i[begin:ds:end] for i in new_iso_mags],
-            y_index,
-            color_indices,
-            imf,
-            # midpoints(completeness_vec)[begin:sf:end],
-            completeness_funcs,
-            # weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
-            edges)
-    
-    return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
-                          midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
-                          weights=weights, edges=edges)
-end
+    # return (RandomBinaryPairs(0.3),
+    #         new_mini[begin:ds:end],
+    #         # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
+    #         [i[begin:ds:end] for i in new_iso_mags],
+    #         mag_err_funcs,
+    #         y_index,
+    #         color_indices,
+    #         imf,
+    #         # midpoints(completeness_vec)[begin:sf:end],
+    #         completeness_funcs,
+    #         # weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
+    #         edges)
 
+    println(sum(weights))
+    single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
+                                      midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
+                                      weights=weights, edges=edges)
+    bfrac = binary_fraction(binary_model)
+    @assert bfrac <= 1
+    if bfrac == 0
+        return single_star_hist
+    else
+        binary_hist = binary_hess(binary_model, new_mini[begin:ds:end], [i[begin:ds:end] for i in new_iso_mags],
+                                  mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges;
+                                  normalize_value=normalize_value, mean_mass=mean_mass)
+        println(sum(binary_hist.weights))
+        result_mat = (single_star_hist.weights .* (1 - bfrac)) .+ (bfrac .* binary_hist.weights)
+        return Histogram(edges, result_mat, :left, false)
+    end
+end
 
 # Method exports
 # Exports from StarFormationHistories.jl
