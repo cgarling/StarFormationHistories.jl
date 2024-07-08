@@ -682,35 +682,6 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
     colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
     return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
 end
-# # Weights must not include completeness here
-# function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractArray, y_index, color_indices, imf, completeness_funcs, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
-#     @assert axes(m_ini,1) == axes(weights,1) == axes(mags,2)
-#     @assert axes(completeness_funcs,1) == axes(mags,1)
-#     npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
-#     binary_mags = Matrix{eltype(mags)}(undef, size(mags,1), npairs)
-#     binary_weights = Vector{eltype(first(mags))}(undef, npairs)
-#     prodidx = 1 # Index counter
-#     for i=axes(mags,2)
-#         for j=i+1:lastindex(m_ini)
-#             for k=axes(mags,1)
-#                 @inbounds binary_mags[k,prodidx] = flux2mag(mag2flux(mags[k,i]) + mag2flux(mags[k,j]))
-#             end
-#             @inbounds binary_weights[prodidx] = weights[i] * weights[j]
-#             prodidx += 1 # Increment index counter
-#         end
-#     end
-#     # Apply completeness functions to weights
-#     if y_index in color_indices
-#         binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
-#             completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) )
-#     else
-#         binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
-#             completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) ) .*
-#             completeness_funcs[y_index].( view(binary_mags, y_index, :) )
-#     end
-#     colors = view(binary_mags, first(color_indices), :) .- view(binary_mags, last(color_indices), :)
-#     return fit(Histogram, (colors, view(binary_mags, y_index, :)), Weights(binary_weights), edges; closed=:left)
-# end
 
 ##########################################
 # Constructing single-star model templates
