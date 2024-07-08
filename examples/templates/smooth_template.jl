@@ -16,7 +16,7 @@ plt.rc("patch", linewidth=1, edgecolor="k", force_edgecolor=true)
 # https://matplotlib.org/stable/gallery/images_contours_and_fields/interpolation_methods.html
 plt.rc("image", interpolation="none")
 
-# Bool whether to save figure as .svg or not; only save on CI
+# Bool whether to save figure as .svg or not; only save when building docs
 savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
 
 # Load example isochrone

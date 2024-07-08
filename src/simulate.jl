@@ -123,14 +123,19 @@ end
 
 ##############################################################
 #### Types and methods for non-interacting binary calculations
-""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_system`](@ref) method and the `Base.length` method, which should return an integer indicating the number of stars per system that can be sampled by the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
+""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_system`](@ref), [`StarFormationHistories.binary_fraction`](@ref), and the `Base.length` method, which should return an integer indicating the number of stars per system that can be sampled by the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
+"""
+    binary_fraction(model::T) where T <: AbstractBinaryModel
+Returns the binary fraction for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_fraction(model::AbstractBinaryModel) = model.fraction`."""
+binary_fraction(model::AbstractBinaryModel) = model.fraction
 """
     NoBinaries()
 The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
 Base.length(::NoBinaries) = 1
+binary_fraction(::NoBinaries) = 0
 """
     RandomBinaryPairs(fraction::Real)
 The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
