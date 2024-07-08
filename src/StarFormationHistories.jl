@@ -614,61 +614,103 @@ end
 ###############################
 # Constructing binary templates
 
-# function binary_hess(model::AbstractBinaryModel, m_ini::AbstractArray, mags::AbstractArray{<:AbstractArray}, y_index, color_indices, completeness::AbstractArray, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
-function binary_hess(model::AbstractBinaryModel, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector}, y_index, color_indices, completeness::AbstractVector, weights::AbstractVector, edges::Tuple{<:AbstractRange, <:AbstractRange})
-    @assert axes(m_ini) == axes(completeness) == axes(weights)
-    for i in mags
-        @assert axes(i) == axes(m_ini)
-    end
-    npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
-    binary_mags = [Vector{eltype(first(mags))}(undef, npairs) for i in 1:length(mags)]
-    binary_weights = Vector{eltype(first(mags))}(undef, npairs)
+# # Weights must not include completeness here
+# function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, y_index, color_indices, imf, completeness_funcs, weights::AbstractVector, edges::Tuple{<:AbstractRange, <:AbstractRange}) where T <: Real
+#     Base.require_one_based_indexing(mags)
+#     @assert length(m_ini) == length(weights)
+#     @assert all(length(i) == length(m_ini) for i in mags)
+#     npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
+#     binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
+#     binary_weights = Vector{T}(undef, npairs)
+#     prodidx = 1 # Index counter
+#     for i=eachindex(m_ini, weights)
+#         for j=i+1:lastindex(m_ini)
+#             for k=eachindex(mags)
+#                 @inbounds binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
+#             end
+#             # Probably need custom weights here
+#             # dispatch_imf calls need to add, δmini needs to multiply
+#             @inbounds binary_weights[prodidx] = weights[i] + weights[j]
+#             prodidx += 1 # Increment index counter
+#         end
+#     end
+#     println(sum(binary_weights))
+#     # Apply completeness functions to weights
+#     if y_index in color_indices
+#         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+#             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] )
+#     else
+#         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+#             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
+#             completeness_funcs[y_index].( [binary_mags, y_index] )
+#     end
+#     colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
+#     return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
+# end
+function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+    Base.require_one_based_indexing(mags)
+    @assert all(length(i) == length(m_ini) for i in mags)
+    # npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
+    mini_spacing = diff(m_ini)
+    npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
+    binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
+    binary_weights = Vector{T}(undef, npairs)
     prodidx = 1 # Index counter
-    # For input mags is Vector{Vector}
-    for i=eachindex(m_ini, completeness, weights)
-        for j=i+1:lastindex(m_ini)
+    for i=eachindex(mini_spacing)
+        ΔMp = mini_spacing[i]
+        Mpint = dispatch_imf(imf, m_ini[i]) + dispatch_imf(imf, m_ini[i+1])
+        for j=i+1:lastindex(mini_spacing)
             for k=eachindex(mags)
                 @inbounds binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
             end
-            @inbounds binary_weights[prodidx] = weights[i] * weights[j]
-            prodidx += 1 # Increment index counter
-        end
-    end
-    
-    
-    return binary_weights, binary_mags
-    # return Histogram(edges, mat, :left, false)
-end
-
-# Weights must not include completeness here
-function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractArray, y_index, color_indices, completeness_funcs, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
-    @assert axes(m_ini,1) == axes(weights,1) == axes(mags,2)
-    @assert axes(completeness_funcs,1) == axes(mags,1)
-    npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
-    binary_mags = Matrix{eltype(mags)}(undef, size(mags,1), npairs)
-    binary_weights = Vector{eltype(first(mags))}(undef, npairs)
-    prodidx = 1 # Index counter
-    for i=axes(mags,2)
-        for j=i+1:lastindex(m_ini)
-            for k=axes(mags,1)
-                @inbounds binary_mags[k,prodidx] = flux2mag(mag2flux(mags[k,i]) + mag2flux(mags[k,j]))
-            end
-            @inbounds binary_weights[prodidx] = weights[i] * weights[j]
+            ΔMs = mini_spacing[j]
+            Msint = dispatch_imf(imf, m_ini[j]) + dispatch_imf(imf, m_ini[j+1])
+            binary_weights[prodidx] = ΔMp * ΔMs * (Mpint + Msint) / 4 * normalize_value / mean_mass
             prodidx += 1 # Increment index counter
         end
     end
     # Apply completeness functions to weights
     if y_index in color_indices
-        binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
-            completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) )
+        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] )
     else
-        binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
-            completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) ) .*
-            completeness_funcs[y_index].( view(binary_mags, y_index, :) )
+        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
+            completeness_funcs[y_index].( [binary_mags, y_index] )
     end
-    colors = view(binary_mags, first(color_indices), :) .- view(binary_mags, last(color_indices), :)
-    return fit(Histogram, (colors, view(binary_mags, y_index, :)), Weights(binary_weights), edges; closed=:left)
+    # println(sum(binary_weights))
+    colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
+    return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
 end
+# # Weights must not include completeness here
+# function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractArray, y_index, color_indices, imf, completeness_funcs, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
+#     @assert axes(m_ini,1) == axes(weights,1) == axes(mags,2)
+#     @assert axes(completeness_funcs,1) == axes(mags,1)
+#     npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
+#     binary_mags = Matrix{eltype(mags)}(undef, size(mags,1), npairs)
+#     binary_weights = Vector{eltype(first(mags))}(undef, npairs)
+#     prodidx = 1 # Index counter
+#     for i=axes(mags,2)
+#         for j=i+1:lastindex(m_ini)
+#             for k=axes(mags,1)
+#                 @inbounds binary_mags[k,prodidx] = flux2mag(mag2flux(mags[k,i]) + mag2flux(mags[k,j]))
+#             end
+#             @inbounds binary_weights[prodidx] = weights[i] * weights[j]
+#             prodidx += 1 # Increment index counter
+#         end
+#     end
+#     # Apply completeness functions to weights
+#     if y_index in color_indices
+#         binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
+#             completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) )
+#     else
+#         binary_weights .*= completeness_funcs[first(color_indices)].( view(binary_mags, first(color_indices), :) ) .*
+#             completeness_funcs[last(color_indices)].( view(binary_mags, last(color_indices), :) ) .*
+#             completeness_funcs[y_index].( view(binary_mags, y_index, :) )
+#     end
+#     colors = view(binary_mags, first(color_indices), :) .- view(binary_mags, last(color_indices), :)
+#     return fit(Histogram, (colors, view(binary_mags, y_index, :)), Weights(binary_weights), edges; closed=:left)
+# end
 
 ##########################################
 # Constructing single-star model templates
@@ -834,7 +876,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-
+    println(sum(weights))
     # return midpoints(new_mini), [midpoints(i) for i in new_iso_mags], y_index, color_indices, midpoints(completeness_vec), weights
     # binary_hess(model::AbstractBinaryModel, m_ini::AbstractVector, mags::AbstractArray, y_index, color_indices, completeness_funcs, weights::AbstractArray, edges::Tuple{<:AbstractRange, <:AbstractRange})
     ds = 4 # Factor by which to downsample the single-star vectors
@@ -843,18 +885,31 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     #                    stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
     #                    y_index,
     #                    color_indices,
+    #                    imf
+    #                    # midpoints(completeness_vec)[begin:sf:end],
+    #                    completeness_funcs,
+    #                    weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
+    #                    edges)
+    # return binary_hess(RandomBinaryPairs(0.3),
+    #                    midpoints(new_mini)[begin:ds:end],
+    #                    [midpoints(i)[begin:ds:end] for i in new_iso_mags],
+    #                    y_index,
+    #                    color_indices,
+    #                    imf,
     #                    # midpoints(completeness_vec)[begin:sf:end],
     #                    completeness_funcs,
     #                    weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
     #                    edges)
     return (RandomBinaryPairs(0.3),
-            midpoints(new_mini)[begin:ds:end],
-            stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
+            new_mini[begin:ds:end],
+            # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
+            [i[begin:ds:end] for i in new_iso_mags],
             y_index,
             color_indices,
+            imf,
             # midpoints(completeness_vec)[begin:sf:end],
             completeness_funcs,
-            weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
+            # weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
             edges)
     
     return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
