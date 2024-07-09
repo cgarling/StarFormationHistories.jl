@@ -2,6 +2,7 @@ import StarFormationHistories as SFH
 import InitialMassFunctions: Kroupa2001
 import DelimitedFiles: readdlm
 import Printf: @sprintf
+import QuadGK: quadgk
 
 # Set up for plotting
 import PyPlot as plt
@@ -39,7 +40,7 @@ edges = (range(-0.2, 1.4, length=75),
 template_norm = 1e5
 
 # Set binary model to use
-binary_model = SFH.RandomBinaryPairs(0.0)
+binary_model = SFH.RandomBinaryPairs(0.4)
 
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
@@ -67,7 +68,7 @@ template = SFH.partial_cmd_smooth(m_ini,
 # Scale IMF and template_norm to only the valid range for m_ini;
 # helps to prevent sampling binary companions outside the valid
 # range of m_ini. You don't need to do this for the smooth Hess model
-tscale = quadgk(x->x*pdf(imf,x), extrema(m_ini)...)[1] / mean(imf)
+tscale = quadgk(x -> x * SFH.dispatch_imf(imf,x), extrema(m_ini)...)[1] / SFH.mean(imf)
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W],
                                        ["F090W", "F150W"], template_norm * tscale,
