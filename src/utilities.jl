@@ -188,6 +188,9 @@ true
 ```
 """
 vecs_to_svecs(x::AbstractVector{<:AbstractVector}) = SVector.(zip(x...))
+# old implementation
+# vecs_to_svecs(x::AbstractVector{<:AbstractVector}) =
+#     reinterpret(SVector{length(x),eltype(first(x))}, vec(permutedims(hcat(x...))))
 # julia> vecs_to_svecs([[1,2], [3,4]])
 # 2-element Vector{SVector{2, Int64}}:
 #  [1, 3]
