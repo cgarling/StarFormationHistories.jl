@@ -39,8 +39,7 @@ edges = (range(-0.2, 1.2, length=75),
 template_norm = 1e7
 
 # Set binary model to use
-binary_model = SFH.RandomBinaryPairs(1.0)
-# binary_model = SFH.NoBinaries()
+binary_model = SFH.NoBinaries()
 
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
@@ -219,4 +218,6 @@ ax1.legend(loc="upper right")
 if savefig
     plt.savefig(joinpath(@__DIR__, "sigma_distribution.svg"), bbox_inches="tight")
 end
-!plt.isinteractive() && plt.close("all");
+if !plt.isinteractive()
+    plt.close("all");
+end

@@ -128,14 +128,22 @@ abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """
     binary_fraction(model::T) where T <: AbstractBinaryModel
-Returns the binary fraction for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_fraction(model::AbstractBinaryModel) = model.fraction`."""
+Returns the number fraction of stellar systems that are binaries for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_fraction(model::AbstractBinaryModel) = model.fraction`."""
 binary_fraction(model::AbstractBinaryModel) = model.fraction
+"""
+    binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
+Returns the fraction of stellar mass in binary systems for the given concrete subtype `T <: AbstractBinaryModel` and initial mass function `imf`. `imf` must be a properly normalized probability distribution such that the number fraction of stars/systems between mass `m1` and `m2` is given by the integral of `dispatch_imf(imf, x)` from `m1` to `m2`. 
+"""
+binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
+
 """
     NoBinaries()
 The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
 Base.length(::NoBinaries) = 1
 binary_fraction(::NoBinaries) = 0
+binary_mass_fraction(::NoBinaries, imf) = 0
+
 """
     RandomBinaryPairs(fraction::Real)
 The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of stellar systems that are binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
@@ -149,6 +157,20 @@ struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     end
 end
 Base.length(::RandomBinaryPairs) = 2
+# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), minimum(imf), Mp)[1], extrema(imf)...) is equal to mean(imf)
+"""
+    binary_mass_fraction(m::RandomBinaryPairs, imf)
+In the case of the `RandomBinaryPairs` model, it can be shown that the expectation value for the mass of a binary system is equal to the expectation value for single star systems:
+
+```math
+\\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}   =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_P} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
+```
+
+for primary mass ``\\text{M}_P``, secondary mass ``\\text{M}_S``, and single-star IMF ``d\\text{N} / d\\text{M}``. In this case the binary mass fraction is equal to the number fraction of all *stars* in binary systems. This can be derived from the number fraction of all *stellar systems* that are binaries, as given by `bsf = `[`StarFormationHistories.binary_fraction`](@ref), to be `mass_frac = 2 * bsf / ((1 - bsf) + (2 * bsf))`.
+"""
+binary_mass_fraction(m::RandomBinaryPairs, imf) =
+    (bfrac = binary_fraction(m); return 2 * bfrac / ((1 - bfrac) + (2 * bfrac)))
+
 """
     BinaryMassRatio(fraction::Real, qdist::Distributions.ContinuousUnivariateDistribution=Distributions.Uniform())
 The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`; users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).  
@@ -165,7 +187,7 @@ struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: 
     end
 end
 Base.length(::BinaryMassRatio) = 2
-
+binary_mass_fraction(m::BinaryMassRatio, imf) = error("`binary_mass_fraction(m::BinaryMassRatio, imf)` is not yet implemented")
 """
     masses = sample_system(imf, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
 
