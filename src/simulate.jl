@@ -123,13 +123,22 @@ end
 
 ##############################################################
 #### Types and methods for non-interacting binary calculations
-""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_system`](@ref), [`StarFormationHistories.binary_fraction`](@ref), and the `Base.length` method, which should return an integer indicating the number of stars per system that can be sampled by the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
+""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes should implement the following methods to support all features:
+ - [`StarFormationHistories.sample_system`](@ref)
+ - [`StarFormationHistories.binary_system_fraction`](@ref)
+ - [`StarFormationHistories.binary_mass_fraction`](@ref)
+ - `Base.length`, which should return an integer indicating the number of stars per system that can be sampled by \
+   the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """
-    binary_fraction(model::T) where T <: AbstractBinaryModel
-Returns the number fraction of stellar systems that are binaries for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_fraction(model::AbstractBinaryModel) = model.fraction`."""
-binary_fraction(model::AbstractBinaryModel) = model.fraction
+    binary_system_fraction(model::T) where T <: AbstractBinaryModel
+Returns the number fraction of *stellar systems* that are binaries for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_system_fraction(model::AbstractBinaryModel) = model.fraction`."""
+binary_system_fraction(model::AbstractBinaryModel) = model.fraction
+"""
+    binary_number_fraction(model::T) where T <: AbstractBinaryModel
+Returns the number fraction of *stars* that in binary pairs for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `2b / (1+b)`, where `b` is the result of [`StarFormationHistories.binary_system_fraction`](@ref)."""
+binary_number_fraction(model::AbstractBinaryModel) = (b=binary_system_fraction(model); return 2b / (1 + b))
 """
     binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
 Returns the fraction of stellar mass in binary systems for the given concrete subtype `T <: AbstractBinaryModel` and initial mass function `imf`. `imf` must be a properly normalized probability distribution such that the number fraction of stars/systems between mass `m1` and `m2` is given by the integral of `dispatch_imf(imf, x)` from `m1` to `m2`. 
@@ -141,7 +150,8 @@ binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
 The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
 Base.length(::NoBinaries) = 1
-binary_fraction(::NoBinaries) = 0
+binary_system_fraction(::NoBinaries) = 0
+binary_number_fraction(::NoBinaries) = 0
 binary_mass_fraction(::NoBinaries, imf) = 0
 
 """
@@ -157,23 +167,26 @@ struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     end
 end
 Base.length(::RandomBinaryPairs) = 2
+# ```math
+# \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}   =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_P} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
+# ```
 # quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), minimum(imf), Mp)[1], extrema(imf)...) is equal to mean(imf)
+# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), extrema(imf)...)[1], extrema(imf)...) is equal to mean(imf)
 """
     binary_mass_fraction(m::RandomBinaryPairs, imf)
-In the case of the `RandomBinaryPairs` model, it can be shown that the expectation value for the mass of a binary system is equal to the expectation value for single star systems:
+The `RandomBinaryPairs` model uses a single-star `imf`. If a system is chosen to be a binary pair, two stars are drawn from the single-star `imf` and the more massive star is made the primary. Given this model, it can be shown that the expectation value for the mass of a binary system is twice the expectation value for single star systems:
 
 ```math
-\\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}   =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_P} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
+2\\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}  =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
 ```
 
-for primary mass ``\\text{M}_P``, secondary mass ``\\text{M}_S``, and single-star IMF ``d\\text{N} / d\\text{M}``. In this case the binary mass fraction is equal to the number fraction of all *stars* in binary systems. This can be derived from the number fraction of all *stellar systems* that are binaries, as given by `bsf = `[`StarFormationHistories.binary_fraction`](@ref), to be `mass_frac = 2 * bsf / ((1 - bsf) + (2 * bsf))`.
+for primary mass ``\\text{M}_P``, secondary mass ``\\text{M}_S``, and single-star IMF ``d\\text{N} / d\\text{M}``. As such, the fraction of total stellar mass in binaries is equal to the number fraction of all *stars* in binary pairs, which is given by [`StarFormationHistories.binary_number_fraction`](@ref).
 """
-binary_mass_fraction(m::RandomBinaryPairs, imf) =
-    (bfrac = binary_fraction(m); return 2 * bfrac / ((1 - bfrac) + (2 * bfrac)))
+binary_mass_fraction(m::RandomBinaryPairs, imf) = binary_number_fraction(m)
 
 """
-    BinaryMassRatio(fraction::Real, qdist::Distributions.ContinuousUnivariateDistribution=Distributions.Uniform())
-The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`; users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).  
+    BinaryMassRatio(fraction::Real, qdist::Distributions.ContinuousUnivariateDistribution=Distributions.Uniform(0.1, 1.0))
+The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`. Users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).
 """
 struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: AbstractBinaryModel
     fraction::T
@@ -187,7 +200,13 @@ struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: 
     end
 end
 Base.length(::BinaryMassRatio) = 2
-binary_mass_fraction(m::BinaryMassRatio, imf) = error("`binary_mass_fraction(m::BinaryMassRatio, imf)` is not yet implemented")
+# quadgk(M -> quadgk(q -> M * pdf(qdist,q) * pdf(imf, M), extrema(qdist)...)[1], extrema(imf)...)
+"""
+    binary_mass_fraction(m::BinaryMassRatio, imf)
+This binary model requires an `imf` that is defined by stellar system mass. If a system with a randomly sampled mass ``M`` is is a binary, the primary and secondary mass are determined based on a binary mass ratio ``q`` sampled from a user-defined distribution. By definition, the expectation value for the total mass of a binary system is equal to the expectation value for single-star systems. In this case the binary mass fraction is equal the binary system number fraction as given by [`StarFormationHistories.binary_system_fraction`](@ref).`
+"""
+binary_mass_fraction(m::BinaryMassRatio, imf) = binary_system_fraction(m)
+
 """
     masses = sample_system(imf, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
 

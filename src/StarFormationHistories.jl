@@ -710,34 +710,32 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
         color_err = mag_err_funcs[x_c_idx].(xmags)
         cov_mult = (y_index == first(color_indices)) ? -1 : 1
     else
-        
+        error("Not implemented")
     end
-    # return hist
     return bin_cmd_smooth(h_colors, h_mags,
                           color_err, ymag_err, cov_mult;
                           weights=hist_weights[good], edges=edges)
 end
-# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), minimum(imf), Mp)[1], extrema(imf)...) is equal to mean(imf)
-function mini_int(mini)
-    mini_spacing = diff(mini)
-    npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
-    # weights = Vector{Float64}(undef, npairs)
-    weights = Vector{Float64}(undef, length(mini_spacing))
-    prodidx = 1 # Index counter
-    for i=eachindex(mini_spacing)
-        ΔMp = mini_spacing[i]
-        Mpint = dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])
-        # for j=i+1:lastindex(mini_spacing)
-        #     ΔMs = mini_spacing[j]
-        #     Msint = dispatch_imf(imf, mini[j]) + dispatch_imf(imf, mini[j+1])
-        #     weights[prodidx] = ΔMp * ΔMs * Mpint * Msint / 2#* normalize_value / mean_mass / 4# * 1.31828
-        #     prodidx += 1 # Increment index counter
-        # end
-       weights[i] = mini_spacing[i] *
-                          (dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])) / 2 
-    end
-    return sum(weights)
-end
+# function mini_int(mini)
+#     mini_spacing = diff(mini)
+#     npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
+#     # weights = Vector{Float64}(undef, npairs)
+#     weights = Vector{Float64}(undef, length(mini_spacing))
+#     prodidx = 1 # Index counter
+#     for i=eachindex(mini_spacing)
+#         ΔMp = mini_spacing[i]
+#         Mpint = dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])
+#         # for j=i+1:lastindex(mini_spacing)
+#         #     ΔMs = mini_spacing[j]
+#         #     Msint = dispatch_imf(imf, mini[j]) + dispatch_imf(imf, mini[j+1])
+#         #     weights[prodidx] = ΔMp * ΔMs * Mpint * Msint / 2#* normalize_value / mean_mass / 4# * 1.31828
+#         #     prodidx += 1 # Increment index counter
+#         # end
+#        weights[i] = mini_spacing[i] *
+#                           (dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])) / 2 
+#     end
+#     return sum(weights)
+# end
 
 # bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
 #                         weights = ones(promote_type(eltype(colors), eltype(mags)),
@@ -961,7 +959,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
-    bfrac = binary_fraction(binary_model)
+    bfrac = binary_system_fraction(binary_model)
     @assert bfrac <= 1
     if bfrac == 0
         return single_star_hist

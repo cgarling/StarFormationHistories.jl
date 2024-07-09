@@ -40,7 +40,7 @@ edges = (range(-0.2, 1.4, length=75),
 template_norm = 1e5
 
 # Set binary model to use
-binary_model = SFH.RandomBinaryPairs(0.4)
+binary_model = SFH.RandomBinaryPairs(0.7)
 
 # Construct error and completeness functions
 F090W_complete(m) = SFH.Martin2016_complete(m, 1.0, 28.5, 0.7)
@@ -70,11 +70,32 @@ template = SFH.partial_cmd_smooth(m_ini,
 # range of m_ini. You don't need to do this for the smooth Hess model
 tscale = quadgk(x -> x * SFH.dispatch_imf(imf,x), extrema(m_ini)...)[1] / SFH.mean(imf)
 # Sample analogous population; index [1] is sampled masses, dont need them
-starcat_mags = SFH.generate_stars_mass(m_ini, [F090W, F150W],
-                                       ["F090W", "F150W"], template_norm * tscale,
-                                       Kroupa2001(extrema(m_ini)...);
-                                       dist_mod=distmod,
-                                       binary_model=binary_model)[2]
+starcat = SFH.generate_stars_mass(m_ini, [F090W, F150W],
+                                  ["F090W", "F150W"], template_norm * tscale,
+                                  Kroupa2001(extrema(m_ini)...);
+                                  dist_mod=distmod,
+                                  binary_model=binary_model)
+starcat_masses, starcat_mags = starcat # Unpack result
+
+# # Test binary_mass_fraction; good
+# single_masses = 0.0
+# binary_masses = 0.0
+# nsingles = 0
+# nbinaries = 0
+# for i in eachindex(starcat_masses)
+#     mvec = starcat_masses[i]
+#     if mvec[2] == 0
+#         global single_masses += mvec[1]
+#         global nsingles += 1
+#     else
+#         global binary_masses += sum(mvec)
+#         global nbinaries += 2
+#     end
+# end
+# println("Binary Mass Fractions: ", binary_masses / (single_masses + binary_masses), " ",
+#         SFH.binary_mass_fraction(binary_model, imf))
+# println("Binary Number Fractions: ", nbinaries / (nbinaries + nsingles), " ",
+#         SFH.binary_number_fraction(binary_model))
 
 # Model photometric error and incompleteness
 obs_mags = SFH.model_cmd(starcat_mags, [F090W_error, F150W_error],
