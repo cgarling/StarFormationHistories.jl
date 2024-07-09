@@ -138,7 +138,7 @@ Base.length(::NoBinaries) = 1
 binary_fraction(::NoBinaries) = 0
 """
     RandomBinaryPairs(fraction::Real)
-The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
+The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of stellar systems that are binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
 struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     fraction::T
     # Outer-only constructor to guarantee support
@@ -151,7 +151,7 @@ end
 Base.length(::RandomBinaryPairs) = 2
 """
     BinaryMassRatio(fraction::Real, qdist::Distributions.ContinuousUnivariateDistribution=Distributions.Uniform())
-The `BinaryMassRatio` type takes two arguments; the binary fraction `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`; users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).  
+The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`; users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).  
 """
 struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: AbstractBinaryModel
     fraction::T
@@ -187,7 +187,7 @@ Simulates the effects of non-interacting, unresolved stellar companions on stell
     mass1 = rand(rng, imf) # First star mass
     if r <= frac  # Generate a binary star
         mass2 = rand(rng, imf)
-        return sort( SVector{2,eltype(imf)}(mass1, mass2); rev=true )
+        return sort(SVector{2,eltype(imf)}(mass1, mass2); rev=true)
     else
         return SVector{2,eltype(imf)}(mass1, zero(eltype(imf)))
     end
