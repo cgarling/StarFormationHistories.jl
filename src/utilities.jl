@@ -179,7 +179,19 @@ See also the tests in `test/utilities/process_ASTs_test.jl`.
 function process_ASTs end
 
 # Numerical utilities
-
+"""
+    vecs_to_svecs(x::AbstractVector{<:AbstractVector})
+Convert a vector of length `a` of vectors of length `b` to a length `b` vector of length `a` `StaticArray.SVectors`. This data format can be put into `Interpolations.interpolate` as the y-value for simultaneous interpolation of multiple y-values given one x value.
+```jldoctest; setup = :(import StarFormationHistories: vecs_to_svecs; import StaticArrays: SVector)
+julia> vecs_to_svecs([[1,2], [3,4]]) == [SVector(1,3), SVector(2,4)]
+true
+```
+"""
+vecs_to_svecs(x::AbstractVector{<:AbstractVector}) = SVector.(zip(x...))
+# julia> vecs_to_svecs([[1,2], [3,4]])
+# 2-element Vector{SVector{2, Int64}}:
+#  [1, 3]
+#  [2, 4]
 # function estimate_mode(data::AbstractVector{<:Real})
 #     bw = KernelDensity.default_bandwidth(data) / 10
 #     KDE = KernelDensity.kde(data; bandwidth=bw)
