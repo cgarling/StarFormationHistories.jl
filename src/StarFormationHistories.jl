@@ -813,8 +813,6 @@ function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::Abstra
         for j=jiter
             @inbounds q = qvals[j] 
             M = Mp * (q + 1) # system mass
-            Mlast = Mp * (qvals[j+1] + 1)
-            ΔM = Mlast - M
             Ms = M - Mp
             if Ms >= Mmin
                 Msmags = itp(Ms)
@@ -823,6 +821,14 @@ function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::Abstra
                 bmags = Mpmags
             end
             binary_mags[prodidx] = bmags
+            # Weight calculation
+            qlast = qvals[j+1]
+            Mlast = Mp * (qlast + 1)
+            ΔM = Mlast - M
+            Mint = dispatch_imf(imf, Mlast) + dispatch_imf(imf, M)
+            qint = pdf(model.qdist, qlast) + pdf(model.qdist, q)
+            binary_weights[prodidx] = ΔM * qdiff[j] * Mint * qint * prefac
+    #         # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
             # println(M, " ", ΔM, " ", q, " ", qvals[j+1])
             prodidx += 1
             # prodidx > 120000 && println(Mp, " ", Ms, " ", ΔM, " ", Mlast, " ", Mpmags)
@@ -841,7 +847,7 @@ function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::Abstra
         #     prodidx += 1 # Increment index counter
         # end
     end
-    println(prodidx)
+    println(sum(binary_weights))
     # println("Binary weights pre-completeness: ", sum(binary_weights))
     return binary_weights, binary_mags
 end
