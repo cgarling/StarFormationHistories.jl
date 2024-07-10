@@ -2,7 +2,6 @@ import StarFormationHistories as SFH
 import InitialMassFunctions: Kroupa2001
 import DelimitedFiles: readdlm
 import Printf: @sprintf
-import QuadGK: quadgk
 
 # Set up for plotting
 import PyPlot as plt
@@ -75,26 +74,6 @@ starcat = SFH.generate_stars_mass(m_ini, [F090W, F150W],
                                   binary_model=binary_model)
                                   # binary_model=BinaryMassRatio(0.5, Uniform(0.3,1.0)))
 starcat_masses, starcat_mags = starcat # Unpack result
-
-# # Test binary_mass_fraction; good
-# single_masses = 0.0
-# binary_masses = 0.0
-# nsingles = 0
-# nbinaries = 0
-# for i in eachindex(starcat_masses)
-#     mvec = starcat_masses[i]
-#     if mvec[2] == 0
-#         global single_masses += mvec[1]
-#         global nsingles += 1
-#     else
-#         global binary_masses += sum(mvec)
-#         global nbinaries += 2
-#     end
-# end
-# println("Binary Mass Fractions: ", binary_masses / (single_masses + binary_masses), " ",
-#         SFH.binary_mass_fraction(binary_model, imf))
-# println("Binary Number Fractions: ", nbinaries / (nbinaries + nsingles), " ",
-#         SFH.binary_number_fraction(binary_model))
 
 # Model photometric error and incompleteness
 obs_mags = SFH.model_cmd(starcat_mags, [F090W_error, F150W_error],
