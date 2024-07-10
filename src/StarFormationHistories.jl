@@ -1050,7 +1050,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    ds = 1 # Factor by which to downsample the single-star vectors
+    ds = 4 # Factor by which to downsample the single-star vectors
     # return (binary_model,
     #         new_mini[begin:ds:end],
     #         # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
