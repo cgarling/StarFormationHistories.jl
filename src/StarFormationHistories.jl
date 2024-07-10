@@ -684,7 +684,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             prodidx += 1 # Increment index counter
         end
     end
-    # println("Binary weights pre-completeness: ", sum(binary_weights))
+    println("Binary weights pre-completeness: ", sum(binary_weights))
     # Apply completeness functions to weights
     if y_index in color_indices
         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
@@ -835,26 +835,13 @@ function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::Abstra
             Mint = dispatch_imf(imf, Mlast) + dispatch_imf(imf, M)
             qint = pdf(model.qdist, qlast) + pdf(model.qdist, q)
             binary_weights[prodidx] = ΔM * qdiff[j] * Mint * qint * prefac
-    #         # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
+            # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
             # println(M, " ", ΔM, " ", q, " ", qvals[j+1])
             prodidx += 1
             # prodidx > 120000 && println(Mp, " ", Ms, " ", ΔM, " ", Mlast, " ", Mpmags)
         end
-        # i == lastindex(m_ini)-1 && return
-        # # for j=i+1:lastindex(mini_spacing) # Iterate from low q to high q
-        # for j=firstindex(mini_spacing):i-1 # Iterate from low q to high q
-        #     for k=eachindex(mags)
-        #         # binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
-        #         @inbounds binary_mags[k][prodidx] = flux2mag(flux_vec[k][i] + flux_vec[k][j])
-        #     end
-        #     # @inbounds ΔMs = mini_spacing[j]
-        #     # @inbounds Msint = imf_vec[j] + imf_vec[j+1]
-        #     # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
-        #     Ms = m_ini[j]
-        #     prodidx += 1 # Increment index counter
-        # end
     end
-    println(sum(binary_weights))
+    println("Binary weights pre-completeness: ", sum(binary_weights))
     # println("Binary weights pre-completeness: ", sum(binary_weights))
     return binary_weights, binary_mags
 end
@@ -1111,7 +1098,12 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                                   normalize_value=normalize_value, mean_mass=mean_mass)
         # println("Binary Weights after completeness: ", sum(binary_hist.weights))
         bmf = binary_mass_fraction(binary_model, imf)
+        # There will be an excess of single stars at present-day due to stars born in binary
+        # pairs that have died and do not appear in the isochrone. We must account for this
+        # additional factor, which is the integral of the imf over the range of m_ini.
+        bmf *= trapz(new_mini, dispatch_imf.(imf, new_mini))
         result_mat = (single_star_hist.weights .* (1 - bmf)) .+ (bmf .* binary_hist.weights)
+        # result_mat = (single_star_hist.weights .* 0.35) .+ (0.65 .* binary_hist.weights)
         return Histogram(edges, result_mat, :left, false)
     end
 end

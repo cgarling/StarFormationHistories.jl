@@ -75,10 +75,10 @@ tscale = quadgk(x -> x * SFH.dispatch_imf(imf,x), extrema(m_ini)...)[1] / SFH.me
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat = SFH.generate_stars_mass(m_ini, [F090W, F150W],
                                   ["F090W", "F150W"],
-                                  template_norm * tscale,
-                                  Kroupa2001(extrema(m_ini)...);
-                                  # template_norm,
-                                  # imf;
+                                  # template_norm * tscale,
+                                  # Kroupa2001(extrema(m_ini)...);
+                                  template_norm,
+                                  imf;
                                   dist_mod=distmod,
                                   binary_model=binary_model)
                                   # binary_model=BinaryMassRatio(0.5, Uniform(0.3,1.0)))
@@ -166,11 +166,11 @@ for i in eachindex(axs)
     axs[i].set_xlabel(L"F090W$-$F150W")
     if plot_isochrones # & (i != 4) # Don't plot on residual
         # axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange", s=1, alpha=1.0)
-        axs[i].plot(F090W .- F150W, F150W .+ distmod, c="orange")
+        axs[i].plot(F090W .- F150W, F150W .+ distmod, c="orange") # , marker=".", markerfacecolor="k")
     end
 end
 axs[1].set_ylabel("F150W")
-axs[1].set_ylim(reverse(extrema(edges[2]))) 
+axs[1].set_ylim(reverse(extrema(edges[2])))
 axs[1].set_xlim(extrema(edges[1]))
 
 # fraction prevents too much padding on right
