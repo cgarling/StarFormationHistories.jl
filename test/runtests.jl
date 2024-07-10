@@ -92,15 +92,18 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         end
         @testset "Binary Model Types" begin # Test type creation routines
             @test length(SFH.NoBinaries()) == 1 # No arguments
-            @test SFH.binary_fraction(SFH.NoBinaries()) == 0
+            @test SFH.binary_system_fraction(SFH.NoBinaries()) == 0
+            @test SFH.binary_mass_fraction(SFH.NoBinaries(), one) == 0
             for i in eachindex(float_types, float_type_labels)
                 label = float_type_labels[i]
                 @testset "$label" begin
                     T = float_types[i]
                     @test length(SFH.RandomBinaryPairs(T(4//10))) == 2
-                    @test SFH.binary_fraction(SFH.RandomBinaryPairs(T(4//10))) == T(4//10)
+                    @test SFH.binary_system_fraction(SFH.RandomBinaryPairs(T(4//10))) == T(4//10)
+                    @test SFH.binary_mass_fraction(SFH.RandomBinaryPairs(T(4//10)), one) isa T
                     @test length(SFH.BinaryMassRatio(T(4//10), Uniform(T(0), T(1)))) == 2
-                    @test SFH.binary_fraction(SFH.BinaryMassRatio(T(4//10))) == T(4//10)
+                    @test SFH.binary_system_fraction(SFH.BinaryMassRatio(T(4//10))) == T(4//10)
+                    @test SFH.binary_mass_fraction(SFH.BinaryMassRatio(T(4//10)), one) isa T
                 end
             end
         end

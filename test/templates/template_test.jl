@@ -4,7 +4,7 @@ import Distributions: pdf
 using Test
 import StatsBase: Histogram
 import InitialMassFunctions: Kroupa2001
-using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr
+using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs
 
 
 @testset "mini_spacing" begin
@@ -79,23 +79,31 @@ end
     imf = Kroupa2001(0.08, 100.0)
     # Construct template
     for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
-        template = partial_cmd_smooth(m_ini,
-                                      [F090W, F150W, F277W],
-                                      [F090W_error, F150W_error, F277W_error],
-                                      y_index,
-                                      color_indices,
-                                      imf,
-                                      [F090W_complete, F150W_complete, F277W_complete]; 
-                                      dmod=distmod,
-                                      normalize_value=template_norm,
-                                      edges=edges)
-        @test template isa Histogram
-        data = template.weights
-        @test data isa Matrix{Float64}
-        @test any(!=(0), data)
-        @test size(data) == (length(edges[1])-1, length(edges[2])-1)
-        @test template.edges == edges
-        @test template.isdensity == false
+        if !in(y_index, color_indices) # RandomBinaryPairs not implemented for this case
+            binary_models = (NoBinaries(),)
+        else
+            binary_models = (NoBinaries(), RandomBinaryPairs(0.3))
+        end
+        for binary_model in binary_models
+            template = partial_cmd_smooth(m_ini,
+                                          [F090W, F150W, F277W],
+                                          [F090W_error, F150W_error, F277W_error],
+                                          y_index,
+                                          color_indices,
+                                          imf,
+                                          [F090W_complete, F150W_complete, F277W_complete]; 
+                                          dmod=distmod,
+                                          normalize_value=template_norm,
+                                          edges=edges,
+                                          binary_model=binary_model)
+            @test template isa Histogram
+            data = template.weights
+            @test data isa Matrix{Float64}
+            @test any(!=(0), data)
+            @test size(data) == (length(edges[1])-1, length(edges[2])-1)
+            @test template.edges == edges
+            @test template.isdensity == false
+        end
     end
 end
 # 2.5 ms
