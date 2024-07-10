@@ -254,7 +254,16 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=Random.default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.RandomBinaryPairs(0.3))
+    generate_stars_mass(mini_vec::AbstractVector{<:Number},
+                        mags, mag_names::AbstractVector{String},
+                        limit::Number,
+                        imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous};
+                        dist_mod::Number=0,
+                        rng::Random.AbstractRNG=Random.default_rng(),
+                        mag_lim::Number = Inf,
+                        mag_lim_name::String = "V",
+                        binary_model::StarFormationHistories.AbstractBinaryModel =
+                            StarFormationHistories.RandomBinaryPairs(0.3))
 
 Generates a random sample of stars from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names` with total population birth stellar mass `limit` (e.g., 1e5 solar masses). Initial stellar masses are sampled from the provided `imf`. 
 
@@ -275,17 +284,19 @@ Generates a random sample of stars from an isochrone defined by the provided ini
  - `binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.RandomBinaryPairs(0.3)` is an instance of a model for treating binaries; currently provided options are [`NoBinaries`](@ref), [`RandomBinaryPairs`](@ref), and [`BinaryMassRatio`](@ref).
 
 # Returns
- - `sampled_masses::Vector{SVector{N,eltype(imf)}}`: a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems). 
- - `sampled_mags::Vector{SVector{N,<:Number}}`: a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you index as `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
+`(sampled_masses, sampled_mags)` defined as
+ - `sampled_masses::Vector{SVector{N,eltype(imf)}}` is a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems). 
+ - `sampled_mags::Vector{SVector{N,<:Number}}` is a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you index as `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
 
 # Notes
 ## Population Masses
 Given a particular isochrone with an initial mass vector `mini_vec`, it will never cover the full range of stellar birth masses because stars that die before present-day are not included in the isochrone. However, these stars *were* born, and so contribute to the total birth mass of the system. There are two ways to properly account for this lost mass when sampling:
- 1. Set the upper limit for masses that can be sampled from the `imf` distribution to a physical value for the maximum birth mass of stars (e.g., 100 solar masses). In this case, these stars will be sampled from `imf`, and will contribute their masses to the system, but they will not be returned if their birth mass is greater than `maximum(mini_vec)`. This is typically easiest for the user and only results in ∼15% loss of efficiency for 10 Gyr isochrones.
+ 1. Set the upper limit for masses that can be sampled from the `imf` distribution to a physical value for the maximum birth mass of stars (e.g., 100 solar masses). In this case, these stars will be sampled from `imf`, and will contribute their masses to the system, but they will not be returned if their birth mass is greater than `maximum(mini_vec)`. This is typically easiest for the user and only results in ∼15% loss of efficiency for 10 Gyr isochrones. *This approach is preferred when sampling with binaries.*
  2. Set the upper limit for masses that can be sampled from the `imf` distribution to `maximum(mini_vec)` and adjust `limit` to respect the amount of initial stellar mass lost by not sampling higher mass stars. This can be calculated as `new_limit = limit * ( QuadGK.quadgk(x->x*pdf(imf,x), minimum(mini_vec), maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), minimum(imf), maximum(imf))[1] )`, with the multiplicative factor being the fraction of the population stellar mass contained in stars with initial masses between `minimum(mini_vec)` and `maximum(mini_vec)`; this factor is the ratio
 ```math
-\\frac{\\int_a^b \\ m \\times \\frac{dN(m)}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN(m)}{dm} \\ dm}
+\\frac{\\int_a^b \\ m \\times \\frac{dN(m)}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN(m)}{dm} \\ dm}.
 ```
+Note that, if binaries are included, this approach only forms binary pairs between stars whose masses are less than `maximum(mini_vec)`. This is probably not desired, so we recommend the previous approach when including binaries.
 """
 generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
     generate_stars_mass(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
