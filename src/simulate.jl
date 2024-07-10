@@ -123,17 +123,42 @@ end
 
 ##############################################################
 #### Types and methods for non-interacting binary calculations
-""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes must implement the [`StarFormationHistories.sample_system`](@ref) method and the `Base.length` method, which should return an integer indicating the number of stars per system that can be sampled by the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
+""" `StarFormationHistories.AbstractBinaryModel` is the abstract supertype for all types that are used to model multi-star systems in the package. All concrete subtypes should implement the following methods to support all features:
+ - [`StarFormationHistories.sample_system`](@ref)
+ - [`StarFormationHistories.binary_system_fraction`](@ref)
+ - [`StarFormationHistories.binary_mass_fraction`](@ref)
+ - `Base.length`, which should return an integer indicating the number of stars per system that can be sampled by \
+   the model; this is equivalent to the length of the mass vector returned by `sample_system`.
+
+Note that all quantities relating to binary populations (e.g., `binary_system_fraction`) should be defined for the population *at birth*. As the stars in a binary system evolve, the more massive star may die before the system is observed at present-day. Of course, the stars in single-star systems can also die. If the rate at which binary systems become single-star systems is not equal to the rate at which single-star systems die, then there can be net transfer between these populations over time. Therefore the observed, present-day binary system fraction of an evolved population is not necessarily equal to the fraction at birth, which is the more fundamental quantity."""
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
+"""
+    binary_system_fraction(model::T) where T <: AbstractBinaryModel
+Returns the number fraction of *stellar systems* that are binaries for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `binary_system_fraction(model::AbstractBinaryModel) = model.fraction`."""
+binary_system_fraction(model::AbstractBinaryModel) = model.fraction
+"""
+    binary_number_fraction(model::T) where T <: AbstractBinaryModel
+Returns the number fraction of *stars* that in binary pairs for the given concrete subtype `T <: AbstractBinaryModel`. Has a default implementation of `2b / (1+b)`, where `b` is the result of [`StarFormationHistories.binary_system_fraction`](@ref)."""
+binary_number_fraction(model::AbstractBinaryModel) = (b=binary_system_fraction(model); return 2b / (1 + b))
+"""
+    binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
+Returns the fraction of stellar mass in binary systems for the given concrete subtype `T <: AbstractBinaryModel` and initial mass function `imf`. `imf` must be a properly normalized probability distribution such that the number fraction of stars/systems between mass `m1` and `m2` is given by the integral of `dispatch_imf(imf, x)` from `m1` to `m2`. 
+"""
+binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
+
 """
     NoBinaries()
 The `NoBinaries` type indicates that no binaries of any kind should be created. """
 struct NoBinaries <: AbstractBinaryModel end
 Base.length(::NoBinaries) = 1
+binary_system_fraction(::NoBinaries) = 0
+binary_number_fraction(::NoBinaries) = 0
+binary_mass_fraction(::NoBinaries, imf) = 0
+
 """
     RandomBinaryPairs(fraction::Real)
-The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
+The `RandomBinaryPairs` type takes one argument `0 <= fraction::Real <= 1` that denotes the number fraction of stellar systems that are binaries (e.g., 0.3 for 30% binary fraction) and will sample binaries as random pairs of two stars drawn from the same single-star IMF. This model will ONLY generate up to one additional star -- it will not generate any 3+ star systems. This model typically incurs a 10--20% speed penalty relative to `NoBinaries`. """
 struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     fraction::T
     # Outer-only constructor to guarantee support
@@ -144,9 +169,28 @@ struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     end
 end
 Base.length(::RandomBinaryPairs) = 2
+# ```math
+# \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}   =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_P} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
+# ```
+# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), minimum(imf), Mp)[1], extrema(imf)...) is equal to mean(imf)
+# quadgk(Mp->quadgk(Ms->(Ms+Mp)*pdf(imf,Ms) * pdf(imf,Mp), extrema(imf)...)[1], extrema(imf)...) is equal to mean(imf)
 """
-    BinaryMassRatio(fraction::Real, qdist::Distributions.ContinuousUnivariateDistribution=Distributions.Uniform())
-The `BinaryMassRatio` type takes two arguments; the binary fraction `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`; users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).  
+    binary_mass_fraction(m::RandomBinaryPairs, imf)
+The `RandomBinaryPairs` model uses a single-star `imf`. If a system is chosen to be a binary pair, two stars are drawn from the single-star `imf` and the more massive star is made the primary. Given this model, it can be shown that the expectation value for the mass of a binary system is twice the expectation value for single star systems:
+
+```math
+2\\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\text{M} \\frac{d\\text{N} \\left( \\text{M} \\right)}{d\\text{M}}  d\\text{M}  =  \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\int_{\\text{M}_\\text{min}}^{\\text{M}_\\text{max}} \\left( \\text{M}_P + \\text{M}_S \\right) \\frac{d\\text{N} \\left( \\text{M}_S \\right)}{d\\text{M}} \\frac{d\\text{N} \\left( \\text{M}_P \\right)}{d\\text{M}} d\\text{M}_S \\, d\\text{M}_P
+```
+
+for primary mass ``\\text{M}_P``, secondary mass ``\\text{M}_S``, and single-star IMF ``d\\text{N} / d\\text{M}``. As such, the fraction of total stellar mass in binaries is equal to the number fraction of all *stars* in binary pairs, which is given by [`StarFormationHistories.binary_number_fraction`](@ref).
+"""
+binary_mass_fraction(m::RandomBinaryPairs, imf) = binary_number_fraction(m)
+
+"""
+    BinaryMassRatio(fraction::Real,
+                    qdist::Distributions.ContinuousUnivariateDistribution =
+                        Distributions.Uniform(0.1, 1.0))
+The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`. Users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin 2013](https://ui.adsabs.harvard.edu/abs/2013MNRAS.430L...6G)).
 """
 struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: AbstractBinaryModel
     fraction::T
@@ -160,6 +204,12 @@ struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: 
     end
 end
 Base.length(::BinaryMassRatio) = 2
+# quadgk(M -> quadgk(q -> M * pdf(qdist,q) * pdf(imf, M), extrema(qdist)...)[1], extrema(imf)...)
+"""
+    binary_mass_fraction(m::BinaryMassRatio, imf)
+This binary model requires an `imf` that is defined by stellar system mass. If a system with a randomly sampled mass ``M`` is is a binary, the primary and secondary mass are determined based on a binary mass ratio ``q`` sampled from a user-defined distribution. By definition, the expectation value for the total mass of a binary system is equal to the expectation value for single-star systems. In this case the binary mass fraction is equal the binary system number fraction as given by [`StarFormationHistories.binary_system_fraction`](@ref).`
+"""
+binary_mass_fraction(m::BinaryMassRatio, imf) = binary_system_fraction(m)
 
 """
     masses = sample_system(imf, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)
@@ -182,7 +232,7 @@ Simulates the effects of non-interacting, unresolved stellar companions on stell
     mass1 = rand(rng, imf) # First star mass
     if r <= frac  # Generate a binary star
         mass2 = rand(rng, imf)
-        return sort( SVector{2,eltype(imf)}(mass1, mass2); rev=true )
+        return sort(SVector{2,eltype(imf)}(mass1, mass2); rev=true)
     else
         return SVector{2,eltype(imf)}(mass1, zero(eltype(imf)))
     end
@@ -208,7 +258,16 @@ end
 #### Functions to generate mock galaxy catalogs from SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, mag_names::AbstractVector{String}, limit::Number, imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}; dist_mod::Number=0, rng::Random.AbstractRNG=Random.default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.RandomBinaryPairs(0.3))
+    generate_stars_mass(mini_vec::AbstractVector{<:Number},
+                        mags, mag_names::AbstractVector{String},
+                        limit::Number,
+                        imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous};
+                        dist_mod::Number=0,
+                        rng::Random.AbstractRNG=Random.default_rng(),
+                        mag_lim::Number = Inf,
+                        mag_lim_name::String = "V",
+                        binary_model::StarFormationHistories.AbstractBinaryModel =
+                            StarFormationHistories.RandomBinaryPairs(0.3))
 
 Generates a random sample of stars from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names` with total population birth stellar mass `limit` (e.g., 1e5 solar masses). Initial stellar masses are sampled from the provided `imf`. 
 
@@ -229,17 +288,19 @@ Generates a random sample of stars from an isochrone defined by the provided ini
  - `binary_model::StarFormationHistories.AbstractBinaryModel=StarFormationHistories.RandomBinaryPairs(0.3)` is an instance of a model for treating binaries; currently provided options are [`NoBinaries`](@ref), [`RandomBinaryPairs`](@ref), and [`BinaryMassRatio`](@ref).
 
 # Returns
- - `sampled_masses::Vector{SVector{N,eltype(imf)}}`: a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems). 
- - `sampled_mags::Vector{SVector{N,<:Number}}`: a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you index as `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
+`(sampled_masses, sampled_mags)` defined as
+ - `sampled_masses::Vector{SVector{N,eltype(imf)}}` is a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems). 
+ - `sampled_mags::Vector{SVector{N,<:Number}}` is a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you index as `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
 
 # Notes
 ## Population Masses
 Given a particular isochrone with an initial mass vector `mini_vec`, it will never cover the full range of stellar birth masses because stars that die before present-day are not included in the isochrone. However, these stars *were* born, and so contribute to the total birth mass of the system. There are two ways to properly account for this lost mass when sampling:
- 1. Set the upper limit for masses that can be sampled from the `imf` distribution to a physical value for the maximum birth mass of stars (e.g., 100 solar masses). In this case, these stars will be sampled from `imf`, and will contribute their masses to the system, but they will not be returned if their birth mass is greater than `maximum(mini_vec)`. This is typically easiest for the user and only results in ∼15% loss of efficiency for 10 Gyr isochrones.
+ 1. Set the upper limit for masses that can be sampled from the `imf` distribution to a physical value for the maximum birth mass of stars (e.g., 100 solar masses). In this case, these stars will be sampled from `imf`, and will contribute their masses to the system, but they will not be returned if their birth mass is greater than `maximum(mini_vec)`. This is typically easiest for the user and only results in ∼15% loss of efficiency for 10 Gyr isochrones. *This approach is preferred when sampling with binaries.*
  2. Set the upper limit for masses that can be sampled from the `imf` distribution to `maximum(mini_vec)` and adjust `limit` to respect the amount of initial stellar mass lost by not sampling higher mass stars. This can be calculated as `new_limit = limit * ( QuadGK.quadgk(x->x*pdf(imf,x), minimum(mini_vec), maximum(mini_vec))[1] / QuadGK.quadgk(x->x*pdf(imf,x), minimum(imf), maximum(imf))[1] )`, with the multiplicative factor being the fraction of the population stellar mass contained in stars with initial masses between `minimum(mini_vec)` and `maximum(mini_vec)`; this factor is the ratio
 ```math
-\\frac{\\int_a^b \\ m \\times \\frac{dN(m)}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN(m)}{dm} \\ dm}
+\\frac{\\int_a^b \\ m \\times \\frac{dN(m)}{dm} \\ dm}{\\int_0^∞ \\ m \\times \\frac{dN(m)}{dm} \\ dm}.
 ```
+Note that, if binaries are included, this approach only forms binary pairs between stars whose masses are less than `maximum(mini_vec)`. This is probably not desired, so we recommend the previous approach when including binaries.
 """
 generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
     generate_stars_mass(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)

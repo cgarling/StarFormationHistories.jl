@@ -17,6 +17,7 @@ using Printf: @sprintf
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 using Random: AbstractRNG, default_rng, rand
 using Roots: find_zero # For mass_limits in simulate.jl
+import Trapz: trapz
 using SpecialFunctions: erf
 # LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)
 using VectorizationBase: AbstractSIMD, verf # SIMD-capable erf for Float32 and Float64
@@ -576,7 +577,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     hist = Histogram(edges, mat, :left, false)
     if cov_mult == 0 # Case: y=R and x=B-V
         for i in eachindex(colors)
-            # Skip stars that are 3σ away from the histogram region in either x or y. 
+            # Skip stars that are 3σ away from the histogram region in either x or y.
             # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
             #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
             #     |
@@ -610,6 +611,93 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     end
     return Histogram(edges, mat, :left, false)
 end
+
+###############################
+# Constructing binary templates
+
+# New idea: Take provided m_ini as primary masses and construct custom secondary mass vector for better sampling
+function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+    Base.require_one_based_indexing(m_ini)
+    Base.require_one_based_indexing(mags)
+    @assert all(length(i) == length(m_ini) for i in mags)
+
+    imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
+    # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
+    # (to account for limited range of secondary masses in innner integral?)
+    # This works if all binary pairs are restricted to the masses contained in m_ini
+    # It would be more accurate to consider explicitly binary pairs across the full
+    # support of imf, but if the mass of a star falls outside m_ini's support,
+    # then set it won't contribute any flux. 
+    pscale_fact = trapz(m_ini, imf_vec)
+    prefac = normalize_value / mean_mass / 4 / pscale_fact # Precompute constant multiplier on the weights
+    flux_vec = [mag2flux.(i) for i in mags] # Precompute vector of fluxes so we can reuse them
+    mini_spacing = diff(m_ini)
+    npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
+    binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
+    binary_weights = Vector{T}(undef, npairs)
+    prodidx = 1 # Index counter
+    for i=eachindex(mini_spacing)
+        @inbounds ΔMp = mini_spacing[i]
+        @inbounds Mpint = imf_vec[i] + imf_vec[i+1]
+        for j=i+1:lastindex(mini_spacing)
+            for k=eachindex(mags)
+                # binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
+                @inbounds binary_mags[k][prodidx] = flux2mag(flux_vec[k][i] + flux_vec[k][j])
+            end
+            @inbounds ΔMs = mini_spacing[j]
+            @inbounds Msint = imf_vec[j] + imf_vec[j+1]
+            @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
+            prodidx += 1 # Increment index counter
+        end
+    end
+    # println("Binary weights pre-completeness: ", sum(binary_weights))
+    # Apply completeness functions to weights
+    if y_index in color_indices
+        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] )
+    else
+        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
+            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
+            completeness_funcs[y_index].( [binary_mags, y_index] )
+    end
+    colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
+    hist = fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
+    hist_weights = vec(hist.weights)
+    # mag_err = [mag_err_funcs[i].(binary_mags[i][good]) for i in eachindex(binary_mags)]
+    # Filter for only useful bins
+    good = findall(!=(0), hist_weights)
+    # Get bin centers and magnitude errors and call bin_cmd_smooth
+    centers = (hist.edges[1][begin:end-1] .+ step(hist.edges[1]) / 2,
+               hist.edges[2][begin:end-1] .+ step(hist.edges[2]) / 2)
+    # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
+    h_colors = repeat(centers[1]; outer=length(centers[2]))[good]
+    h_mags = repeat(centers[2]; inner=length(centers[1]))[good]
+    ymag_err = repeat(mag_err_funcs[y_index].(centers[2]); inner=length(centers[1]))[good]
+
+    if y_index in color_indices
+        if y_index == first(color_indices)
+            xmags = h_mags .- h_colors
+        else
+            xmags = h_mags .+ h_colors
+        end
+        x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
+        color_err = mag_err_funcs[x_c_idx].(xmags)
+        cov_mult = (y_index == first(color_indices)) ? -1 : 1
+    else
+        error("`binary_hess(model::RandomBinaryPairs, ...)` for `!(y_index in color_indices)` not yet implemented.")
+        # Need to compute something like a binned average over the Hess diagram
+    end
+    return bin_cmd_smooth(h_colors, h_mags,
+                          color_err, ymag_err, cov_mult;
+                          weights=hist_weights[good], edges=edges)
+end
+
+function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+    error("`binary_hess(model::BinaryMassRatio, ...)` not implemented.")
+end
+
+##########################################
+# Constructing single-star model templates
 
 """
     result::StatsBase.Histogram =
@@ -688,6 +776,7 @@ end
                            completeness_funcs=[one for i in mags];
                            dmod::Number=0,
                            normalize_value::Number=1,
+                           binary_model::AbstractBinaryModel=NoBinaries(),
                            mean_mass=mean(imf),
                            edges=nothing,
                            xlim=nothing,
@@ -710,6 +799,7 @@ Main function for generating template Hess diagrams from a simple stellar popula
 # Keyword Arguments
  - `dmod::Number=0` is the distance modulus in magnitudes to apply to the input `mags`. Leave at `0` if you are providing apparent magnitudes in `mags`.
  - `normalize_value::Number=1` is the total stellar mass of the population you wish to model.
+ - `binary_model::AbstractBinaryModel=NoBinaries()` is the model to use for including binary systems. Currently only [`StarFormationHistories.NoBinaries`](@ref) and [`StarFormationHistories.RandomBinaryPairs`](@ref) are supported.
  - `mean_mass::Number` is the expectation value of the initial mass for a random star drawn from your provided `imf`. This will be computed for you if your provided `imf` is a valid continuous, univariate `Distributions.Distribution` object.
  - `edges` is a tuple of ranges defining the left-side edges of the bins along the x-axis (`edges[1]`) and the y-axis (`edges[2]`). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it overrides the following keyword arguments that offer other ways to specify the extent of the Hess diagram.
  - `xlim` is a length-2 indexable object (e.g., a `Vector` or `Tuple`) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `(-1.0, 1.5)`. This is only used if `edges` is not provided. 
@@ -724,8 +814,10 @@ This method returns the Hess diagram as a `StatsBase.Histogram`; you should refe
 function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mags::AbstractVector{<:AbstractVector{<:Number}},
                             mag_err_funcs, y_index, color_indices, imf,
-                            completeness_funcs=[one for i in mags]; dmod::Number=0,
-                            normalize_value::Number=1, mean_mass::Number=mean(imf),
+                            completeness_funcs=[one for i in mags];
+                            dmod::Number=0, normalize_value::Number=1,
+                            binary_model::AbstractBinaryModel=NoBinaries(),
+                            mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
     @assert length(color_indices) == 2
@@ -751,7 +843,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # to be the single-band error for the filter in the x-axis color which
         # does not appear on the y axis; i.e. if y=V and x=B-V, color_err should
         # simply be σB.
-        x_c_idx = color_indices[findfirst(x -> x !== y_index, color_indices)]
+        x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
         color_err = mag_err[x_c_idx]
         # Calculate vector of completeness products; product of the two involved magnitudes
         completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
@@ -767,17 +859,36 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
             completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)]) .*
             completeness_funcs[y_index].(new_iso_mags[y_index])
-            # Calculate weights; output length is one less than input vectors
+        # Calculate weights; output length is one less than input vectors
         weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    
-    return bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
-                          midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
-                          weights=weights, edges=edges)
+    single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
+                                      midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
+                                      weights=weights, edges=edges)
+    bfrac = binary_system_fraction(binary_model)
+    @assert bfrac <= 1
+    if bfrac == 0
+        return single_star_hist
+    else
+        ds = 4 # Factor by which to downsample the single-star vectors
+        binary_hist = binary_hess(binary_model, new_mini[begin:ds:end], [i[begin:ds:end] for i in new_iso_mags],
+                                  mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges;
+                                  normalize_value=normalize_value, mean_mass=mean_mass)
+        # println("Binary Weights after completeness: ", sum(binary_hist.weights))
+        bmf = binary_mass_fraction(binary_model, imf)
+        # There will be an excess of single stars at present-day due to stars born in binary
+        # pairs that have died and do not appear in the isochrone. We must account for this
+        # additional factor, which is the integral of the imf over the range of m_ini.
+        # This may only be valid for RandomBinaryPairs; think this depends on the relative
+        # mass functions of stars in singles vs binaries. This distribution is the same for
+        # RBP, but it is different for BinaryMassRatio, which might need a different function.
+        bmf *= trapz(new_mini, dispatch_imf.(imf, new_mini))
+        result_mat = (single_star_hist.weights .* (1 - bmf)) .+ (bmf .* binary_hist.weights)
+        return Histogram(edges, result_mat, :left, false)
+    end
 end
-
 
 # Method exports
 # Exports from StarFormationHistories.jl

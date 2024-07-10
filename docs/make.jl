@@ -10,6 +10,8 @@ ENV["MPLBACKEND"] = "agg"
 ENV["DOCSBUILD"] = "true"
 @info "Running example: smooth_template.jl"
 include("../examples/templates/smooth_template.jl")
+@info "Running example: smooth_template_binaries.jl"
+include("../examples/templates/smooth_template_binaries.jl")
 @info "Running example: kernels_example.jl"
 include("../examples/templates/kernels_example.jl")
 @info "Finished examples"
