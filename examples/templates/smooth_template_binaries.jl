@@ -8,7 +8,8 @@ import QuadGK: quadgk
 import PyPlot as plt
 import PyPlot: @L_str # For LatexStrings
 plt.rc("text", usetex=true)
-plt.rc("font", family="serif", serif=["Computer Modern"], size=14)
+plt.rc("text.latex", preamble="\\usepackage{amsmath}") # for \text
+plt.rc("font", family="serif", serif=["Computer Modern"], size=16)
 # This gets close but not quite
 # plt.matplotlib.rcParams["axes.formatter.use_mathtext"] = true
 # plt.rc("font", family="serif", serif=["cmr10"], size=14)
@@ -33,8 +34,8 @@ F150W = isochrone[:,3]
 distmod = 17.5 # Distance modulus
 
 # Set bins for Hess diagram
-edges = (range(-0.2, 1.4, length=75),
-         range(distmod-0.0, distmod+10.0, length=200))
+edges = (range(0.25, 1.1, length=75),
+         range(distmod+0.5, distmod+10.0, length=200))
 
 # Set total stellar mass to normalize template to
 template_norm = 1e5
@@ -60,9 +61,11 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   2,
                                   [1,2],
                                   imf,
+                                  # Kroupa2001(extrema(m_ini)...), # gives same answer as imf
                                   [F090W_complete, F150W_complete]; 
                                   dmod=distmod,
                                   normalize_value=template_norm,
+                                  # normalize_value=template_norm * tscale, # gives same answer as imf
                                   edges=edges, binary_model=binary_model)
 
 # Scale IMF and template_norm to only the valid range for m_ini;
@@ -71,10 +74,14 @@ template = SFH.partial_cmd_smooth(m_ini,
 tscale = quadgk(x -> x * SFH.dispatch_imf(imf,x), extrema(m_ini)...)[1] / SFH.mean(imf)
 # Sample analogous population; index [1] is sampled masses, dont need them
 starcat = SFH.generate_stars_mass(m_ini, [F090W, F150W],
-                                  ["F090W", "F150W"], template_norm * tscale,
+                                  ["F090W", "F150W"],
+                                  template_norm * tscale,
                                   Kroupa2001(extrema(m_ini)...);
+                                  # template_norm,
+                                  # imf;
                                   dist_mod=distmod,
                                   binary_model=binary_model)
+                                  # binary_model=BinaryMassRatio(0.5, Uniform(0.3,1.0)))
 starcat_masses, starcat_mags = starcat # Unpack result
 
 # # Test binary_mass_fraction; good
@@ -117,6 +124,8 @@ signif_plot[permutedims(obs_hess) .== 0] .= NaN
 ############################################################################
 # Plot
 
+textx, texty = (0.05, 0.2)
+
 fig,axs=plt.subplots(nrows=1, ncols=4, sharex=true, sharey=true, figsize=(20,5))
 fig.subplots_adjust(hspace=0.0, wspace=0.0)
 # fig.suptitle(@sprintf("Stellar Mass: %.2e M\$_\\odot\$",template_norm))
@@ -124,7 +133,7 @@ fig.subplots_adjust(hspace=0.0, wspace=0.0)
 axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
                s=1, marker=".", c="k", alpha=0.1, rasterized=true,
                label="CMD-Sampled")
-axs[1].text(0.05, 0.95,
+axs[1].text(textx, texty,
             @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
             transform=axs[1].transAxes, va="top", ha="left")
 
@@ -133,7 +142,7 @@ im1 = axs[3].imshow(permutedims(template.weights), origin="lower",
                     aspect="auto", cmap="Greys", rasterized=true,
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                         log10(template_norm/1e7)))
-axs[3].text(0.05, 0.95, "c) Smooth Model",
+axs[3].text(textx, texty, "c) Smooth Model",
             transform=axs[3].transAxes, va="top", ha="left")
 
 axs[2].imshow(permutedims(obs_hess), origin="lower",
@@ -142,21 +151,22 @@ axs[2].imshow(permutedims(obs_hess), origin="lower",
               norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
               label="CMD-Sampled")
-axs[2].text(0.05, 0.95, "b) Sampled Hess Diagram", transform=axs[2].transAxes,
+axs[2].text(textx, texty, "b) Sampled Hess\nDiagram", transform=axs[2].transAxes,
             va="top", ha="left")
 
 im4 = axs[4].imshow(signif_plot, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", clim=(-2,2), rasterized=true)
-axs[4].text(0.05, 0.95, L"d) (Obs - Model) / $\sigma$",
+# axs[4].text(textx, texty, L"d) (Obs - Model) / $\sigma$",
+axs[4].text(textx, texty, L"d) $\frac{(\text{Obs} - \text{Model})}{\sigma}$",
             transform=axs[4].transAxes, va="top", ha="left")
 
 plot_isochrones = true
 for i in eachindex(axs)
     axs[i].set_xlabel(L"F090W$-$F150W")
-    if plot_isochrones & (i != 4) # Don't plot on residual
-        axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange",
-                       s=1, alpha=1.0)
+    if plot_isochrones # & (i != 4) # Don't plot on residual
+        # axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange", s=1, alpha=1.0)
+        axs[i].plot(F090W .- F150W, F150W .+ distmod, c="orange")
     end
 end
 axs[1].set_ylabel("F150W")
