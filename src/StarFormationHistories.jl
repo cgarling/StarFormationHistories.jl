@@ -656,7 +656,13 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
     @assert all(length(i) == length(m_ini) for i in mags)
 
     imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
-    pscale_fact = trapz(m_ini, imf_vec) # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
+    # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
+    # (to account for limited range of secondary masses in innner integral?)
+    # This works if all binary pairs are restricted to the masses contained in m_ini
+    # It would be more accurate to consider explicitly binary pairs across the full
+    # support of imf, but if the mass of a star falls outside m_ini's support,
+    # then set it won't contribute any flux. 
+    pscale_fact = trapz(m_ini, imf_vec)
     prefac = normalize_value / mean_mass / 4 / pscale_fact # Precompute constant multiplier on the weights
     flux_vec = [mag2flux.(i) for i in mags] # Precompute vector of fluxes so we can reuse them
     mini_spacing = diff(m_ini)
@@ -713,6 +719,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
         cov_mult = (y_index == first(color_indices)) ? -1 : 1
     else
         error("Not implemented")
+        # Need to compute something like a binned average over the Hess diagram
     end
     return bin_cmd_smooth(h_colors, h_mags,
                           color_err, ymag_err, cov_mult;
