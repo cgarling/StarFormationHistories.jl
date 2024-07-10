@@ -128,7 +128,9 @@ end
  - [`StarFormationHistories.binary_system_fraction`](@ref)
  - [`StarFormationHistories.binary_mass_fraction`](@ref)
  - `Base.length`, which should return an integer indicating the number of stars per system that can be sampled by \
-   the model; this is equivalent to the length of the mass vector returned by `sample_system`. """
+   the model; this is equivalent to the length of the mass vector returned by `sample_system`.
+
+Note that all quantities relating to binary populations (e.g., `binary_system_fraction`) should be defined for the population *at birth*. As the stars in a binary system evolve, the more massive star may die before the system is observed at present-day. Of course, the stars in single-star systems can also die. If the rate at which binary systems become single-star systems is not equal to the rate at which single-star systems die, then there can be net transfer between these populations over time. Therefore the observed, present-day binary system fraction of an evolved population is not necessarily equal to the fraction at birth, which is the more fundamental quantity."""
 abstract type AbstractBinaryModel end
 Base.Broadcast.broadcastable(m::AbstractBinaryModel) = Ref(m)
 """

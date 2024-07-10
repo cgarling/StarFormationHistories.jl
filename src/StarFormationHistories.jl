@@ -1051,26 +1051,6 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         cov_mult = 0
     end
     ds = 1 # Factor by which to downsample the single-star vectors
-    # return binary_hess(RandomBinaryPairs(0.3),
-    #                    midpoints(new_mini)[begin:ds:end],
-    #                    stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
-    #                    y_index,
-    #                    color_indices,
-    #                    imf
-    #                    # midpoints(completeness_vec)[begin:sf:end],
-    #                    completeness_funcs,
-    #                    weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
-    #                    edges)
-    # return binary_hess(RandomBinaryPairs(0.3),
-    #                    midpoints(new_mini)[begin:ds:end],
-    #                    [midpoints(i)[begin:ds:end] for i in new_iso_mags],
-    #                    y_index,
-    #                    color_indices,
-    #                    imf,
-    #                    # midpoints(completeness_vec)[begin:sf:end],
-    #                    completeness_funcs,
-    #                    weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
-    #                    edges)
     # return (binary_model,
     #         new_mini[begin:ds:end],
     #         # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
@@ -1101,9 +1081,11 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # There will be an excess of single stars at present-day due to stars born in binary
         # pairs that have died and do not appear in the isochrone. We must account for this
         # additional factor, which is the integral of the imf over the range of m_ini.
+        # This may only be valid for RandomBinaryPairs; think this depends on the relative
+        # mass functions of stars in singles vs binaries. This distribution is the same for
+        # RBP, but it is different for BinaryMassRatio, which might need a different function.
         bmf *= trapz(new_mini, dispatch_imf.(imf, new_mini))
         result_mat = (single_star_hist.weights .* (1 - bmf)) .+ (bmf .* binary_hist.weights)
-        # result_mat = (single_star_hist.weights .* 0.35) .+ (0.65 .* binary_hist.weights)
         return Histogram(edges, result_mat, :left, false)
     end
 end
