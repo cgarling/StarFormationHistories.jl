@@ -61,22 +61,14 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   2,
                                   [1,2],
                                   imf,
-                                  # Kroupa2001(extrema(m_ini)...), # gives same answer as imf
                                   [F090W_complete, F150W_complete]; 
                                   dmod=distmod,
                                   normalize_value=template_norm,
-                                  # normalize_value=template_norm * tscale, # gives same answer as imf
                                   edges=edges, binary_model=binary_model)
 
-# Scale IMF and template_norm to only the valid range for m_ini;
-# helps to prevent sampling binary companions outside the valid
-# range of m_ini. You don't need to do this for the smooth Hess model
-tscale = quadgk(x -> x * SFH.dispatch_imf(imf,x), extrema(m_ini)...)[1] / SFH.mean(imf)
-# Sample analogous population; index [1] is sampled masses, dont need them
+# Sample analogous population
 starcat = SFH.generate_stars_mass(m_ini, [F090W, F150W],
                                   ["F090W", "F150W"],
-                                  # template_norm * tscale,
-                                  # Kroupa2001(extrema(m_ini)...);
                                   template_norm,
                                   imf;
                                   dist_mod=distmod,
