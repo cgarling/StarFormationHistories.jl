@@ -615,41 +615,7 @@ end
 ###############################
 # Constructing binary templates
 
-# # Weights must not include completeness here
-# function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, y_index, color_indices, imf, completeness_funcs, weights::AbstractVector, edges::Tuple{<:AbstractRange, <:AbstractRange}) where T <: Real
-#     Base.require_one_based_indexing(mags)
-#     @assert length(m_ini) == length(weights)
-#     @assert all(length(i) == length(m_ini) for i in mags)
-#     npairs = length(m_ini) * (length(m_ini) - 1) ÷ 2
-#     binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
-#     binary_weights = Vector{T}(undef, npairs)
-#     prodidx = 1 # Index counter
-#     for i=eachindex(m_ini, weights)
-#         for j=i+1:lastindex(m_ini)
-#             for k=eachindex(mags)
-#                 @inbounds binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
-#             end
-#             # Probably need custom weights here
-#             # dispatch_imf calls need to add, δmini needs to multiply
-#             @inbounds binary_weights[prodidx] = weights[i] + weights[j]
-#             prodidx += 1 # Increment index counter
-#         end
-#     end
-#     println(sum(binary_weights))
-#     # Apply completeness functions to weights
-#     if y_index in color_indices
-#         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
-#             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] )
-#     else
-#         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
-#             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
-#             completeness_funcs[y_index].( [binary_mags, y_index] )
-#     end
-#     colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
-#     return fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
-# end
-# New idea: Take provided m_ini as primary masses and construct custom secondary mass vector
-# for better sampling; can also 
+# New idea: Take provided m_ini as primary masses and construct custom secondary mass vector for better sampling
 function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
     Base.require_one_based_indexing(m_ini)
     Base.require_one_based_indexing(mags)
@@ -718,7 +684,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
         color_err = mag_err_funcs[x_c_idx].(xmags)
         cov_mult = (y_index == first(color_indices)) ? -1 : 1
     else
-        error("Not implemented")
+        error("`binary_hess(model::RandomBinaryPairs, ...)` for `!(y_index in color_indices)` not yet implemented.")
         # Need to compute something like a binned average over the Hess diagram
     end
     return bin_cmd_smooth(h_colors, h_mags,
@@ -726,162 +692,8 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
                           weights=hist_weights[good], edges=edges)
 end
 
-# function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
-#     Base.require_one_based_indexing(m_ini)
-#     Base.require_one_based_indexing(mags)
-#     @assert all(length(i) == length(m_ini) for i in mags)
-
-#     imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
-#     pscale_fact = trapz(m_ini, imf_vec) # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
-#     prefac = normalize_value / mean_mass / 4 / pscale_fact # Precompute constant multiplier on the weights
-#     flux_vec = [mag2flux.(i) for i in mags] # Precompute vector of fluxes so we can reuse them
-#     mini_spacing = diff(m_ini)
-#     # qvals = range(extrema(model.qdist)...; length=100) # Range of binary mass ratios we will sue
-#     npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
-#     binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
-#     binary_weights = Vector{T}(undef, npairs)
-#     binary_masses = Vector{T}(undef, npairs) # Need to track system masses
-#     prodidx = 1 # Index counter
-#     # m_ini is in sorted order; we will iterate backward so we are iterating over primary masses
-#     for i=reverse(eachindex(mini_spacing))
-#         # @inbounds ΔMp = mini_spacing[i]
-#         # @inbounds Mpint = imf_vec[i] + imf_vec[i+1]
-#         @inbounds Mp = m_ini[i]
-#         # for j=i+1:lastindex(mini_spacing) # Iterate from low q to high q
-#         for j=firstindex(mini_spacing):i-1 # Iterate from low q to high q
-#             for k=eachindex(mags)
-#                 # binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
-#                 @inbounds binary_mags[k][prodidx] = flux2mag(flux_vec[k][i] + flux_vec[k][j])
-#             end
-#             # @inbounds ΔMs = mini_spacing[j]
-#             # @inbounds Msint = imf_vec[j] + imf_vec[j+1]
-#             # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
-#             Ms = m_ini[j]
-#             prodidx += 1 # Increment index counter
-#         end
-#     end
-#     # println("Binary weights pre-completeness: ", sum(binary_weights))
-#     return binary_weights, binary_mags
-# end
 function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
-    Base.require_one_based_indexing(m_ini)
-    Base.require_one_based_indexing(mags)
-    @assert all(length(i) == length(m_ini) for i in mags)
-
-    imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
-    pscale_fact = trapz(m_ini, imf_vec) # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
-    prefac = normalize_value / mean_mass / 4 / pscale_fact # Precompute constant multiplier on the weights
-    flux_vec = [mag2flux.(i) for i in mags] # Precompute vector of fluxes so we can reuse them
-    # mini_spacing = diff(m_ini)
-    # npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
-    nqvals = 100 # Number of binary mass ratios to use to trace the distribution
-    qvals = log10.(range(exp10.(extrema(model.qdist))...; length=nqvals))
-    qdiff = diff(qvals)
-    # npairs = (length(m_ini) - 1) * nqvals
-    npairs = length(m_ini) * length(qdiff)
-    # Make interpolators so we can get masses and mags
-    smags = vecs_to_svecs(mags) # Convert to vector of SVectors; type unstable, use ingest_mags
-    # itp = extrapolate(interpolate((m_ini,), smags, Gridded(Linear())), NaN)
-    itp = interpolate((m_ini,), smags, Gridded(Linear()))
-    # binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
-    binary_mags = Vector{eltype(smags)}(undef, npairs)
-    binary_weights = Vector{T}(undef, npairs)
-    binary_masses = Vector{T}(undef, npairs) # Need to track system masses
-    Mmin = minimum(m_ini)
-    prodidx = 1 # Index counter
-    # # m_ini is in sorted order; we will iterate backward so we are iterating over primary masses
-    # for i=reverse(eachindex(m_ini))[begin:end-1]
-    #     # @inbounds ΔMp = mini_spacing[i]
-    #     # @inbounds Mpint = imf_vec[i] + imf_vec[i+1]
-    #     @inbounds Mp = m_ini[i]
-    #     # for j=i+1:lastindex(mini_spacing) # Iterate from low q to high q
-    #     for j=firstindex(mini_spacing):i-1 # Iterate from low q to high q
-    #         for k=eachindex(mags)
-    #             # binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
-    #             @inbounds binary_mags[k][prodidx] = flux2mag(flux_vec[k][i] + flux_vec[k][j])
-    #         end
-    #         # @inbounds ΔMs = mini_spacing[j]
-    #         # @inbounds Msint = imf_vec[j] + imf_vec[j+1]
-    #         # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
-    #         Ms = m_ini[j]
-    #         prodidx += 1 # Increment index counter
-    #     end
-    # end
-    # m_ini is in sorted order; we will iterate backward so we are iterating over primary masses
-    # jiter = reverse(eachindex(qvals))[begin+1:end]
-    jiter = reverse(eachindex(qdiff))#[begin:end-1]
-    println(jiter)
-    for i=reverse(eachindex(m_ini))# [begin:end-1]
-        # @inbounds ΔMp = mini_spacing[i]
-        # @inbounds Mpint = imf_vec[i] + imf_vec[i+1]
-        @inbounds Mp = m_ini[i]
-        Mpmags = itp(Mp)
-        Mpflux = mag2flux.(Mpmags)
-        for j=jiter
-            @inbounds q = qvals[j] 
-            M = Mp * (q + 1) # system mass
-            Ms = M - Mp
-            if Ms >= Mmin
-                Msmags = itp(Ms)
-                bmags = flux2mag.(Mpflux .+ mag2flux.(Msmags))
-            else
-                bmags = Mpmags
-            end
-            binary_mags[prodidx] = bmags
-            # Weight calculation
-            qlast = qvals[j+1]
-            Mlast = Mp * (qlast + 1)
-            ΔM = Mlast - M
-            Mint = dispatch_imf(imf, Mlast) + dispatch_imf(imf, M)
-            qint = pdf(model.qdist, qlast) + pdf(model.qdist, q)
-            binary_weights[prodidx] = ΔM * qdiff[j] * Mint * qint * prefac
-            # @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
-            # println(M, " ", ΔM, " ", q, " ", qvals[j+1])
-            prodidx += 1
-            # prodidx > 120000 && println(Mp, " ", Ms, " ", ΔM, " ", Mlast, " ", Mpmags)
-        end
-    end
-    println("Binary weights pre-completeness: ", sum(binary_weights))
-    # println("Binary weights pre-completeness: ", sum(binary_weights))
-    return binary_weights, binary_mags
-end
-# function mini_int(mini)
-#     mini_spacing = diff(mini)
-#     npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
-#     # weights = Vector{Float64}(undef, npairs)
-#     weights = Vector{Float64}(undef, length(mini_spacing))
-#     prodidx = 1 # Index counter
-#     for i=eachindex(mini_spacing)
-#         ΔMp = mini_spacing[i]
-#         Mpint = dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])
-#         # for j=i+1:lastindex(mini_spacing)
-#         #     ΔMs = mini_spacing[j]
-#         #     Msint = dispatch_imf(imf, mini[j]) + dispatch_imf(imf, mini[j+1])
-#         #     weights[prodidx] = ΔMp * ΔMs * Mpint * Msint / 2#* normalize_value / mean_mass / 4# * 1.31828
-#         #     prodidx += 1 # Increment index counter
-#         # end
-#        weights[i] = mini_spacing[i] *
-#                           (dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])) / 2 
-#     end
-#     return sum(weights)
-# end
-
-# bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
-#                         weights = ones(promote_type(eltype(colors), eltype(mags)),
-#                                        size(colors)), edges=nothing,
-#                         xlim=extrema(colors), ylim=extrema(mags), nbins=nothing,
-#                         xwidth=nothing, ywidth=nothing)
-function pure_hess_smooth(pure_hess::Histogram, color_err, mag_err, cov_mult::Int=0)
-    @assert pure_hess.closed == :left
-    # Get bin centers
-    edges = (pure_hess.edges[1][begin:end-1] .+ step(pure_hess.edges[1]) / 2,
-             pure_hess.edges[2][begin:end-1] .+ step(pure_hess.edges[2]) / 2)
-    # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
-    colors = repeat(edges[1]; outer=length(edges[2]))
-    mags = repeat(edges[2]; inner=length(edges[1]))
-
-    return bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult;
-                          edges=pure_hess.edges, weights=vec(pure_hess.weights))
+    error("`binary_hess(model::BinaryMassRatio, ...)` not implemented.")
 end
 
 ##########################################
@@ -1050,21 +862,6 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    ds = 4 # Factor by which to downsample the single-star vectors
-    # return (binary_model,
-    #         new_mini[begin:ds:end],
-    #         # stack([midpoints(i)[begin:ds:end] for i in new_iso_mags]; dims=1),
-    #         [i[begin:ds:end] for i in new_iso_mags],
-    #         mag_err_funcs,
-    #         y_index,
-    #         color_indices,
-    #         imf,
-    #         # midpoints(completeness_vec)[begin:sf:end],
-    #         completeness_funcs,
-    #         # weights[begin:ds:end] ./ midpoints(completeness_vec)[begin:ds:end],
-    #         edges)
-
-    # println("Sum single star weights: ",sum(weights))
     single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
@@ -1073,6 +870,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     if bfrac == 0
         return single_star_hist
     else
+        ds = 4 # Factor by which to downsample the single-star vectors
         binary_hist = binary_hess(binary_model, new_mini[begin:ds:end], [i[begin:ds:end] for i in new_iso_mags],
                                   mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges;
                                   normalize_value=normalize_value, mean_mass=mean_mass)
