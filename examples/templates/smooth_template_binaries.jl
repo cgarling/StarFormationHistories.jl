@@ -33,7 +33,7 @@ F150W = isochrone[:,3]
 distmod = 17.5 # Distance modulus
 
 # Set bins for Hess diagram
-edges = (range(0.25, 1.1, length=75),
+edges = (range(0.4, 1.1, length=75),
          range(distmod+0.5, distmod+10.0, length=200))
 
 # Set total stellar mass to normalize template to
@@ -95,7 +95,9 @@ signif_plot[permutedims(obs_hess) .== 0] .= NaN
 ############################################################################
 # Plot
 
-textx, texty = (0.05, 0.2)
+# textx, texty = (0.05, 0.2)
+textx, texty = (0.95, 0.83)
+ha="right"
 
 fig,axs=plt.subplots(nrows=1, ncols=4, sharex=true, sharey=true, figsize=(20,5))
 fig.subplots_adjust(hspace=0.0, wspace=0.0)
@@ -106,7 +108,7 @@ axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
                label="CMD-Sampled")
 axs[1].text(textx, texty,
             @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
-            transform=axs[1].transAxes, va="top", ha="left")
+            transform=axs[1].transAxes, va="top", ha=ha)
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
@@ -114,7 +116,7 @@ im1 = axs[3].imshow(permutedims(template.weights), origin="lower",
                     norm=plt.matplotlib.colors.LogNorm(vmin=2.5 +
                         log10(template_norm/1e7)))
 axs[3].text(textx, texty, "c) Smooth Model",
-            transform=axs[3].transAxes, va="top", ha="left")
+            transform=axs[3].transAxes, va="top", ha=ha)
 
 axs[2].imshow(permutedims(obs_hess), origin="lower",
               extent=(extrema(edges[1])..., extrema(edges[2])...), 
@@ -123,14 +125,14 @@ axs[2].imshow(permutedims(obs_hess), origin="lower",
                   log10(template_norm/1e7),vmax=im1.get_clim()[2]),
               label="CMD-Sampled")
 axs[2].text(textx, texty, "b) Sampled Hess\nDiagram", transform=axs[2].transAxes,
-            va="top", ha="left")
+            va="top", ha=ha)
 
 im4 = axs[4].imshow(signif_plot, origin="lower",
                     extent=(extrema(edges[1])..., extrema(edges[2])...), 
                     aspect="auto", clim=(-2,2), rasterized=true)
-# axs[4].text(textx, texty, L"d) (Obs - Model) / $\sigma$",
-axs[4].text(textx, texty, L"d) $\frac{(\text{Obs} - \text{Model})}{\sigma}$",
-            transform=axs[4].transAxes, va="top", ha="left")
+axs[4].text(textx, texty, L"d) (Obs - Model) / $\sigma$",
+# axs[4].text(textx, texty, L"d) $\frac{(\text{Obs} - \text{Model})}{\sigma}$",
+            transform=axs[4].transAxes, va="top", ha=ha)
 
 plot_isochrones = true
 for i in eachindex(axs)

@@ -684,7 +684,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             prodidx += 1 # Increment index counter
         end
     end
-    println("Binary weights pre-completeness: ", sum(binary_weights))
+    # println("Binary weights pre-completeness: ", sum(binary_weights))
     # Apply completeness functions to weights
     if y_index in color_indices
         binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
