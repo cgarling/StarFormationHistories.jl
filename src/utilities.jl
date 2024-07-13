@@ -25,7 +25,7 @@ Converts on-sky angle in arcseconds to physical separation based on distance mod
 r ≈ 10^{μ/5 + 1} \\times \\text{atan}(θ/3600)
 ```
 """
-arcsec_to_pc(arcsec, dist_mod) = exp10(dist_mod/5 + 1) * atan( deg2rad(arcsec/3600) )
+arcsec_to_pc(arcsec, dist_mod) = exp10(dist_mod/5 + 1) * atan(deg2rad(arcsec/3600))
 """
     pc_to_arcsec(pc, dist_mod)
 Inverse of [`arcsec_to_pc`](@ref StarFormationHistories.arcsec_to_pc).
@@ -34,7 +34,7 @@ Inverse of [`arcsec_to_pc`](@ref StarFormationHistories.arcsec_to_pc).
 θ ≈ \\text{tan}\\left( r / 10^{μ/5 + 1} \\right) \\times 3600
 ```
 """
-pc_to_arcsec(pc, dist_mod) = rad2deg( tan( pc / exp10(dist_mod/5 + 1) ) ) * 3600
+pc_to_arcsec(pc, dist_mod) = rad2deg(tan(pc / exp10(dist_mod/5 + 1))) * 3600
 """
     angular_transformation_distance(angle, distance0, distance1)
 Transforms an angular separation in arcseconds at distance `distance0` in parsecs to another distance `distance1` in parsecs. Uses the small angle approximation. 
@@ -45,8 +45,8 @@ function angular_transformation_distance(angle, distance0, distance1)
 end
 
 #### Luminosity Utilities
-mag2flux(m::T, zpt::S=0) where {T<:Real,S<:Real} = exp10(4 * (zpt-m) / 10)
-flux2mag(f::T, zpt::S=0) where {T<:Real,S<:Real} = zpt - 5 * log10(f) / 2
+mag2flux(m, zpt=0) = exp10(4 * (zpt - m) / 10)
+flux2mag(f, zpt=0) = zpt - 5 * log10(f) / 2
 
 #### Metallicity utilities
 """
