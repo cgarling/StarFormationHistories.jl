@@ -707,6 +707,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test SFH.mag2flux(T(-3//2), 1) === T(10)
                 @test SFH.flux2mag(T(10)) === T(-5//2)
                 @test SFH.flux2mag(T(10), 1) === T(-3//2)
+                @test SFH.L_from_MV(T(483//100)) === (T(1))
+                @test SFH.MV_from_L(T(1)) === (T(483//100))
                 @test SFH.Y_from_Z(convert(T,1e-3), 0.2485) ≈ 0.2502800000845455 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.X_from_Z(convert(T,1e-3)) ≈ 0.748719999867957 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed

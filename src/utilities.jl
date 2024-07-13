@@ -47,6 +47,9 @@ end
 #### Luminosity Utilities
 mag2flux(m, zpt=0) = exp10(4 * (zpt - m) / 10)
 flux2mag(f, zpt=0) = zpt - 5 * log10(f) / 2
+# Absolute magnitude of Sun in V-band is 4.83 = 483//100
+L_from_MV(absmagv) = mag2flux(absmagv, 483//100)
+MV_from_L(lum) = flux2mag(lum, 483//100)
 
 #### Metallicity utilities
 """
