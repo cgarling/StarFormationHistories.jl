@@ -136,7 +136,7 @@ axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
                s=1, marker=".", c="k", alpha=0.1, rasterized=true,
                label="CMD-Sampled")
 axs[1].text(0.05, 0.95,
-            @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
+            @sprintf("a) Sampled CMD\n\nM\$_*\$ = %.2e M\$_\\odot\$\n\$\\mu=%.1f\$ mag", template_norm, distmod),
             transform=axs[1].transAxes, va="top", ha="left")
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
