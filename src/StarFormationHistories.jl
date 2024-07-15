@@ -616,7 +616,10 @@ end
 # Constructing binary templates
 
 # New idea: Take provided m_ini as primary masses and construct custom secondary mass vector for better sampling
-function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}},
+                     mag_err_funcs, y_index, color_indices, imf, completeness_funcs,
+                     edges::Tuple{<:AbstractRange, <:AbstractRange};
+                     normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
     Base.require_one_based_indexing(m_ini)
     Base.require_one_based_indexing(mags)
     @assert all(length(i) == length(m_ini) for i in mags)
