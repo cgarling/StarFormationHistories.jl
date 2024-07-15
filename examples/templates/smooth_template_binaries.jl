@@ -50,8 +50,6 @@ F150W_error(m) = min(SFH.exp_photerr(m, 1.03, 15.0, 35.0, 0.02), 0.4)
 
 # Set IMF
 imf = Kroupa2001(0.08, 100.0)
-# imf = Kroupa2001(minimum(m_ini), 100.0)
-# imf = Kroupa2001(extrema(m_ini)...)
 
 # Construct template
 template = SFH.partial_cmd_smooth(m_ini,
@@ -95,7 +93,12 @@ signif_plot[permutedims(obs_hess) .== 0] .= NaN
 ############################################################################
 # Plot
 
-# textx, texty = (0.05, 0.2)
+# Initial mass points to plot
+plot_mass_points = true # Whether to plot these initial mass points
+mini_points = [0.11, 0.2, 0.5, 0.7, 0.78]
+mini_mags = SFH.interpolate_mini(m_ini, [F090W .+ distmod, F150W .+ distmod], mini_points)
+
+# Some plot options
 textx, texty = (0.95, 0.83)
 ha="right"
 
@@ -107,7 +110,8 @@ axs[1].scatter(view(obs_mags,1,:) .- view(obs_mags,2,:), view(obs_mags,2,:),
                s=1, marker=".", c="k", alpha=0.1, rasterized=true,
                label="CMD-Sampled")
 axs[1].text(textx, texty,
-            @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
+            # @sprintf("a) Sampled CMD\nM\$_*\$ = %.2e M\$_\\odot\$", template_norm),
+            @sprintf("a) Sampled CMD\n\nM\$_*\$ = %.2e M\$_\\odot\$\n\$\\mu=%.1f\$ mag", template_norm, distmod),
             transform=axs[1].transAxes, va="top", ha=ha)
 
 im1 = axs[3].imshow(permutedims(template.weights), origin="lower", 
@@ -141,6 +145,16 @@ for i in eachindex(axs)
         # axs[i].scatter(F090W .- F150W, F150W .+ distmod, marker=".", c="orange", s=1, alpha=1.0)
         axs[i].plot(F090W .- F150W, F150W .+ distmod, c="orange") # , marker=".", markerfacecolor="k")
     end
+    if plot_mass_points
+        axs[i].scatter(mini_mags[1] .- mini_mags[2], mini_mags[2], c="blue", marker="o", s=25, zorder=10, edgecolor="white")
+        if i == 1 # Add text labels to first axis
+            for j in eachindex(mini_points)
+                axs[i].text(mini_mags[1][j] - mini_mags[2][j] - 0.05, mini_mags[2][j] + 0.25, string(mini_points[j]),
+                            transform=axs[i].transData, c="blue", va="center", ha="right",
+                            bbox=Dict("alpha"=>0.7, "facecolor"=>"white", "lw"=>0, "boxstyle"=>"round,pad=0.1"))
+            end
+        end
+    end
 end
 axs[1].set_ylabel("F150W")
 axs[1].set_ylim(reverse(extrema(edges[2])))
@@ -154,7 +168,7 @@ fig.colorbar(im4, ax=axs[4], pad=0.015)
 #     sum(obs_hess))
 # println( "Sum of residuals: ", sum(abs, permutedims(obs_hess) .-
 #     permutedims(template.weights)) )
-# plt.savefig("template_compare.pdf", bbox_inches="tight")
+# plt.savefig("template_compare_binaries.pdf", bbox_inches="tight")
 if savefig
     plt.savefig(joinpath(@__DIR__, "template_compare_binaries.svg"), bbox_inches="tight")
 end
