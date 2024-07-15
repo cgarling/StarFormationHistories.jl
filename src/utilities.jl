@@ -193,7 +193,7 @@ julia> vecs_to_svecs([[1,2], [3,4]]) == [SVector(1,3), SVector(2,4)]
 true
 ```
 """
-vecs_to_svecs(vecs::Vararg{T}) where {T <: AbstractVector{<:Number}} = SVector.(zip(vecs...))
+vecs_to_svecs(vecs::Vararg{<:AbstractVector{<:Number}}) = SVector.(zip(vecs...))
 vecs_to_svecs(x::AbstractVector{<:AbstractVector{<:Number}}) = vecs_to_svecs(x...)
 
 # vecs_to_svecs(vecs::Vararg{<:AbstractArray{<:Number},N}) where {N} = vecs
