@@ -194,7 +194,7 @@ true
 ```
 """
 vecs_to_svecs(vecs::Vararg{T, N}) where {T <: AbstractVector{<:Number}, N} = SVector.(zip(vecs...))
-vecs_to_svecs(x::AbstractVector{<:AbstractVector{T}}) where T = vecs_to_svecs(x...)
+vecs_to_svecs(x::AbstractVector{<:AbstractVector{<:Number}}) = vecs_to_svecs(x...)
 
 # vecs_to_svecs(vecs::Vararg{<:AbstractArray{<:Number},N}) where {N} = vecs
 # old implementation
