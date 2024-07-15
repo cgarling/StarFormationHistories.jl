@@ -24,3 +24,13 @@ StarFormationHistories.binary_number_fraction
 StarFormationHistories.binary_mass_fraction
 StarFormationHistories.sample_system
 ```
+
+## Notes
+
+The trickiest part of including binaries in the smooth template modelling procedure is deriving the IMF weights. Let ``M_p`` be the sorted list of initial masses for primary stars and ``M_s`` be the sorted list of initial masses for secondary stars. Conceptually, the IMF weight for a binary system with primary mass ``M_{p,i}`` and secondary mass ``M_{s,j}`` should compute the number fraction of binary systems born with primary masses between ``M_{p,i}`` and ``M_{p,i+1}`` and secondary masses between ``M_{s,j}`` and ``M_{s,j+1}`` per unit solar mass formed. 
+
+In the case of the `RandomBinaryPairs` model, the IMF weights are calculated as follows, with ``dN(M)/dM`` being the IMF for single stars, ``\langle M \rangle`` being the mean mass of single stars over the full range of possible initial masses, and the integral in the denominator being over the range of initial masses in the isochrone. The integral in the denominator accounts for losses due to stellar evolution.
+
+```math
+  w_{\text{IMF},i,j} = \frac{\int_{M_{p,i}}^{M_{p,i+1}} \int_{M_{s,j}}^{M_{s,j+1}} \frac{dN(M_p)}{dM} \frac{dN(M_s)}{dM} \ dM_p \ dM_s}{\langle M \rangle \ \int_{M_{\text{min}}}^{M_{\text{max}}} \frac{dN(M)}{dM} \ dM}
+```

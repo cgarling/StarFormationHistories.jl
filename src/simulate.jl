@@ -207,7 +207,7 @@ Base.length(::BinaryMassRatio) = 2
 # quadgk(M -> quadgk(q -> M * pdf(qdist,q) * pdf(imf, M), extrema(qdist)...)[1], extrema(imf)...)
 """
     binary_mass_fraction(m::BinaryMassRatio, imf)
-This binary model requires an `imf` that is defined by stellar system mass. If a system with a randomly sampled mass ``M`` is is a binary, the primary and secondary mass are determined based on a binary mass ratio ``q`` sampled from a user-defined distribution. By definition, the expectation value for the total mass of a binary system is equal to the expectation value for single-star systems. In this case the binary mass fraction is equal the binary system number fraction as given by [`StarFormationHistories.binary_system_fraction`](@ref).`
+This binary model requires an `imf` that is defined by stellar system mass. If a system with a randomly sampled mass ``M`` is is a binary, the primary and secondary mass are determined based on a binary mass ratio ``q`` sampled from a user-defined distribution. By definition, the expectation value for the total mass of a binary system is equal to the expectation value for single-star systems. In this case the binary mass fraction is equal the binary system number fraction as given by [`StarFormationHistories.binary_system_fraction`](@ref).
 """
 binary_mass_fraction(m::BinaryMassRatio, imf) = binary_system_fraction(m)
 
