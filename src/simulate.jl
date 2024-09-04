@@ -499,7 +499,7 @@ end
 ###############################################
 #### Functions for modelling observational effects
 """
-    new_mags = model_cmd(mags::AbstractVector{<:AbstractVector{<:Number}}, errfuncs, completefuncs; rng::Random.AbstractRNG=Random.default_rng())
+    new_mags [, good_idxs] = model_cmd(mags::AbstractVector{<:AbstractVector{<:Number}}, errfuncs, completefuncs; rng::Random.AbstractRNG=Random.default_rng(), ret_idxs::Bool=false)
 
 Simple method for modelling photometric error and incompleteness to "mock observe" a pure catalog of stellar photometry, such as those produced by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref). This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter. 
 
@@ -510,15 +510,17 @@ Simple method for modelling photometric error and incompleteness to "mock observ
 
 # Keyword Arguments
  - `rng::AbstractRNG=Random.default_rng()`: The object to use for random number generation.
+ - `ret_idxs::Bool`: whether to return the indices of the input `mags` for the stars that were successfully "observed" and are represented in the output `new_mags`.
 
 # Returns
- - `new_mags`: an object similar to `mags` (i.e., a `Vector{Vector{<:Number}}`, `Vector{SVector{N,<:Number}}`, etc.) containing the magnitudes of the mock-observed stars. This will be shorter than the provided `mags` vector as we are modelling photometric incompleteness, and the magnitudes will also have random photometric errors added to them. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,new_mags)`. 
+ - `new_mags`: an object similar to `mags` (i.e., a `Vector{Vector{<:Number}}`, `Vector{SVector{N,<:Number}}`, etc.) containing the magnitudes of the mock-observed stars. This will be shorter than the provided `mags` vector as we are modelling photometric incompleteness, and the magnitudes will also have random photometric errors added to them. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,new_mags)`.
+ - `good_idxs`: if `ret_idxs` is `true`, the vector of indices into the input `mags` for the stars that were successfully "observed" and are represented in the output `new_mags`.
 
 # Notes
  - This is a simple implementation that seeks to show a simple example of how one can post-process catalogs of "pure" stars from methods like [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref) to include observational effects. This method assumes Gaussian photometric errors, which may not, in general, be accurate. It also assumes that the total detection probability can be modelled as the product of the single-filter detection probabilities as computed by `completefuncs` (i.e., that the completeness functions are separable across filters). This can be a reasonable assumption when you have separate photometric catalogs derived for each filter and you only collate them afterwards, but it is generally not a good assumption for detection algorithms that operate on simultaneously on multi-band photometry -- the completeness functions for these types of algorithms are generally not separable.
 """
 function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs;
-                   rng::AbstractRNG=default_rng()) where T <: AbstractVector{<:Number}
+                   rng::AbstractRNG=default_rng(), ret_idxs::Bool=false) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
     !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
@@ -539,11 +541,15 @@ function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs;
             ret_mags[i][j] += (randn(rng) * errfuncs[j](ret_mags[i][j]))
         end
     end
-    return ret_mags
+    if ret_idxs
+        return ret_mags, good
+    else
+        return ret_mags
+    end
 end
 # This is slower than the above implementation but I don't care to optimize it at the moment.
 function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs;
-                   rng::AbstractRNG=default_rng()) where {N, T <: Number}
+                   rng::AbstractRNG=default_rng(), ret_idxs::Bool=false) where {N, T <: Number}
     nstars = length(mags)
     nfilters = length(first(mags))
     !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
@@ -564,7 +570,11 @@ function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs;
         err_scale = sacollect(SVector{N,T}, errfuncs[j](good_mags[i][j]) for j in eachindex(errfuncs))
         ret_mags[i] = good_mags[i] .+ (randn(rng,SVector{N,T}) .* err_scale)
     end
-    return ret_mags
+    if ret_idxs
+        return ret_mags, good
+    else
+        return ret_mags
+    end
 end
 # In Julia 1.9 we should just be able to do stack(v). 
 # eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)

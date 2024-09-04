@@ -38,7 +38,13 @@ end
                                  T_max,
                                  Z_func=Z_from_MH)
 
-Calculates linear Z (log [M/H]) age-metallicity relation (AMR) slope α and intercept β from two points on the line with form `([M/H], age [Gyr])` given by the first two arguments. The AMR is normalized so that the mean metal mass fraction at a lookback time in Gyr of `T_max` is `Z = β`. More info given in [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr). 
+Calculates linear Z (log [M/H]) age-metallicity relation (AMR) slope α and intercept β from two points on the line with form `([M/H], age [Gyr])` given by the first two arguments. The AMR is normalized so that the mean metal mass fraction at a lookback time in Gyr of `T_max` is `Z = β`. More info given in [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr).
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: calculate_αβ_logamr)
+julia> calculate_αβ_logamr((-2.5, 13.7), (-1.0, 0.0), 13.7) isa NTuple{2,Float64}
+true
+```
 """
 function calculate_αβ_logamr(low_constraint,
                              high_constraint,

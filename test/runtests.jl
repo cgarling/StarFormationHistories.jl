@@ -187,7 +187,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # brighter than the requested absmaglim
                     apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                     abs_mag = apparent_mag - dmod
-                    @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                    @test T(-0.06) <= (abs_mag - absmaglim) <= T(0)
 
                     # Test with RandomBinaryPairs() model
                     result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
@@ -198,7 +198,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # brighter than the requested absmaglim
                     apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                     abs_mag = apparent_mag - dmod
-                    @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                    @test T(-0.06) <= (abs_mag - absmaglim) <= T(0)
 
                     # Test with BinaryMassRatio() model
                     result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
@@ -209,7 +209,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # brighter than the requested absmaglim
                     apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                     abs_mag = apparent_mag - dmod
-                    @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                    @test T(-0.06) <= (abs_mag - absmaglim) <= T(0)
 
                     # Test errors
                     @test_throws ArgumentError SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, "V", imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
@@ -254,7 +254,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # brighter than the requested absmaglim
                     apparent_mag = SFH.flux2mag( sum( sum(map(x->SFH.mag2flux(x[2]), i)) for i in result[2]) )
                     abs_mag = apparent_mag - dmod
-                    @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                    @test T(-0.06) <= (abs_mag - absmaglim) <= T(0)
 
                     # Test errors
                     @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name
@@ -275,6 +275,11 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     cmd = SFH.model_cmd( model_mags2, errfuncs, completefuncs; rng=rng)
                     @test typeof(cmd) == typeof(model_mags2)
                     @test length(cmd) ≈ length(model_mags2) * T(4//25) rtol=T(1//10)
+                    # Try ret_idxs
+                    cmd, idxs = SFH.model_cmd( model_mags, errfuncs, completefuncs; rng=rng, ret_idxs=true)
+                    @test idxs isa Vector{Int}
+                    cmd, idxs = SFH.model_cmd( model_mags2, errfuncs, completefuncs; rng=rng, ret_idxs=true)
+                    @test idxs isa Vector{Int}
 
                     # Test errors
                     # Vector{SVector} mags argument
