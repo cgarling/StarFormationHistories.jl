@@ -45,8 +45,66 @@ function angular_transformation_distance(angle, distance0, distance1)
 end
 
 #### Luminosity Utilities
+"""
+    mag2flux(m, zpt=0)
+Convert a magnitude `m` to a flux assuming a photometric zeropoint of `zpt`, defined as
+the magnitude of an object that produces one count (or data number, DN) per second.
+```jldoctest; setup = :(import StarFormationHistories: mag2flux)
+julia> mag2flux(15.0, 25.0) ≈ exp10(4 * (25.0 - 15.0) / 10)
+true
+```
+"""
 mag2flux(m, zpt=0) = exp10(4 * (zpt - m) / 10)
+"""
+    flux2mag(f, zpt=0)
+Convert a flux `f` to a magnitude assuming a photometric zeropoint of `zpt`, defined as
+the magnitude of an object that produces one count (or data number, DN) per second.
+```jldoctest; setup = :(import StarFormationHistories: flux2mag)
+julia> flux2mag(10000.0, 25.0) ≈ 25.0 - 5 * log10(10000.0) / 2
+true
+```
+"""
 flux2mag(f, zpt=0) = zpt - 5 * log10(f) / 2
+"""
+    magerr(f, σf)
+Returns an error in magnitudes given a flux and a flux uncertainty.
+
+```jldoctest; setup = :(import StarFormationHistories: magerr)
+julia> magerr(100.0, 1.0) ≈ 2.5 / log(10) * (1.0 / 100.0)
+true
+```
+"""
+magerr(f, σf) = 5//2 * σf / f / logten
+"""
+    fluxerr(f, σm)
+Returns an error in flux given a flux and a magnitude uncertainty.
+
+```jldoctest; setup = :(import StarFormationHistories: fluxerr)
+julia> fluxerr(100.0, 0.01) ≈ (0.01 * 100.0) / 2.5 * log(10)
+true
+```
+"""
+fluxerr(f, σm) = σm * f * logten / 5//2
+"""
+    snr_magerr(σm)
+Returns a signal-to-noise ratio ``(f/σf)`` given an uncertainty in magnitudes.
+
+```jldoctest; setup = :(import StarFormationHistories: snr_magerr)
+julia> snr_magerr(0.01) ≈ 2.5 / log(10) / 0.01
+true
+```
+"""
+snr_magerr(σm) = 5//2 / σm / logten
+"""
+    magerr_snr(snr)
+Returns a magnitude uncertainty given a signal-to-noise ratio ``(f/σf)``.
+
+```jldoctest; setup = :(import StarFormationHistories: magerr_snr)
+julia> magerr_snr(100.0) ≈ 2.5 / log(10) / 100.0
+true
+```
+"""
+magerr_snr(snr) = 5//2 / snr / logten
 # Absolute magnitude of Sun in V-band is 4.83 = 483//100
 L_from_MV(absmagv) = mag2flux(absmagv, 483//100)
 MV_from_L(lum) = flux2mag(lum, 483//100)
@@ -120,7 +178,7 @@ Completeness model of [Martin et al. 2016](https://ui.adsabs.harvard.edu/abs/201
 
 `m` is the magnitude of interest, `A` is the maximum completeness, `m50` is the magnitude at which the data are 50% complete, and `ρ` is an effective slope modifier.
 """
-Martin2016_complete(m,A,m50,ρ) = A / (1 + exp((m-m50) / ρ))
+Martin2016_complete(m,A,m50,ρ) = A / (1 + exp((m - m50) / ρ))
 
 """
     exp_photerr(m, a, b, c, d)
@@ -133,7 +191,7 @@ Exponential model for photometric errors of the form
 
 Reported values for some HST data were `a=1.05, b=10.0, c=32.0, d=0.01`. 
 """
-exp_photerr(m, a, b, c, d) = a^(b * (m-c)) + d
+exp_photerr(m, a, b, c, d) = a^(b * (m - c)) + d
 
 """
     process_ASTs(ASTs::Union{DataFrames.DataFrame,

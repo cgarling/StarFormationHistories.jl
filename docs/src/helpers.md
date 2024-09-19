@@ -11,6 +11,15 @@ StarFormationHistories.distance_modulus_to_distance
 
 ## Magnitudes and Luminosities
 
+```@docs
+StarFormationHistories.mag2flux
+StarFormationHistories.flux2mag
+StarFormationHistories.magerr
+StarFormationHistories.fluxerr
+StarFormationHistories.snr_magerr
+StarFormationHistories.magerr_snr
+```
+
 ## [Metallicities](@id metallicity_helpers)
 
 ```@docs
