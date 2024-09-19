@@ -7,6 +7,7 @@ version = "0.1.0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DynamicHMC = "bbc10e6e-7c05-544b-b16e-64fede858acb"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+IrrationalConstants = "92d709cd-6900-40b7-9082-c6be49f344b6"
 KissMCMC = "79d62d8d-4dfd-5781-bc85-ce78e0ac132a"
 LBFGSB = "5be7bae1-8223-5378-bac3-9e7378a2f6e6"
 LineSearches = "d3d80556-e9d4-5f37-9878-2ab0fcc64255"
@@ -30,8 +31,8 @@ DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
 
 [extensions]
-TypedTablesExt = "TypedTables"
 DataFramesExt = "DataFrames"
+TypedTablesExt = "TypedTables"
 
 [compat]
 DataFrames = "1"
@@ -41,6 +42,7 @@ Documenter = "1"
 DynamicHMC = "3.4.2" # Changed stack_posterior_matrices order https://github.com/tpapp/DynamicHMC.jl/pull/175
 InitialMassFunctions = "0.1"
 Interpolations = "0.13.4, 0.14, 0.15"
+IrrationalConstants = "0.2"
 KissMCMC = "0.2"
 LBFGSB = "0.4"
 LineSearches = "7.2"
