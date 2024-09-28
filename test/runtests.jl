@@ -619,11 +619,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                             @test isapprox(result3.mle.μ, result4.mle.μ)
 
                             @testset "mdf_amr" begin
-                                # @test SFH.mdf_amr(SFRs, logAge, MH, relweights; relweightsmin=0)[1] == unique_MH
-                                # println(SFH.mdf_amr(SFRs, logAge, MH, relweights; relweightsmin=0)[2])
                                 mdf_result1 = SFH.mdf_amr([1.0,2.0,3.0,4.0],[1.0,2.0,1.0,2.0],[-2.0,-2.0,-1.0,-1.0])
                                 @test mdf_result1[1] ≈ [-2.0, -1.0]
                                 @test mdf_result1[2] ≈ [0.3, 0.7]
+                                # Test mdf_x is always returned in sorted order
+                                mdf_result2 = SFH.mdf_amr(reverse([1.0,2.0,3.0,4.0]),[1.0,2.0,1.0,2.0],reverse([-2.0,-2.0,-1.0,-1.0]))
+                                @test all(mdf_result1 .== mdf_result2)
                             end
                         end
                     end

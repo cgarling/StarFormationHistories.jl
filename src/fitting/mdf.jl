@@ -12,7 +12,7 @@ Calculates the mass-weighted metallicity distribution function given a set of *s
 P_j = \\frac{ \\sum_k r_{j,k} \\, [\\text{M} / \\text{H}]_k}{\\sum_{j,k} r_{j,k} \\, [\\text{M} / \\text{H}]_k}
 ```
 
-where ``r_{j,k}`` are the elements of `coeffs` where ``j`` indexes over unique entries in `logAge` and ``k`` indexes over unique entries in `metallicities.` This is the same nomenclature used in the [the documentation on constrained metallicity evolutions](@ref metal_evo_intro).
+where ``r_{j,k}`` are the elements of `coeffs` where ``j`` indexes over unique entries in `logAge` and ``k`` indexes over unique entries in `metallicities.` This is the same nomenclature used in the [the documentation on constrained metallicity evolutions](@ref metal_evo_intro). The return values are sorted so that `unique_MH` is in increasing order.
 
 # Examples
 ```jldoctest; setup = :(import StarFormationHistories: mdf_amr)
@@ -30,7 +30,8 @@ function mdf_amr(coeffs::AbstractVector{<:Number}, # Stellar mass coefficients
     unique_MH = unique(metallicities)
     mass_mdf = [sum(coeffs[idx]) for idx in (findall( ==(i), metallicities) for i in unique_MH)]
     mass_mdf ./= sum(mass_mdf) # Normalize to sum probability = 1
-    return unique_MH, mass_mdf
+    p = sortperm(unique_MH) # Return in sorted order of unique_MH
+    return unique_MH[p], mass_mdf[p]
 end
 
 # function mdf_amr(stellar_masses::AbstractVector{<:Number},
