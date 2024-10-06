@@ -49,10 +49,13 @@ true
 julia> isapprox( construct_x0_mdf([9.0, 8.0, 7.0],
                                   [[9.0, 8.0, 7.0], [0.9009, 0.99099, 1.0]], 10.0; normalize_value=5.0),
                  construct_x0_mdf([9.0, 8.0, 7.0], [0.9009, 0.99099, 1.0], 10.0; normalize_value=5.0) )
+true
 
 julia> isapprox( construct_x0_mdf([9.0, 8.0, 7.0],
                                   [[9.0, 8.5, 8.25, 7.0], [0.9009, 0.945945, 0.9887375, 1.0]], 10.0; normalize_value=5.0),
                  construct_x0_mdf([9.0, 8.0, 7.0], [0.9009, 0.99099, 1.0], 10.0; normalize_value=5.0) )
+true
+```
 """
 function construct_x0_mdf(logAge::AbstractVector{T}, T_max::Number; normalize_value::Number=one(T)) where T <: Number
     minlog, maxlog = extrema(logAge)
@@ -64,7 +67,7 @@ function construct_x0_mdf(logAge::AbstractVector{T}, T_max::Number; normalize_va
     sorted_ul = vcat(unique_logAge[idxs], max_logAge)
     dt = diff(exp10.(sorted_ul))
     return [ begin
-                idx = findfirst(Base.Fix1(==, sorted_ul[i]), unique_logAge)
+                idx = findfirst(Base.Fix1(==, sorted_ul[i]), unique_logAge) # findfirst(==(sorted_ul[i]), unique_logAge)
                 sfr * dt[idx]
              end for i in eachindex(unique_logAge) ]
 end
@@ -88,7 +91,7 @@ function construct_x0_mdf(logAge::AbstractVector{<:Number}, cum_sfh::AbstractVec
             "Provided `cum_sfh` must be monotonically increasing as `logAge` decreases.")
     sorted_ul = vcat(unique_logAge[idxs], max_logAge)
     return [ begin
-                idx = findfirst(Base.Fix1(==, sorted_ul[i]), unique_logAge)
+                idx = findfirst(Base.Fix1(==, sorted_ul[i]), unique_logAge) # findfirst(==(sorted_ul[i]), unique_logAge)
                 (normalize_value * (sorted_cum_sfh[idx] - sorted_cum_sfh[idx+1]))
              end for i in eachindex(unique_logAge) ]
 end
