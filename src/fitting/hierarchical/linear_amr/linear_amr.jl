@@ -2,13 +2,13 @@
 
 """
     x0::Vector = construct_x0_mdf(logAge::AbstractVector{T},
-                                  [ cum_sfh::AbstractVector{T}, ]
+                                  [ cum_sfh, ]
                                   T_max::Number;
                                   normalize_value::Number = one(T)) where T <: Number
 
 Generates a vector of initial stellar mass normalizations for input to [`StarFormationHistories.fit_templates_mdf`](@ref) or [`StarFormationHistories.hmc_sample_mdf`](@ref) with a total stellar mass of `normalize_value`. The `logAge` vector must contain the `log10(Age [yr])` of each isochrone that you are going to input as models. If `cum_sfh` is not provided, a constant star formation rate is assumed. For the purposes of computing the constant star formation rate, the provided `logAge` are treated as left-bin edges, with the final right-bin edge being `T_max`, which has units of Gyr. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths (in log-space). In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
-A desired cumulative SFH vector `cum_sfh` can be provided as the second argument, which should correspond to a lookback time vector `unique(logAge)`. You can also provide `cum_sfh` as a length-2 indexable with the first element containing a list of `log10(Age [yr])` values and the second element containing the cumulative SFH values at those values. This cumulative SFH is then interpolated onto the `logAge` provided in the first argument. This method should be used when you want to define the cumulative SFH on a different age grid from the `logAge` you provide in the first argument. See the examples below for practical examples of usage.
+A desired cumulative SFH vector `cum_sfh::AbstractVector{<:Number}` can be provided as the second argument, which should correspond to a lookback time vector `unique(logAge)`. You can also provide `cum_sfh` as a length-2 indexable (e.g., a length-2 `Vector{Vector{<:Number}}`) with the first element containing a list of `log10(Age [yr])` values and the second element containing the cumulative SFH values at those values. This cumulative SFH is then interpolated onto the `logAge` provided in the first argument. This method should be used when you want to define the cumulative SFH on a different age grid from the `logAge` you provide in the first argument. The examples below demonstrate these use cases.
 
 The difference between this function and [`StarFormationHistories.construct_x0`](@ref) is that this function generates an `x0` vector that is of length `length(unique(logage))` (that is, a single normalization factor for each unique entry in `logAge`) while [`StarFormationHistories.construct_x0`](@ref) returns an `x0` vector that is of length `length(logAge)`; that is, a normalization factor for every entry in `logAge`. The order of the coefficients is such that the coefficient `x[i]` corresponds to the entry `unique(logAge)[i]`. 
 
