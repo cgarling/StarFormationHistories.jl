@@ -4,7 +4,7 @@ using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logp
     quantile, Multivariate, MvNormal, sampler, Uniform # cdf
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
-using Interpolations: interpolate, Gridded, Linear, deduplicate_knots! # extrapolate, Throw
+using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
 using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
