@@ -722,9 +722,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.X_from_Z(convert(T,1e-3), convert(T,0.25), convert(T,1.78)) ≈ 0.74722 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.MH_from_Z(convert(T,1e-3), convert(T,0.01524)) ≈ -1.206576807011171 rtol=rtols[i] # Return type not guaranteed
-                @test SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ 0.00016140865968917453 rtol=rtols[i] # Return type not guaranteed
+                @test SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ 0.00016140871730361718 rtol=rtols[i] # Return type not guaranteed
                 # These two functions should be inverses; test that they are
                 @test SFH.MH_from_Z(SFH.Z_from_MH(convert(T,-2), convert(T,0.01524); Y_p=convert(T,0.2485), γ=convert(T,1.78)), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ -2 rtol=rtols[i] # Return type not guaranteed
+                # Due to a previous bug, Z_from_MH passed the above test but diverged at higher Z. Test at positive [M/H] here.
+                @test SFH.MH_from_Z(SFH.Z_from_MH(convert(T,1.0), convert(T,0.01524); Y_p=convert(T,0.2485), γ=convert(T,1.78)), convert(T,0.01524); Y_p=convert(T,0.2485)) ≈ 1.0 rtol=rtols[i] # Return type not guaranteed
+
                 @test SFH.dMH_dZ(convert(T,1e-3), convert(T,0.01524); Y_p = convert(T,0.2485), γ = convert(T,1.78)) ≈ 435.9070188458886 rtol=rtols[i] # Return type not guaranteed
                 @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) ≈ big"0.9933071490757151444406380196186748196062559910927034697307877569401159160854199" rtol=rtols[i]
                 @test SFH.Martin2016_complete(T[20.0, 1.0, 25.0, 1.0]...) isa T

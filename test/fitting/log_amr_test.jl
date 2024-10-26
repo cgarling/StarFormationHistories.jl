@@ -17,20 +17,20 @@ using Test
     high_constraint = (-1.0, 0.0)
     T_max = last(low_constraint)
     α, β = SFH.calculate_αβ_logamr( low_constraint, high_constraint, T_max, SFH.Z_from_MH )
-    @test α ≈ 0.00011345544581771879
-    @test β ≈ 5.106276398722378e-5
+    @test α ≈ 0.00011345962863988529
+    @test β ≈ 5.106276580989658e-5
     @test SFH.Z_from_MH( min(first(low_constraint),first(high_constraint)) ) ≈ β
     @test α ≈ ( SFH.Z_from_MH( first(high_constraint) ) - # dZ / dt
         SFH.Z_from_MH( first(low_constraint) ) ) /
         (last(low_constraint) - last(high_constraint))
     # Test that passing different max_age works
     @test all(SFH.calculate_αβ_logamr( low_constraint,
-                                       high_constraint, 14.0) .≈ (0.00011345544581771879, 1.702613024190806e-5))
+                                       high_constraint, 14.0) .≈ (0.00011345962863988529, 1.7024877217930916e-5))
     # Test that passing different function to calculate Z from MH works
     @test all(SFH.calculate_αβ_logamr( low_constraint,
                                        high_constraint, T_max,
                                        x -> SFH.Z_from_MH(x, 0.017; Y_p = 0.25) ) .≈
-                                           (0.00012735499210578944, 5.736184884707544e-5) )
+                                           (0.0001273609414391884, 5.736185144138171e-5) )
 end
 
 @testset "calculate_coeffs_logamr" begin
