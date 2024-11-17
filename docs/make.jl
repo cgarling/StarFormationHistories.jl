@@ -44,7 +44,8 @@ makedocs(
                   "Constrained Metallicity Evolution" => 
                       ["fitting/linear_amr.md",
                        "fitting/log_amr.md",
-                       "fitting/fixed_amr.md"],
+                       "fitting/fixed_amr.md",
+                       "fitting/MZR.md"],
                   "Internals" => ["fitting/internals.md",
                                   "fitting/kernels.md"]],
              "examples.md",

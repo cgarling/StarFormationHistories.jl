@@ -240,7 +240,7 @@ calculate_coeffs_mdf(variables, logAge, metallicities, T_max) =
         # Now need to do the transformation to the `variables` rather than model coefficients
         G[end-1] = zero(eltype(G))
         G[end] = zero(eltype(G))
-        for i in axes(G,1)[begin:end-2] 
+        for i in axes(G,1)[begin:end-2]
             la = unique_logAge[i]
             age = exp10(la) / 1e9 # the / 1e9 makes α the slope in MH/Gyr, improves convergence
             μ = α * (T_max - age) + β # Find the mean metallicity of this age bin
