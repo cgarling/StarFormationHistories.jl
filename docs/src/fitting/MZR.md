@@ -4,11 +4,11 @@ The parametric age-metallicity relations (AMRs) provided by this package are typ
 
 As we are simultaneously fitting both the historical star formation rates (SFRs) and the metallicity at which those stars are forming over time, it is possible to design a framework in which the metallicity evolves in a self-consistent way with the star formation activity. As the AMR describes the mean metallicity of stars forming at different times, it should be most directly related to the metallicity evolution of the star-forming ISM. We therefore need to connect the star formation activity to the ISM metallicity.
 
-This is complicated by the fact that in general one-zone chemical models, both star-formation driven outflows (which deplete the ISM of both metals and HI) and pristine gas inflows (composed majorly of HI which dilutes the metallicity of the ISM) must be modelled. While hydrodynamic simulations can provide predictions of outflow rates (i.e., through mass-loading factors), the inflow rates are time-variable and completely unconstrained on an object-to-object basis. As such, general one-zone chemical models are unattractive for our purposes.
+This is complicated by the fact that in general one-zone chemical models, both star-formation driven outflows (which deplete the ISM of both metals and HI) and pristine gas inflows (composed majorly of HI which dilutes the metallicity of the ISM) must be modelled. While hydrodynamic simulations can provide predictions of outflow rates (i.e., through mass-loading factors), the inflow rates are time-variable, depend on the local environment, and generally unconstrained observationally on an object-to-object basis. As such, general one-zone chemical models are unattractive for our purposes.
 
 A more attractive formulation can be found in the idea of an effective yield, which is the fraction of stellar mass that is composed of metals ``\gamma = M_{Z,*} / M_*``. As shown by [Torrey et al. 2019](https://ui.adsabs.harvard.edu/abs/2019MNRAS.484.5587T), who measured these yields in the Illustris TNG100 simulation, these yields are primarily a function of total galaxy stellar mass and not of redshift. Therefore, the rate of change of the yield with respect to stellar mass ``\frac{\partial \gamma}{\partial M_*}`` can be connected to the rate at which metals are accumulated in stars as galaxies grow.
 
-Further, the existence of the gas-phase mass-metallicity relation (MZR) for star-forming galaxies gives us some empirical guidance for an implementation, as the AMR should be mostly connected to the gas-phase metallicity. While the MZR is mostly unconstrained for the low-mass galaxies that are typically studied in the Local Universe with resolved photometry (``M_* < 10^8 \text{M}_\odot``), the MZR is often extrapolated to low masses as a power law in stellar mass.
+Further, the existence of the gas-phase mass-metallicity relation (MZR) for star-forming galaxies gives us some empirical guidance for an implementation, as the AMR should be mostly connected to the gas-phase metallicity. While the MZR is mostly unconstrained for the low-mass galaxies that are typically studied in the Local Universe with resolved photometry (``M_* < 10^8 \; \text{M}_\odot``), the MZR is often extrapolated to low masses as a power law in stellar mass.
 
 While it is known that higher-mass galaxies do not strictly evolve *along* the MZR, due in large part to the time variability of inflows mentioned above, the simple form of the power law extrapolation of the MZR allows for a simple experiment. If (on average) the ISM metallicity at time ``t`` is primarily driven by the total stellar mass at that time ``M_*(t)``, then a two-parameter MZR (power law slope and intercept) coupled to the SFRs in the SFH fitting process should result in better CMD models than a similar two-parameter AMR (e.g., the [linear AMR model](@ref linear_amr_section)) which has no mathematical link to the SFRs. In turn, the best-fit SFRs and population-integrated MDFs should also be more accurate if the modelled AMR is better.
 
@@ -35,7 +35,7 @@ F \equiv - \text{ln} \, \mathscr{L} &= \sum_i m_i - n_i \times \left( 1 - \text{
 \end{aligned}
 ```
 
-where ``n_i`` is bin ``i`` of the observed Hess diagram. These partial derivatives are easy to obtain, but we need partials with respect to the total stellar mass formed at each distinct age, ``R_j``. Here we must deviate from the derivation for AMRs.
+where ``n_i`` is bin ``i`` of the observed Hess diagram. These partial derivatives are easy to obtain, but we need partials with respect to the total stellar mass formed at each distinct age, ``R_j``. These are more complicated that the same partial derivatives under an AMR model.
 
 For the purposes of illustration, we will consider a power law MZR with slope ``\alpha`` as is typically used to describe the extrapolation of gas-phase MZRs to masses below ``10^8 \text{M}_\odot``. Under this model, we can express the mean metallicity at time ``j``, notated as ``\mu_j``, as
 
@@ -46,16 +46,50 @@ For the purposes of illustration, we will consider a power law MZR with slope ``
 \end{aligned}
 ```
 
-where the power law MZR is normalized such that the mean metallicity is ``[\text{M}/\text{H}]_0`` at stellar mass ``\text{M}_0``. As in the AMR models, we use a Gaussian to introduce some metallicity dispersion at fixed time, such that the ``r_{j,k}`` are
+where the power law MZR is normalized such that the mean metallicity is ``[\text{M}/\text{H}]_0`` at stellar mass ``\text{M}_0``. Note that the MZR comes linear with slope ``\alpha`` when expressed in ``\text{log}(\text{M}_*)``. As in the AMR models, we use a Gaussian to introduce some metallicity dispersion at fixed time, such that the ``r_{j,k}`` are
 
 ```math
 \begin{aligned}
-r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}
-A_{j,k} &= \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)
-r_{j,k} &= R_j \, \frac{A_{j,k}}{\sum_k A_{j,k}}
+r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)} \\
+A_{j,k} &= \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \\
+r_{j,k} &= R_j \, \frac{A_{j,k}}{\sum_k A_{j,k}} \\
 \end{aligned}
 ```
 
 where the ``R_j`` are the fitting variables representing the total stellar mass formed at each distinct age in the template grid. We define ``A_{j,k}`` to substitute in for the broadening PDF, as the Gaussian could easily be substituted for other forms with minimal changes to the derivation. The three parameters in the MZR model are therefore the power law slope ``\alpha``, a normalization/intercept parameter ``[\text{M}/\text{H}]_0``, and the metallicity broadening parameter ``\sigma``; this is the same number of parameters as in the linear AMR model.
 
+We can write the partial derivative of the objective ``F`` with respect to the ``R_j`` as
 
+```math
+\frac{\partial \, F}{\partial \, R_j} = \sum_k \, \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j}
+```
+
+For AMRs, this calculation is simple as the mean metallity at time ``j``, denoted ``\mu_j``, is not a function of ``R_j``, and so ``\frac{\partial \, r_{j,k}}{\partial \, R_j}`` simplifies easily. For MZRs, ``\mu_j`` is a function of the total stellar mass formed by time ``t_j``, which itself is a function of other ``R_j`` which give the total stellar mass formed in their respective time bins. We must therefore apply the chain rule to formulate the total partial derivative ``\frac{\partial \, F}{\partial \, R_j}``.
+
+Applying the product rule first,
+
+```math
+\begin{aligned}
+r_{j,k} &= R_j \, \frac{A_{j,k}}{\sum_k A_{j,k}} \\
+\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+\end{aligned}
+```
+
+In AMR models, the term in parentheses on the right hand side is zero as the partial derivatives of all ``A_{j,k}`` with respect to the stellar mass coefficients ``R_j`` are zero. These terms are new for the MZR model, as ``A_{j,k}`` depends on ``\mu_j`` which depends on the ``R_j`` through the total stellar mass formed by time ``t_j``. 
+
+The first term can be replaced by an equivalent expression which is often more convenient: ``\frac{A_{j,k}}{\sum_k A_{j,k}} = \frac{r_{j,k}}{R_j}``. The term ``\frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}`` can be replaced by noting that the partial derivative with respect to ``R_j`` of the sum over ``k`` of the ``A_{j,k}`` must be equal to the sum over ``k`` of the partial derivatives of the individual ``A_{j,k}`` with respect to ``R_j`` such that the following equivalency holds true: ``\frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j} = \sum_k \frac{\partial \, A_{j,k}}{\partial R_j}``. We therefore have
+
+```math
+\begin{aligned}
+\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+&= \frac{r_{j,k}}{R_j} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+\end{aligned}
+```
+
+We now need to formulate the partial derivatives of the dispersion weights with respect to the stellar mass coefficients, ``\frac{\partial \, A_{j,k}}{\partial \, R_j}``. The dependence of the ``A_{j,k}`` on the ``R_j`` is manifested through the dependence of the ``A_{j,k}`` on ``\mu_j``, which itself is dependent on the ``R_j``. We will therefore apply the chain rule:
+
+```math
+\begin{aligned}
+\frac{\partial \, A_{j,k}}{\partial \, R_j} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \, \mu_j}{\partial \, R_j} \\
+\end{aligned}
+```
