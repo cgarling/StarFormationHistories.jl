@@ -50,8 +50,8 @@ where the power law MZR is normalized such that the mean metallicity is ``[\text
 
 ```math
 \begin{aligned}
-r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)} \\
-A_{j,k} &= \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \\
+r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)}{\sum_k \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right)} \\
+A_{j,k} &= \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \\
 r_{j,k} &= R_j \, \frac{A_{j,k}}{\sum_k A_{j,k}} \\
 \end{aligned}
 ```
@@ -83,13 +83,62 @@ The first term can be replaced by an equivalent expression which is often more c
 \begin{aligned}
 \frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
 &= \frac{r_{j,k}}{R_j} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+&= \frac{r_{j,k}}{R_j} + \frac{1}{\sum_k A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, R_j} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} \right) \\
 \end{aligned}
 ```
 
-We now need to formulate the partial derivatives of the dispersion weights with respect to the stellar mass coefficients, ``\frac{\partial \, A_{j,k}}{\partial \, R_j}``. The dependence of the ``A_{j,k}`` on the ``R_j`` is manifested through the dependence of the ``A_{j,k}`` on ``\mu_j``, which itself is dependent on the ``R_j``. We will therefore apply the chain rule:
+We now need to formulate the partial derivatives of the dispersion weights with respect to the stellar mass coefficients, ``\frac{\partial \, A_{j,k}}{\partial \, R_j}``. The dependence of the ``A_{j,k}`` on the ``R_j`` is manifested through the dependence of the ``A_{j,k}`` on ``\mu_j``, which itself is dependent on the ``R_j``. We will assume the ``\mu_j`` for all general MZR models can be expressed as a function of the stellar mass at time ``t_j``, which we denote ``\text{M}_* \left( t_j \right)``, and that the stellar mass depends on the ``R_j``. Applying the chain rule,
 
 ```math
 \begin{aligned}
 \frac{\partial \, A_{j,k}}{\partial \, R_j} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \, \mu_j}{\partial \, R_j} \\
+\frac{\partial \, \mu_j}{\partial \, R_j} &= \frac{\partial \, \mu_j}{\partial \, \text{M}_* \left( t_j \right)} \, \frac{\partial \, \text{M}_* \left( t_j \right)}{\partial R_j} \\
 \end{aligned}
 ```
+
+In the case that the ``R_j`` represent the amount of stellar mass formed in time bin ``t_j``, then the second term reduces to 1. Let the ``R_j`` be sorted in order from earliest time ``t_j`` (i.e., largest lookback time) to most recent time (i.e., lowest lookback time). The cumulative stellar mass ``\text{M}_* \left( t_j \right)`` can therefore be expressed as the sum over the ``R_{j^\prime}`` for ``j^\prime \leq j``, such that
+
+```math
+\begin{aligned}
+\text{M}_* \left( t_j \right) &= \sum_{j^\prime=0}^{j^\prime=j} R_{j^\prime} \\
+\frac{\partial \, \text{M}_* \left( t_j \right)}{\partial R_j} &= 1 \\
+\end{aligned}
+```
+
+We can therefore make the simplification
+
+```math
+\begin{aligned}
+\frac{\partial \, \mu_j}{\partial \, R_j} &= \frac{\partial \, \mu_j}{\partial \, \text{M}_* \left( t_j \right)} \, \frac{\partial \, \text{M}_* \left( t_j \right)}{\partial R_j} \\
+&= \frac{\partial \, \mu_j}{\partial \, \text{M}_* \left( t_j \right)}
+\end{aligned}
+```
+
+so that the partial derivatives of the ``A_{j,k}`` with respect to the ``R_j`` become
+
+```math
+\begin{aligned}
+\frac{\partial \, A_{j,k}}{\partial \, R_j} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \, \mu_j}{\partial \, R_j} \\
+&= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \, \mu_j}{\partial \, \text{M}_* \left( t_j \right)} \\
+\end{aligned}
+```
+
+The forms of these partials will depend on the choices of the metallicity dispersion profile at fixed time, which sets the first term involving ``A_{j,k}``, as well as the form of the MZR model which will set the partial derivative of the mean metallicity at time ``j``, ``\mu_j``, with respect to the cumulative stellar mass at time ``t_j``. For our choice of a Gaussian metallicity dispersion profile at fixed time we have
+
+```math
+\begin{aligned}
+A_{j,k} &= \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \\
+\frac{\partial \, A_{j,k}}{\partial \, \mu_j} &= \frac{A_{j,k}}{\sigma^2} \left( [\text{M}/\text{H}]_k - \mu_j \right) \\
+\end{aligned}
+```
+
+and for our choice of a power law MZR we have
+
+```math
+\begin{aligned}
+\mu_j &= [\text{M}/\text{H}]_0 + \alpha \, \left( \text{log} \left( \text{M}_* (t_j) \right) - \text{log} \left( \text{M}_0 \right) \right) \\
+\frac{\partial \, \mu_j}{\partial \, \text{M}_* \left( t_j \right)} &= \frac{\alpha}{\text{M}_* \left( t_j \right) \, \text{ln} \, 10} \\
+\end{aligned}
+```
+
+such that we now have all the terms we need to compute the ``\frac{\partial \, r_{j,k}}{\partial \, R_j}`` which enables us to compute the partial derivatives of the objective with respect to the ``R_j``, ``\frac{\partial \, F}{\partial \, R_j} = \sum_k \, \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j}``.
