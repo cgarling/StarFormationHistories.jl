@@ -247,7 +247,12 @@ calculate_coeffs_mdf(variables, logAge, metallicities, T_max) =
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
             A = sum(tmp_coeffs)
-            # This should be correct for any MDF model at fixed logAge
+            # This should be correct for any MDF model at fixed logAge, as
+            # \begin{aligned}
+            #     \frac{\partial F}{\partial R_j} &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{\partial r_{j,k}}{\partial R_j} \\
+            #     &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{r_{j,k}}{R_j} \\
+            # \end{aligned}
+            # = sum(fullG[j] * coeffs[j] / variables[i] for j in idxs)
             @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
             βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
             dLdβ = -sum( fullG[idxs[j]] * variables[i] *
@@ -427,7 +432,12 @@ end
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_coeffs = [_gausspdf(metallicities[j], μ, σ) for j in idxs] # Calculate relative weights
             A = sum(tmp_coeffs)
-            # This should be correct for any MDF model at fixed logAge
+            # This should be correct for any MDF model at fixed logAge, as
+            # \begin{aligned}
+            #     \frac{\partial F}{\partial R_j} &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{\partial r_{j,k}}{\partial R_j} \\
+            #     &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{r_{j,k}}{R_j} \\
+            # \end{aligned}
+            # = sum(fullG[j] * coeffs[j] / variables[i] for j in idxs)
             @inbounds G[i] = -sum( fullG[j] * coeffs[j] / variables[i] for j in idxs )
             βsum = sum( ((metallicities[idxs[j]]-μ) * tmp_coeffs[j]) for j in eachindex(idxs))
             dLdβ = -sum( fullG[idxs[j]] * variables[i] *
