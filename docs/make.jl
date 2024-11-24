@@ -45,7 +45,9 @@ makedocs(
                       ["fitting/linear_amr.md",
                        "fitting/log_amr.md",
                        "fitting/fixed_amr.md",
-                       "fitting/MZR.md"],
+                       "MZRs" =>
+                           ["fitting/MZR/MZR.md",
+                            "fitting/MZR/MZR_old.md"]],
                   "Internals" => ["fitting/internals.md",
                                   "fitting/kernels.md"]],
              "examples.md",
