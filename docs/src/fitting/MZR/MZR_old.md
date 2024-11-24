@@ -1,4 +1,4 @@
-# [Mass-Metallicity Relations (MZRs)](@id MZR)
+# [OLD Mass-Metallicity Relations (MZRs)](@id MZR_old)
 
 The parametric age-metallicity relations (AMRs) provided by this package are typically sufficient to provide good fits to observed CMDs with very few degrees of freedom. However, they are somewhat arbitrary and unphysical as they have no direct relation to the underlying star formation activity, which is what enrichs the ISM in the first place. As such, physical interpretation of AMRs is dubious -- rather, it is often the population-integrated metallicity distribution functions (MDFs) which are compared against external datasets that directly probe stellar metallicities (e.g., single-star spectroscopy).
 
@@ -12,7 +12,7 @@ Further, the existence of the gas-phase mass-metallicity relation (MZR) for star
 
 While it is known that higher-mass galaxies do not strictly evolve *along* the MZR, due in large part to the time variability of inflows mentioned above, the simple form of the power law extrapolation of the MZR allows for a simple experiment. If (on average) the ISM metallicity at time ``t`` is primarily driven by the total stellar mass at that time ``M_*(t)``, then a two-parameter MZR (power law slope and intercept) coupled to the SFRs in the SFH fitting process should result in better CMD models than a similar two-parameter AMR (e.g., the [linear AMR model](@ref linear_amr_section)) which has no mathematical link to the SFRs. In turn, the best-fit SFRs and population-integrated MDFs should also be more accurate if the modelled AMR is better.
 
-# Derivation
+## Derivation
 
 We once again wish to derive the gradient of the objective function with respect to the fitting parameters to enable gradient-based optimization. Our derivation will reuse some of the notation developed in the section on the [linear AMR](@ref linear_amr_section). The main difference is that instead of expressing the mean metallicity as a function of time ``\langle [\text{M}/\text{H}] \rangle (t)``, with an MZR we express the mean metallicity as a function of stellar mass at that time ``\langle [\text{M}/\text{H}] \rangle (\text{M}_*(t))``. This means that the partial derivatives of the objective with respect to the stellar mass coefficients have a more complex form than in the AMR case, as changing the stellar mass formed 10 Gyr ago (for example) would change the total stellar mass at all more recent times, which in turn changes the mean metallicity expected at all more recent times.
 
@@ -71,7 +71,7 @@ Applying the product rule first,
 ```math
 \begin{aligned}
 r_{j,k} &= R_j \, \frac{A_{j,k}}{\sum_k A_{j,k}} \\
-\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + R_j \, \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
 \end{aligned}
 ```
 
@@ -81,9 +81,9 @@ The first term can be replaced by an equivalent expression which is often more c
 
 ```math
 \begin{aligned}
-\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
-&= \frac{r_{j,k}}{R_j} + \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
-&= \frac{r_{j,k}}{R_j} + \frac{1}{\sum_k A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, R_j} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} \right) \\
+\frac{\partial \, r_{j,k}}{\partial \, R_j} &= \frac{A_{j,k}}{\sum_k A_{j,k}} + R_j \, \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \frac{\partial \, \sum_k A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+&= \frac{r_{j,k}}{R_j} + R_j \, \left( \frac{\frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\left(\sum_k A_{j,k}\right)^2} \right) \\
+&= \frac{r_{j,k}}{R_j} + \frac{R_j}{\sum_k A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, R_j} - \frac{A_{j,k} \, \sum_k \frac{\partial \, A_{j,k}}{\partial \, R_j}}{\sum_k A_{j,k}} \right) \\
 \end{aligned}
 ```
 
