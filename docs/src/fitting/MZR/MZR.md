@@ -80,7 +80,7 @@ As the ``R_j`` dependence on the ``r_{j^\prime,k}`` enters through the cumulativ
 ```math
 \begin{aligned}
 \frac{\partial \, F}{\partial \, R_j} &= \sum_k \sum_{j^\prime=0}^j \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \\
-&= \sum_k \left( \frac{\partial \, F}{\partial \, r_{j}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j} + \sum_{j^\prime=0}^{j-1} \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \right) \\
+&= \sum_k \left( \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j} + \sum_{j^\prime=0}^{j-1} \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \right) \\
 \end{aligned}
 ```
 
@@ -212,7 +212,7 @@ We can now write the partial derivatives of the ``A_{j^\prime,k}`` with respect 
 \end{aligned}
 ```
 
-These partial derivatives must be calculated for your choice of metallicity dispersion profile at fixed time, which sets the first term involving ``A_{j,k}``, and MZR model, which will set the partial derivative of ``mu_{j^\prime}`` (the mean metallicity at time ``j^\prime``) with respect to the cumulative stellar mass at time ``t_{j^\prime}``. For our choice of a Gaussian metallicity dispersion profile at fixed time we have
+These partial derivatives must be calculated for your choice of metallicity dispersion profile at fixed time, which sets the first term involving ``A_{j,k}``, and MZR model, which will set the partial derivative of ``\mu_{j^\prime}`` (the mean metallicity at time ``j^\prime``) with respect to the cumulative stellar mass at time ``t_{j^\prime}``. For our choice of a Gaussian metallicity dispersion profile at fixed time we have
 
 ```math
 \begin{aligned}
@@ -232,5 +232,44 @@ and for our choice of a power law MZR we have
 
 such that we now have all the terms we need to compute the ``\frac{\partial \, r_{{j^\prime},k}}{\partial \, R_j}`` for both ``j^\prime = j`` and ``j^\prime \neq j``, which enables us to compute the partial derivatives of the objective with respect to the ``R_j``, ``\frac{\partial \, F}{\partial \, R_j}``.
 
+## MZR Parameters
 
+Above we have derived the partial derivatives of the objective with respect to the stellar mass coefficients ``\frac{\partial \, F}{\partial \, R_j}``. It remains to derive the partial derivatives of the objective with respect to the parameters that define the MZR. In the case of our power law MZR example, the two parameters of interest are the power law slope ``\alpha`` and the metallicity normalization parameter ``[\text{M}/\text{H}]_0``, which is the metallicity at a stellar mass of ``\text{M}_0`` -- the exact value of ``\text{M}_0`` is not of interest and is treated as fixed.
 
+```math
+\mu_{j} = \beta + \alpha \, \left( \text{log} \left( \text{M}_* (t_{j}) \right) - \text{log} \left( \text{M}_0 \right) \right) \\
+```
+
+Note that the power law MZR example, as defined, is linear in ``\text{log} \left( \text{M}_* \right)``, so that it can be written analogously to the [linear AMR case](@ref linear_amr_section). The forms of the partial derivatives are therefore similar. For simplicity of notation, and to highlight the similarity with the linear AMR model, we will write ``\beta \equiv [\text{M}/\text{H}]_0`` as it is also a normalization parameter as ``\beta`` is in the linear AMR case. 
+
+The first part of the derivation is then the same as the linear AMR case,
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, \beta} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \\
+\frac{\partial \, r_{j,k}}{\partial \, \beta} &= R_j \left( \frac{1}{\sum_k \, A_{j,k}} \, \frac{\partial \, A_{j,k}}{\partial \, \beta} - \frac{A_{j,k}}{\left( \sum_k \, A_{j,k} \right)^2} \, \frac{\partial \, \sum_k \, A_{j,k}}{\partial \, \beta} \right)  \\
+&= \frac{R_j}{\sum_k \, A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, \beta} - \frac{A_{j,k}}{\sum_k \, A_{j,k}} \sum_k \frac{\partial \, A_{j,k}}{\partial \, \beta} \right) \\
+\end{aligned}
+```
+
+Our definition for the ``A_{j,k}`` are also the same, assuming a small Gaussian dispersion in metallicity at fixed time. 
+
+```math
+\begin{aligned}
+\frac{\partial \, A_{j,k}}{\partial \, \beta} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \mu_j}{\partial \beta} = \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \\
+\frac{\partial \, A_{j,k}}{\partial \, \beta} &= \frac{\partial}{\partial \, \mu} \, \left[ \text{exp} \left( - \frac{1}{2} \left( \frac{ [\text{M}/\text{H}]_k - \mu_j}{\sigma} \right)^2 \right) \right] \\
+&= \frac{A_{j,k}}{\sigma^2} \left( [\text{M}/\text{H}]_k - \mu_j \right) \\
+\end{aligned}
+```
+
+which, as expected, is the same result as in the linear AMR case, as ``\beta`` is a intercept (or normalization parameter) in both models. The partial derivative with respect to the slope ``\alpha`` can be expanded similarly,
+
+```math
+\frac{\partial \, A_{j,k}}{\partial \, \alpha} = \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \mu_j}{\partial \alpha}
+```
+
+As in the linear AMR case, it can be shown that the partial derivative of the objective with respect to ``\alpha`` is simply
+
+```math
+\frac{\partial \, F}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \times \left( \text{log} \left( \text{M}_* (t_{j}) \right) - \text{log} \left( \text{M}_0 \right) \right) \\
+```
