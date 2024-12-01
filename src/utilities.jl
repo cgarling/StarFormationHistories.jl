@@ -255,6 +255,43 @@ vecs_to_svecs() = SVector{0,Float64}[] # Covers ambiguity in case vararg length 
 vecs_to_svecs(vecs::Vararg{T, N}) where {T <: AbstractVector, N} = [SVector{N, eltype(T)}(tup) for tup in zip(vecs...)]
 vecs_to_svecs(x::AbstractVector{<:AbstractVector}) = vecs_to_svecs(x...)
 
+"""
+    tups_to_mat(tups::Vararg{T, N}) where {M, S, T <: NTuple{M, S}, N}
+
+Takes a sequence of `N` `NTuples`, each of which has length `M` and element type `S`, and converts them into a matrix of size `(M, N)`.
+
+```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
+julia> tups_to_mat((1,2,3), (4,5,6)) == [[1,2,3] [4,5,6]]
+true
+```
+"""
+function tups_to_mat(tups::Vararg{T, N}) where {M, S, T <: NTuple{M, S}, N}
+    mat = Matrix{S}(undef, M, N)
+    for i in 1:N
+        mat[:,i] .= tups[i]
+    end
+    return mat
+end
+
+"""
+    tups_to_mat(tups::AbstractVector{T}) where {M, S, T <: NTuple{M, S}}
+
+Takes an `AbstractVector` which has elements that are `NTuples` of length `M` and element type `S` and converts it into a matrix of size `(M, N)`.
+
+```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
+julia> tups_to_mat([(1,2,3), (4,5,6)]) == [[1,2,3] [4,5,6]]
+true
+```
+"""
+function tups_to_mat(tups::AbstractVector{T}) where {M, S, T <: NTuple{M, S}}
+    N = length(tups)
+    mat = Matrix{S}(undef, M, N)
+    for i in 1:N
+        mat[:,i] .= tups[i]
+    end
+    return mat
+end
+
 # vecs_to_svecs(vecs::Vararg{<:AbstractArray{<:Number},N}) where {N} = vecs
 # old implementation
 # vecs_to_svecs(x::AbstractVector{<:AbstractVector}) =
