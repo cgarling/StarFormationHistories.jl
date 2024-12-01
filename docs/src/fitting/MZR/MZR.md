@@ -273,3 +273,29 @@ As in the linear AMR case, it can be shown that the partial derivative of the ob
 ```math
 \frac{\partial \, F}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \alpha} = \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, \beta} \times \left( \text{log} \left( \text{M}_* (t_{j}) \right) - \text{log} \left( \text{M}_0 \right) \right) \\
 ```
+
+More generally, for any parameter ``P`` that is used to calculate the mean metallicity ``\mu_j``, we can write the partial derivative of the objective with respect to ``P`` as
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, P} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, P} \\
+\frac{\partial \, r_{j,k}}{\partial \, P} &= \frac{R_j}{\sum_k \, A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, P} - \frac{A_{j,k}}{\sum_k \, A_{j,k}} \sum_k \frac{\partial \, A_{j,k}}{\partial \, P} \right) \\
+\frac{\partial \, A_{j,k}}{\partial \, P} &= \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \mu_j}{\partial P} \\
+\frac{\partial \, r_{j,k}}{\partial \, P} &= \frac{R_j}{\sum_k \, A_{j,k}} \left( \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \mu_j}{\partial P} - \frac{A_{j,k}}{\sum_k \, A_{j,k}} \sum_k \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \frac{\partial \mu_j}{\partial P} \right) \\
+\end{aligned}
+```
+
+Since ``\frac{\partial \mu_j}{\partial P}`` has no dependence on the metallicity index ``k``, we can pull it out of the sum in the final term and combine it into the prefactor as
+
+```math
+\frac{\partial \, r_{j,k}}{\partial \, P} = \frac{R_j}{\sum_k \, A_{j,k}} \frac{\partial \mu_j}{\partial P} \left( \frac{\partial \, A_{j,k}}{\partial \, \mu_j} - \frac{A_{j,k}}{\sum_k \, A_{j,k}} \sum_k \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \right)
+```
+
+so that we can reuse the majority of the calculation for all the parameters ``P`` in the model for ``\mu_j``, changing only a multiplicative prefactor of ``\frac{\partial \mu_j}{\partial P}``. This means that the partial derivative of the objective with respect to ``P`` becomes
+
+```math
+\begin{aligned}
+\frac{\partial \, F}{\partial \, P} &= \sum_{j,k} \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, P} \\
+&= \sum_j \frac{R_j}{\sum_k \, A_{j,k}} \frac{\partial \mu_j}{\partial P} \sum_k \frac{\partial \, F}{\partial \, r_{j,k}} \, \left( \frac{\partial \, A_{j,k}}{\partial \, \mu_j} - \frac{A_{j,k}}{\sum_k \, A_{j,k}} \sum_k \frac{\partial \, A_{j,k}}{\partial \, \mu_j} \right) \\
+\end{aligned}
+```
