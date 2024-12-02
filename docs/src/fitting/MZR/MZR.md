@@ -1,5 +1,7 @@
 # [Mass-Metallicity Relations (MZRs)](@id MZR)
 
+## Motivation
+
 The parametric age-metallicity relations (AMRs) provided by this package are typically sufficient to provide good fits to observed CMDs with very few degrees of freedom. However, they are somewhat arbitrary and unphysical as they have no direct relation to the underlying star formation activity, which is what enrichs the ISM in the first place. As such, physical interpretation of AMRs is dubious -- rather, it is often the population-integrated metallicity distribution functions (MDFs) which are compared against external datasets that directly probe stellar metallicities (e.g., single-star spectroscopy).
 
 As we are simultaneously fitting both the historical star formation rates (SFRs) and the metallicity at which those stars are forming over time, it is possible to design a framework in which the metallicity evolves in a self-consistent way with the star formation activity. As the AMR describes the mean metallicity of stars forming at different times, it should be most directly related to the metallicity evolution of the star-forming ISM. We therefore need to connect the star formation activity to the ISM metallicity.
@@ -11,6 +13,27 @@ A more attractive formulation can be found in the idea of an effective yield, wh
 Further, the existence of the gas-phase mass-metallicity relation (MZR) for star-forming galaxies gives us some empirical guidance for an implementation, as the AMR should be mostly connected to the gas-phase metallicity. While the MZR is mostly unconstrained for the low-mass galaxies that are typically studied in the Local Universe with resolved photometry (``M_* < 10^8 \; \text{M}_\odot``), the MZR is often extrapolated to low masses as a power law in stellar mass.
 
 While it is known that higher-mass galaxies do not strictly evolve *along* the MZR, due in large part to the time variability of inflows mentioned above, the simple form of the power law extrapolation of the MZR allows for a simple experiment. If (on average) the ISM metallicity at time ``t`` is primarily driven by the total stellar mass at that time ``M_*(t)``, then a two-parameter MZR (power law slope and intercept) coupled to the SFRs in the SFH fitting process should result in better CMD models than a similar two-parameter AMR (e.g., the [linear AMR model](@ref linear_amr_section)) which has no mathematical link to the SFRs. In turn, the best-fit SFRs and population-integrated MDFs should also be more accurate if the modelled AMR is better.
+
+We provide a generic interface for describing the analytic form of the MZR so that it is easy to define new MZR models that will integrate with our fitting routines. Built-in, ready to use models are described below, and the API for defining new models is described in [the API section](@ref dispersion_API).
+
+## Built-In Models
+
+```@docs
+PowerLawMZR
+```
+
+## [Mass-Metallicity Relation API](@id mzr_API)
+
+Below we describe the API that must be followed in order to implement new types for describing a mass-metallicity relation, such that they will work with our provided fitting and sampling methods.
+
+```@docs
+StarFormationHistories.AbstractMZR
+StarFormationHistories.npar(::StarFormationHistories.AbstractMZR)
+StarFormationHistories.gradient(::StarFormationHistories.AbstractMZR, ::Real)
+StarFormationHistories.update_params(::StarFormationHistories.AbstractMZR, ::Any)
+StarFormationHistories.transforms(::StarFormationHistories.AbstractMZR)
+StarFormationHistories.free_params(::StarFormationHistories.AbstractMZR)
+```
 
 ## Derivation
 
