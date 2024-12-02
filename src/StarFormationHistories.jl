@@ -901,7 +901,7 @@ export mean, bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
 export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite,
     generate_stars_mag_composite, model_cmd
 # Exports from fitting.jl
-export fit_templates, hmc_sample
+export fit_templates, hmc_sample, GaussianDispersion, PowerLawMZR
 
 
 end # module
