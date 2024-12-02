@@ -3,12 +3,12 @@
 function calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispersionModel{U},
                           mstars::AbstractVector{<:Number}, 
                           logAge::AbstractVector{<:Number},
-                          metallicities::AbstractVector{<:Number}, T_max::Number) where {T, U}
+                          metallicities::AbstractVector{<:Number}) where {T, U}
     unique_logAge = unique(logAge)
     @assert(length(mstars) == length(unique_logAge),
             "Length of `mstars` must be the same as `unique_logAge`.")
     @assert length(logAge) == length(metallicities)
-    S = promote_type(eltype(mstars), eltype(logAge), eltype(metallicities), typeof(T_max), T, U)
+    S = promote_type(eltype(mstars), eltype(logAge), eltype(metallicities), T, U)
 
     # To calculate cumulative stellar mass, we need unique_logAge sorted in reverse order
     s_idxs = sortperm(unique_logAge; rev=true)
@@ -41,15 +41,14 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                  data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                  composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
                  logAge::AbstractVector{<:Number},
-                 metallicities::AbstractVector{<:Number},
-                 T_max::Number) where {T, U}
+                 metallicities::AbstractVector{<:Number}) where {T, U}
     # `variables` should have length `length(unique(logAge)) + 3`; coeffs for each unique
     # entry in logAge, plus α and β to define the MZR and σ to define Gaussian width
     # Removing gaussian width for now so just length `length(unique(logAge)) + 2`
     @assert axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
-                     typeof(T_max), T, U)
+                     T, U)
     # Number of fittable parameters in MZR model;
     # in G, these come after the stellar mass coefficients R_j
     mzrpar = npar(mzr0)
@@ -68,7 +67,7 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     # Calculate all coefficients r_{j,k} for each template
     coeffs = calculate_coeffs(mzr_model, disp_model,
                               @view(variables[begin:end-(mzrpar+disppar)]),
-                              logAge, metallicities, T_max)
+                              logAge, metallicities)
 
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
@@ -100,7 +99,7 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         μvec = mzr_model.(cum_mstar) # Find the mean metallicity of each time bin
         # Calculate full gradient of MZR model with respect to parameters and
         # cumulative stellar masses
-        gradμ = SFH.tups_to_mat(values.(gradient.(mzr_model, cum_mstar)))
+        gradμ = tups_to_mat(values.(gradient.(mzr_model, cum_mstar)))
         # \frac{\partial μ_j}{\partial M_*}; This should always be the last row in gradμ
         dμ_dRj_vec = gradμ[end,:]
         
@@ -109,7 +108,7 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         tmp_coeffs_vec = disp_model.(metallicities, μvec[jidx])
         # Full gradient of the dispersion model with respect to parameters
         # and mean metallicity μ_j
-        grad_disp = SFH.tups_to_mat(values.(gradient.(disp_model, metallicities, μvec[jidx])))
+        grad_disp = tups_to_mat(values.(gradient.(disp_model, metallicities, μvec[jidx])))
         # # \frac{\partial A_{j,k}}{\partial \mu_j}
         dAjk_dμj = grad_disp[end,:]
         # Calculate sum_k A_{j,k} for all j
