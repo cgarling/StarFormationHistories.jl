@@ -532,6 +532,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
             @safetestset "Linear AMR" include("fitting/linear_amr_test.jl")
             @safetestset "Logarithmic AMR" include("fitting/log_amr_test.jl")
+            @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
             @testset "Fixed AMR" begin
                 let unique_logAge=8.0:0.1:10.0, unique_MH=-2.5:0.1:0.0
                     # let logAge=repeat(8.0:0.1:10.0;inner=26), metallicities=repeat(-2.5:0.1:0.0;outer=21)
