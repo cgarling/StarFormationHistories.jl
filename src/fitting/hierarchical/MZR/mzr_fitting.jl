@@ -82,13 +82,11 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         fullG = Vector{eltype(G)}(undef, length(coeffs))
         ∇loglikelihood!(fullG, composite, models, data)
 
-        # Require that the logAge values be sorted from largest lookback time (earliest)
-        # to smallest lookback time (most recent).
-        # Required for computing cumulative stellar mass later.
         unique_logAge = unique(logAge)
-        @assert issorted(unique_logAge; rev=true)
         # Cumulative stellar mass, from earliest time to most recent
-        cum_mstar = cumsum(@view(variables[begin:end-(mzrpar+disppar)]))
+        # cum_mstar = cumsum(@view(variables[begin:end-(mzrpar+disppar)]))
+        s_idxs = sortperm(unique_logAge; rev=true)
+        cum_mstar = cumsum(variables[s_idxs])[invperm(s_idxs)]
     
         # Find indices into unique_logAge for each entry in logAge
         jidx = [findfirst(==(logAge[i]), unique_logAge) for i in eachindex(logAge)]
@@ -123,15 +121,17 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
             (dAjk_dRj .- (tmp_coeffs_vec .* ksum_dAjk_dRj[jidx] ./ A_vec[jidx]) ) )
         # \sum_k of above
         ksum_drjk_dRj = [sum(drjk_dRj[ii] for ii in idxs) for idxs in jidx_inv]
-        # Calculate cumulative sum for sum_{j=0}^{j=j^\prime}
-        cum_drjk_dRj = reverse!(cumsum(reverse!(ksum_drjk_dRj)))
+        # Calculate cumulative sum for sum_{j=0}^{j=j^\prime}, remembering to permute
+        # by s_idxs to get the indices in order from earliest time to latest time
+        cum_drjk_dRj = reverse!(cumsum(reverse!(ksum_drjk_dRj[s_idxs])))
 
         # Zero-out gradient vector in preparation to accumulate sums
         G .= zero(eltype(G))
-        
-        # Add in the j^\prime \neq j terms
+
+        # Add in the j^\prime \neq j terms, remembering to permute G
+        # by s_idxs to put the cum_drjk_dRj back in their original order
         for i in eachindex(cum_drjk_dRj)[begin+1:end]
-            G[i-1] -= cum_drjk_dRj[i]
+            G[s_idxs[i-1]] -= cum_drjk_dRj[i]
         end
 
         # Loop over j
@@ -141,7 +141,8 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
             # Add the j^\prime == j term
             G[i] -= sum(fullG[idx] * (coeffs[idx] / variables[i] +
                 (dAjk_dRj[idx] - (ksum_dAjk_dRj[i] * tmp_coeffs_vec[idx] / A)) *
-                variables[i] / A) for idx in jidx_inv[i])
+                variables[i] / A) for idx in idxs)
+            
             # Add MZR terms
             ksum_dAjk_dμj = sum(dAjk_dμj[j] for j in idxs)
             psum = -sum( fullG[j] * variables[i] / A *
@@ -167,3 +168,103 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         return -logL
     end
 end
+
+# Define struct to hold optimization-time constants
+# needed to calculate the logL and gradient with fg_mzr!,
+# used for sampling with DynamicHMC and it may also be easier
+# to reuse for BFGS optimization with Optim.jl rather
+# than rewriting the closure
+
+struct MZROptimizer{A,B,C,D,E,F,G,H}
+    mzr0::A
+    disp0::B
+    models::C
+    data::D
+    composite::E
+    logAge::F
+    metallicities::G
+    G::H
+    jacobian_corrections::Bool # Whether or not to apply Jacobian corrections for variable transformations
+end
+
+# This model will return loglikelihood and gradient
+LogDensityProblems.capabilities(::Type{<:MZROptimizer}) = LogDensityProblems.LogDensityOrder{1}()
+LogDensityProblems.dimension(problem::MZROptimizer) = length(problem.G)
+
+function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
+    # Unpack struct
+    mzr0 = problem.mzr0
+    disp0 = problem.disp0
+    models = problem.models
+    data = problem.data
+    composite = problem.composite
+    logAge = problem.logAge
+    metallicities = problem.metallicities
+    G = problem.G
+    jacobian_corrections = problem.jacobian_corrections
+    
+    @assert axes(G) == axes(xvec)
+    mzrpar = npar(mzr0)
+    disppar = npar(disp0)
+    # Calculate number of age bins from length of xvec and number of MZR, disp parameters
+    Nbins = lastindex(xvec) - mzrpar - disppar
+    # Transform the provided x
+    # All stellar mass coefficients are transformed as they must be > 0,
+    # but MZR and dispersion model coefficients may or may not be similarly constrained.
+    # Use the transforms() function to determine which parameters should be transformed.
+    x = similar(xvec)
+    # These are the stellar mass coefficients
+    for i in eachindex(xvec)[begin:Nbins] 
+        x[i] = exp(xvec[i])
+    end
+    mzr_transforms = transforms(mzr0)
+    disp_transforms = transforms(disp0)
+    # Get indices into xvec for MZR and dispersion model parameters that are constrained to be positive
+    positive_transforms = findall(((mzr_transforms .== 1)..., (disp_transforms .== 1)...))
+    positive_transforms .+= Nbins
+    # Get indices into xvec for MZR and dispersion model parameters that are constrained to be negative
+    negative_transforms = findall(((mzr_transforms .== -1)..., (disp_transforms .== -1)...))
+    negative_transforms .+= Nbins
+    # Get indices into xvec for MZR and dispersion model parameters that are not constrained
+    no_transforms = findall(((mzr_transforms .== 0)..., (disp_transforms .== 0)...))
+    no_transforms .+= Nbins
+    # Apply transformations
+    for i in positive_transforms; x[i] = exp(xvec[i]); end
+    for i in negative_transforms; x[i] = -exp(xvec[i]); end
+    for i in no_transforms; x[i] = xvec[i]; end
+
+    # fg_mzr! returns -logL and fills G with -∇logL so we need to negate the signs.
+    logL = -fg_mzr!(true, G, mzr0, disp0, x, models, data, composite, logAge, metallicities)
+    ∇logL = -G
+    # Add Jacobian corrections for transformed variables if jacobian_corrections == true
+    if jacobian_corrections
+        # For positive-constrained parameters, including stellar mass coefficients
+        for i in vcat(eachindex(G)[begin:Nbins], positive_transforms)
+            logL += xvec[i]
+            ∇logL[i] = ∇logL[i] * x[i] + 1
+        end
+        for i in negative_transforms
+            @warn "Negative transformations for MZR models have not yet been validated."
+            logL -= xvec[i]
+            ∇logL[i] = -∇logL[i] * x[i] - 1
+        end
+    end
+
+    return logL, ∇logL
+    
+end
+
+# Optim.jl BFGS fitting routine
+function fit_SFH(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
+                 models::AbstractMatrix{S},
+                 data::AbstractVector{<:Number},
+                 logAge::AbstractVector{<:Number},
+                 metallicities::AbstractVector{<:Number};
+                 x0 = construct_x0_mdf(logAge, convert(S, 13.7)),
+                 kws...) where {T, U, S <: Number}
+
+
+
+end
+# For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
+fit_SFH(mzr0::AbstractMZR, disp0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_SFH(mzr0, disp0, stack_models(models), vec(data), logAge, metallicities; kws...)

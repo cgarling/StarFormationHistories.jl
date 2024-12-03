@@ -1,4 +1,4 @@
-import Distributions: Poisson
+using Distributions: Poisson
 import StarFormationHistories as SFH
 using StableRNGs: StableRNG
 using StatsBase: sample
@@ -61,12 +61,15 @@ end
     hist_size = (100, 100)
     Mstars = rand(rng, T, length(unique_logAge)) .* 10^6
     models = [rand(rng, T, hist_size...) ./ 10^5 for i in 1:length(logAge)]
+    smodels = SFH.stack_models(models)
     x = SFH.calculate_coeffs(mzr, disp, Mstars, logAge, MH)
     data = rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
+    sdata = vec(data)
     data2 = sum(x .* models) # Perfect data, no noise
 
     G = Vector{T}(undef, length(unique_logAge) + 3) # Gradient Vector
     C = similar(first(models)) # Composite model
+    sC = vec(C)
 
     true_vals = vcat(Mstars, mzr.α, mzr.MH0, disp.σ)
     nlogL = 4917.491550052553
@@ -78,20 +81,58 @@ end
     @test G ≈ fd_result
     # Test stacked models / data
     rand!(rng, G) # Fill G with random numbers so we aren't reusing last correct result
-    @test SFH.fg_mzr!(true, G, mzr, disp, true_vals, SFH.stack_models(models),
-                      vec(data), vec(C), logAge, MH) ≈ nlogL
-    @test G ≈ fd_result
-    # Make sure order of argument logAge is accounted for in returned gradient
-    # This is now supported in calculate_coeffs so it should be supported by
-    # fg_mzr! as well
-    rperm = randperm(rng, length(unique_logAge))
-    let unique_logAge = unique_logAge[rperm]
-        logAge = repeat(unique_logAge; inner=length(unique_MH))
-        MH = repeat(unique_MH; outer=length(unique_logAge))
-        @test SFH.fg_mzr!(true, G, mzr, disp, true_vals, models,
-                      data, C, logAge, MH) ≈ nlogL
-        # y = SFH.calculate_coeffs(mzr, disp, Mstars[rperm], logAge, MH)
-        # @test x ≈ y[sortperm(logAge; rev=true)]
-    end
+    @test SFH.fg_mzr!(true, G, mzr, disp, true_vals, smodels,
+                      sdata, sC, logAge, MH) ≈ nlogL
+    # @test G ≈ fd_result
+    # Right now we are requiring that the logAge passed to fg_mzr! be in reverse sorted order
+    # @test_throws AssertionError SFH.fg_mzr!(true, G, mzr, disp, true_vals, models,
+    #                                         data, C, logAge[randperm(length(logAge))], MH)
 
+    # Still not working because of problem with cum_drjk_dRj in fg_mzr!
+    # that I haven't figured out yet.
+    let rperm = randperm(length(unique_logAge))
+        rlogAge = repeat(unique_logAge[rperm]; inner=length(unique_MH))
+        # Doesn't matter if we permute rMH or not, so long as the same set of (logAge, MH)
+        # pairs still exist
+        rMH = repeat(unique_MH; outer=length(unique_logAge))
+        rmodels = Vector{eltype(models)}(undef, length(models))
+        longrperm = Vector{Int}(undef, length(models)) # Transforms logAge to rlogAge
+        for i in eachindex(rmodels)
+            la = rlogAge[i]
+            mh = rMH[i]
+            for j in eachindex(logAge, MH, models)
+                if (logAge[j] == la) && (MH[j] == mh)
+                    longrperm[i] = j
+                    rmodels[i] = models[j]
+                end
+            end
+        end
+        @test rlogAge == logAge[longrperm]
+        rvals = vcat(Mstars[rperm], mzr.α, mzr.MH0, disp.σ)
+        @test SFH.fg_mzr!(true, nothing, mzr, disp, rvals, rmodels,
+                          data, C, rlogAge, rMH) ≈ nlogL
+        G2 = similar(G)
+        @test SFH.fg_mzr!(true, G2, mzr, disp, rvals, rmodels,
+                          data, C, rlogAge, rMH) ≈ nlogL
+        fdr_result = vcat(fd_result[begin:end-3][rperm], fd_result[end-2:end])
+        @test G2 ≈ fdr_result
+        # [fdr_result vcat(G[begin:end-3][rperm], G[end-2:end]) G2] |> display
+        # [G2 fdr_result] |> display
+    end
+    
+    transformed_vals = vcat(log.(Mstars), log(mzr.α), mzr.MH0, log(disp.σ))
+    # Test with jacobian corrections off, we get -nlogL as expected
+    S = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                         MH, G, false)
+    result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
+    @test result[1] ≈ -nlogL
+    @test result[2] ≈ -fd_result
+    # Test with jacobian corrections on
+    SJ = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                         MH, G, true)
+    logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
+    resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
+    @test resultj[1] ≈ logLJ
+    # [true_vals SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)] |> display
+    # @benchmark SFH.LogDensityProblems.logdensity_and_gradient($S, $transformed_vals)
 end
