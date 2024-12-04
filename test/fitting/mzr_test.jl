@@ -144,10 +144,11 @@ end
     @test resultj[1] ≈ logLJ
 
     # Run fit on perfect, noise-free data
+    x0 = Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5)
     result = SFH.fit_sfh(SFH.update_params(mzr, (mzr.α + 0.5, mzr.MH0 + 1.0)),
                          SFH.update_params(disp, (disp.σ + 0.1,)),
                          smodels, sdata2, logAge, MH,
-                         x0=Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5))
+                         x0=x0)
     @test result.mle.μ ≈ true_vals # With no error, we should converge exactly
     # MAP will always have some deviation from MLE under transformation, but it should be within
     # a few σ ...
@@ -156,14 +157,22 @@ end
     # Run fit on noisy data
     rresult = SFH.fit_sfh(SFH.update_params(mzr, (mzr.α + 0.5, mzr.MH0 + 1.0)),
                           SFH.update_params(disp, (disp.σ + 0.1,)),
-                          smodels, sdata, logAge, MH,
-                          x0=Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5))
+                          smodels, sdata, logAge, MH, x0=x0)
     # Test that MLE and MAP results are within 3σ of the true answer for all parameters
     @test all(isapprox(rresult.mle.μ[i], true_vals[i];
                        atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
     @test all(isapprox(rresult.map.μ[i], true_vals[i];
                        atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
     # [true_vals rresult.mle.μ] |> display
+
+    # Run with fixed parameters, verify that best-fit values are unchanged
+    fresult = SFH.fit_sfh(SFH.PowerLawMZR(mzr.α, mzr.MH0, mzr.logMstar0, (false, false)),
+                          SFH.GaussianDispersion(disp.σ, (false,)),
+                          smodels, sdata, logAge, MH, x0=x0)
+    @test fresult.map.μ[end-2:end] ≈ [mzr.α, mzr.MH0, disp.σ]
+    @test fresult.mle.μ[end-2:end] ≈ [mzr.α, mzr.MH0, disp.σ]
+    @test all(fresult.map.σ[end-2:end] .== 0) # Uncertainties for fixed quantities should be 0
+    # [true_vals fresult.mle.μ] |> display
     # @test result.mle.μ ≈ true_vals rtol = 1e-3# With no error, we should converge exactly
 
 end
