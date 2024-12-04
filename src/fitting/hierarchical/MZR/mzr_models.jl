@@ -3,21 +3,27 @@
 
 """ `AbstractMZR{T <: Real} <: AbstractMetallicityModel{T}`: abstract supertype for all metallicity models that are mass-metallicity relations. Concrete subtypes `T <: AbstractMZR` should implement the following API: 
  - `(model::T)(Mstar::Real)` should be defined so that the struct is callable with a stellar mass `Mstar` in solar masses, returning the mean metallicity given the MZR model. This is ``\\mu_j \\left( \\text{M}_* \\right)`` in the derivations presented in the documentation.
- - `npar(model::T)` should return the number of fittable parameters in the model.
+ - `nparams(model::T)` should return the number of fittable parameters in the model.
+ - `fittable_params(model::T)` should return the values of the fittable parameters in the model.
  - `gradient(model::T, Mstar::Real)` should return a tuple that contains the partial derivative of the mean metallicity ``\\mu_j`` with respect to each fittable model parameter, plus the partial derivative with respect to the stellar mass `Mstar` as the final element.
  - `update_params(model::T, newparams)` should return a new instance of `T` with the fittable parameters contained in `newparams` (which is typically a vector or tuple) and non-fittable parameters inherited from the provided `model`.
- - `transforms(model::T)` should return a tuple of length `npar(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
- - `free_params(model::T)` should return an `NTuple{npar(model), Bool}` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization. """
+ - `transforms(model::T)` should return a tuple of length `nparams(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
+ - `free_params(model::T)` should return an `NTuple{nparams(model), Bool}` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization. """
 abstract type AbstractMZR{T <: Real} <: AbstractMetallicityModel{T} end
 Base.Broadcast.broadcastable(m::AbstractMZR) = Ref(m)
 
 """
-    npar(model::AbstractMZR)::Int
+    nparams(model::AbstractMZR)::Int
 Returns the number of fittable parameters in the model. 
 """
-npar(model::AbstractMZR)
+nparams(model::AbstractMZR)
 """
-    gradient(model::AbstractMZR{T}, Mstar::Real)::NTuple{npar(model)+1, T}
+    fittable_params(model::AbstractMZR{T})::NTuple{nparams(model), T}
+Returns the values of the fittable parameters in the provided MZR `model`.
+"""
+fittable_params(model::AbstractMZR)
+"""
+    gradient(model::AbstractMZR{T}, Mstar::Real)::NTuple{nparams(model)+1, T}
  Returns a tuple containing the partial derivative of the mean metallicity with respect to all fittable parameters, plus the partial derivative with respect to the stellar mass `Mstar` as the final element. These partial derivatives are evaluated at stellar mass `Mstar`.
 """
 gradient(model::AbstractMZR, Mstar::Real)
@@ -27,13 +33,13 @@ Returns a new instance of the model type `T` with the fittable parameters contai
 """
 update_params(model::AbstractMZR, newparams::Any)
 """
-    transforms(model::AbstractMZR)::NTuple{npar(model), Int}
-Returns a tuple of length `npar(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
+    transforms(model::AbstractMZR)::NTuple{nparams(model), Int}
+Returns a tuple of length `nparams(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
 """
 transforms(model::AbstractMZR)
 """
-    free_params(model::AbstractMZR)::NTuple{npar(model), Bool}
-Returns an tuple of length `npar(model)` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization.
+    free_params(model::AbstractMZR)::NTuple{nparams(model), Bool}
+Returns an tuple of length `nparams(model)` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization.
  """
 free_params(model::AbstractMZR)
 
@@ -53,7 +59,7 @@ Mass-metallicity model described by a single power law index `α > 0`, a metalli
 ```
 
 # Examples
-```jldoctest; setup=:(using StarFormationHistories: npar, gradient, update_params, transforms, free_params)
+```jldoctest; setup=:(using StarFormationHistories: nparams, gradient, update_params, transforms, free_params)
 julia> PowerLawMZR(1.0, -1) isa PowerLawMZR{Float64}
 true
 
@@ -62,7 +68,7 @@ julia> import Test
 julia> Test.@test_throws(ArgumentError, PowerLawMZR(-1.0, -1)) isa Test.Pass
 true
 
-julia> npar(PowerLawMZR(1.0, -1)) == 2
+julia> nparams(PowerLawMZR(1.0, -1)) == 2
 true
 
 julia> PowerLawMZR(1.0, -1, 6)(1e7) ≈ 0
@@ -93,7 +99,8 @@ struct PowerLawMZR{T <: Real} <: AbstractMZR{T}
 end
 PowerLawMZR(α::Real, MH0::Real, logMstar0::Real=6, free::NTuple{2, Bool}=(true, true)) =
     PowerLawMZR(promote(α, MH0, logMstar0)..., free)
-npar(d::PowerLawMZR) = 2
+nparams(d::PowerLawMZR) = 2
+fittable_params(d::PowerLawMZR) = (α = d.α, β = d.MH0)
 (mzr::PowerLawMZR)(Mstar::Real) = mzr.MH0 + mzr.α * (log10(Mstar) - mzr.logMstar0)
 gradient(model::PowerLawMZR{T}, Mstar::S) where {T, S <: Real} =
     (α = log10(Mstar) - model.logMstar0,
