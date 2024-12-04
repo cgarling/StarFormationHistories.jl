@@ -66,6 +66,7 @@ end
     data = rand.(rng, Poisson.(sum(x .* models))) # Poisson sampled data
     sdata = vec(data)
     data2 = sum(x .* models) # Perfect data, no noise
+    sdata2 = vec(data2)
 
     G = Vector{T}(undef, length(unique_logAge) + 3) # Gradient Vector
     C = similar(first(models)) # Composite model
@@ -121,18 +122,48 @@ end
     end
     
     transformed_vals = vcat(log.(Mstars), log(mzr.α), mzr.MH0, log(disp.σ))
+    # Gradient of objective with respect to transformed variables
+    G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
+                         fd_result[end-2] * mzr.α, fd_result[end-1], fd_result[end] * disp.σ)
     # Test with jacobian corrections off, we get -nlogL as expected
     S = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
                          MH, G, false)
     result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
-    @test result[1] ≈ -nlogL
-    @test result[2] ≈ -fd_result
+    @test result[1] ≈ -nlogL     #  positive logL
+    # @test result[2] ≈ -fd_result #  positive ∇logL
+    @test result[2] ≈ -G_transformed #  positive ∇logL
+    # To support Optim.jl, we need G to be updated in place with -∇logL,
+    # with variable transformations applied
+    # @test G ≈ fd_result
+    @test G ≈ G_transformed
     # Test with jacobian corrections on
     SJ = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
                          MH, G, true)
     logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
     resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
     @test resultj[1] ≈ logLJ
-    # [true_vals SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)] |> display
-    # @benchmark SFH.LogDensityProblems.logdensity_and_gradient($S, $transformed_vals)
+
+    # Run fit on perfect, noise-free data
+    result = SFH.fit_sfh(SFH.update_params(mzr, (mzr.α + 0.5, mzr.MH0 + 1.0)),
+                         SFH.update_params(disp, (disp.σ + 0.1,)),
+                         smodels, sdata2, logAge, MH,
+                         x0=Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5))
+    @test result.mle.μ ≈ true_vals # With no error, we should converge exactly
+    # MAP will always have some deviation from MLE under transformation, but it should be within
+    # a few σ ...
+    @test all(isapprox(result.map.μ[i], true_vals[i]; atol=result.map.σ[i]) for i in eachindex(true_vals))
+
+    # Run fit on noisy data
+    rresult = SFH.fit_sfh(SFH.update_params(mzr, (mzr.α + 0.5, mzr.MH0 + 1.0)),
+                          SFH.update_params(disp, (disp.σ + 0.1,)),
+                          smodels, sdata, logAge, MH,
+                          x0=Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5))
+    # Test that MLE and MAP results are within 3σ of the true answer for all parameters
+    @test all(isapprox(rresult.mle.μ[i], true_vals[i];
+                       atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
+    @test all(isapprox(rresult.map.μ[i], true_vals[i];
+                       atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
+    # [true_vals rresult.mle.μ] |> display
+    # @test result.mle.μ ≈ true_vals rtol = 1e-3# With no error, we should converge exactly
+
 end
