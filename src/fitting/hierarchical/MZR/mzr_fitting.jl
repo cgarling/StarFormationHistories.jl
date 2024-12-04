@@ -51,10 +51,10 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                      T, U)
     # Number of fittable parameters in MZR model;
     # in G, these come after the stellar mass coefficients R_j
-    mzrpar = npar(mzr0)
+    mzrpar = nparams(mzr0)
     # Number of fittable parameters in metallicity dispersion model;
     # in G, these come after the MZR parameters
-    disppar = npar(disp0)
+    disppar = nparams(disp0)
 
     # Construct new instance of mzr0 with updated parameters
     mzr_model = update_params(mzr0, @view(variables[end-(mzrpar+disppar)+1:(end-disppar)]))
@@ -204,8 +204,8 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
     jacobian_corrections = problem.jacobian_corrections
     
     @assert axes(G) == axes(xvec)
-    mzrpar = npar(mzr0)
-    disppar = npar(disp0)
+    mzrpar = nparams(mzr0)
+    disppar = nparams(disp0)
     # Calculate number of age bins from length of xvec and number of MZR, disp parameters
     Nbins = lastindex(xvec) - mzrpar - disppar
     # Transform the provided x
@@ -233,38 +233,136 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
     for i in negative_transforms; x[i] = -exp(xvec[i]); end
     for i in no_transforms; x[i] = xvec[i]; end
 
-    # fg_mzr! returns -logL and fills G with -∇logL so we need to negate the signs.
-    logL = -fg_mzr!(true, G, mzr0, disp0, x, models, data, composite, logAge, metallicities)
-    ∇logL = -G
+    # # fg_mzr! returns -logL and fills G with -∇logL so we need to negate the signs.
+    # logL = -fg_mzr!(true, G, mzr0, disp0, x, models, data, composite, logAge, metallicities)
+    # ∇logL = -G
+    # # Add Jacobian corrections for transformed variables if jacobian_corrections == true
+    # if jacobian_corrections
+    #     # For positive-constrained parameters, including stellar mass coefficients
+    #     for i in vcat(eachindex(G)[begin:Nbins], positive_transforms)
+    #         logL += xvec[i]
+    #         ∇logL[i] = ∇logL[i] * x[i] + 1
+    #     end
+    #     for i in negative_transforms
+    #         @warn "Negative transformations for MZR models have not yet been validated."
+    #         logL -= xvec[i]
+    #         ∇logL[i] = -∇logL[i] * x[i] - 1
+    #     end
+    # end
+    
+    # # Optimizers and samplers honoring LogDensityProblems's API will use the returned logL and ∇logL,
+    # # but Optim.jl expects G to be updated in-place with gradient of -logL = -∇logL
+    # return logL, ∇logL
+
+    nlogL = fg_mzr!(true, G, mzr0, disp0, x, models, data, composite, logAge, metallicities)
     # Add Jacobian corrections for transformed variables if jacobian_corrections == true
+    # fg_mzr! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
     if jacobian_corrections
         # For positive-constrained parameters, including stellar mass coefficients
         for i in vcat(eachindex(G)[begin:Nbins], positive_transforms)
-            logL += xvec[i]
-            ∇logL[i] = ∇logL[i] * x[i] + 1
+            nlogL -= xvec[i]
+            G[i] = G[i] * x[i] - 1
         end
         for i in negative_transforms
             @warn "Negative transformations for MZR models have not yet been validated."
-            logL -= xvec[i]
-            ∇logL[i] = -∇logL[i] * x[i] - 1
+            nlogL += xvec[i]
+            G[i] = -G[i] * x[i] + 1
         end
+    else
+        # Still have to correct gradient for transform, even if not adding Jacobian correction to logL
+        for i in vcat(eachindex(G)[begin:Nbins], positive_transforms)
+            G[i] = G[i] * x[i]
+        end
+        for i in negative_transforms
+            @warn "Negative transformations for MZR models have not yet been validated."
+            G[i] = -G[i] * x[i]
+        end        
     end
 
-    return logL, ∇logL
+    # Optimizers and samplers honoring LogDensityProblems's API will expect positive logL and ∇logL,
+    # not -logL and -∇logL as we have (nlogL and G), so return the negatives of these values.
+    return -nlogL, -G
     
 end
 
 # Optim.jl BFGS fitting routine
-function fit_SFH(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
+function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                  models::AbstractMatrix{S},
                  data::AbstractVector{<:Number},
                  logAge::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number};
-                 x0 = construct_x0_mdf(logAge, convert(S, 13.7)),
+                 x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
                  kws...) where {T, U, S <: Number}
 
+    unique_logAge = unique(logAge)
+    Nbins = length(x0) # Number of unique logAge bins
+    @assert length(x0) == length(unique_logAge)
+    @assert size(models,1) == length(data)
+    @assert size(models,2) == length(logAge) == length(metallicities)
+    composite = Vector{S}(undef, length(data)) # Scratch matrix for storing complex Hess model
+    # G = Vector{S}(undef, length(x0) + nparams(mzr0) + nparams(disp0)) # Scratch matrix for storing gradient
+    # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
+    x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
+    for i in eachindex(x0); x0[i] = log(x0[i]); end
+    # Perform logarithmic transformation on MZR and dispersion parameters
+    par = (values(fittable_params(mzr0))..., values(fittable_params(disp0))...)
+    tf = (transforms(mzr0)..., transforms(disp0)...)
+    # Apply logarithmic transformations
+    x0_mzrdisp = logtransform(par, tf)
+    # Concatenate transformed stellar mass coefficients and MZR / disp parameters
+    x0 = vcat(x0, x0_mzrdisp)
 
+    # Set up options for the optimization
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # makes it less sensitive to initial x0.
+    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0, true),
+                             linesearch=LineSearches.HagerZhang())
+    # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
+    # covariance matrix, which we can use to make parameter uncertainty estimates
+    bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
+    # Calculate result
+    function fg_map!(F, G, X)
+        # Creating structs doesn't copy data so this should be free
+        tmpstruct = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities, G, true)
+        return -LogDensityProblems.logdensity_and_gradient(tmpstruct, X)[1]
+    end
+    function fg_mle!(F, G, X)
+        # Creating structs doesn't copy data so this should be free
+        tmpstruct = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities, G, false)
+        return -LogDensityProblems.logdensity_and_gradient(tmpstruct, X)[1]
+    end
+    result_map = Optim.optimize(Optim.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(Optim.only_fg!(fg_mle!), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
 
+    # Extract best-fit and estimate 1-σ uncertainty from inverse Hessian approximation
+    μ_map = deepcopy(Optim.minimizer(result_map))
+    μ_mle = deepcopy(Optim.minimizer(result_mle))
+    σ_map = sqrt.(diag(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    σ_mle = sqrt.(diag(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
+    for i in eachindex(μ_map, μ_mle, σ_map, σ_mle)[begin:Nbins]
+        μ_map[i] = exp(μ_map[i])
+        μ_mle[i] = exp(μ_mle[i])
+        σ_map[i] = μ_map[i] * σ_map[i] # Account for transformation
+        σ_mle[i] = μ_mle[i] * σ_mle[i] # Account for transformation
+    end
+    μ_map[Nbins+1:end] .= exptransform(μ_map[Nbins+1:end], SVector(tf))
+    μ_mle[Nbins+1:end] .= exptransform(μ_mle[Nbins+1:end], SVector(tf))
+    for (i, t) in enumerate(tf)
+        idx = Nbins + i
+        if t == 1 # μ is always positive
+            σ_map[idx] = μ_map[idx] * σ_map[idx]
+            σ_mle[idx] = μ_mle[idx] * σ_mle[idx]
+        elseif t == 0 # μ can be positive or negative
+            continue
+        elseif t == -1 # μ is always negative
+            σ_map[idx] = -μ_map[idx] * σ_map[idx]
+            σ_mle[idx] = -μ_mle[idx] * σ_mle[idx]
+        end
+    end
+    
+    return (map = (μ = μ_map, σ = σ_map, result = result_map),
+            mle = (μ = μ_mle, σ = σ_mle, result = result_mle))
+    
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
 fit_SFH(mzr0::AbstractMZR, disp0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_SFH(mzr0, disp0, stack_models(models), vec(data), logAge, metallicities; kws...)
