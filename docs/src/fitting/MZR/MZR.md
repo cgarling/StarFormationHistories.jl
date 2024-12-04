@@ -28,7 +28,8 @@ Below we describe the API that must be followed in order to implement new types 
 
 ```@docs
 StarFormationHistories.AbstractMZR
-StarFormationHistories.npar(::StarFormationHistories.AbstractMZR)
+StarFormationHistories.nparams(::StarFormationHistories.AbstractMZR)
+StarFormationHistories.fittable_params(::StarFormationHistories.AbstractMZR)
 StarFormationHistories.gradient(::StarFormationHistories.AbstractMZR, ::Real)
 StarFormationHistories.update_params(::StarFormationHistories.AbstractMZR, ::Any)
 StarFormationHistories.transforms(::StarFormationHistories.AbstractMZR)

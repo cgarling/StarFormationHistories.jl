@@ -28,7 +28,8 @@ Below we describe the API that must be followed in order to implement new types 
 
 ```@docs
 StarFormationHistories.AbstractDispersionModel
-StarFormationHistories.npar(::StarFormationHistories.AbstractDispersionModel)
+StarFormationHistories.nparams(::StarFormationHistories.AbstractDispersionModel)
+StarFormationHistories.fittable_params(::StarFormationHistories.AbstractDispersionModel)
 StarFormationHistories.gradient(::StarFormationHistories.AbstractDispersionModel, ::Real, ::Real)
 StarFormationHistories.update_params(::StarFormationHistories.AbstractDispersionModel, ::Any)
 StarFormationHistories.transforms(::StarFormationHistories.AbstractDispersionModel)
