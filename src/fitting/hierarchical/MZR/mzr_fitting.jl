@@ -260,6 +260,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
     
 end
 
+
 # Optim.jl BFGS fitting routine
 function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                  models::AbstractMatrix{S},
@@ -310,11 +311,16 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     result_map = Optim.optimize(Optim.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
     result_mle = Optim.optimize(Optim.only_fg!(fg_mle!), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
 
-    # Extract best-fit and estimate 1-σ uncertainty from inverse Hessian approximation
+    # Extract best-fit
     μ_map = deepcopy(Optim.minimizer(result_map))
     μ_mle = deepcopy(Optim.minimizer(result_mle))
-    invH_map = Optim.trace(result_map)[end].metadata["~inv(H)"]
-    invH_mle = Optim.trace(result_mle)[end].metadata["~inv(H)"]
+    # Random sampling from the inverse Hessian approximation to the Gaussian covariance
+    # matrix will use Distributions.MvNormal, which requires a
+    # PDMat input, which includes the Cholesky decomposition of the matrix.
+    # For sampling efficiency, we will construct this object here.
+    invH_map = PDMat(hermitianpart(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    invH_mle = PDMat(hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
+    # diagonal of invH gives vector of parameter variances -- standard error is sqrt
     σ_map = sqrt.(diag(invH_map))
     σ_mle = sqrt.(diag(invH_mle))
     # Correct for variable transformation for stellar mass coefficients
@@ -345,12 +351,19 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         end
     end
     
-    return (map = (μ = μ_map, σ = σ_map, invH = invH_map, result = result_map,
-                   mzr = update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
-                   disp = update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
-            mle = (μ = μ_mle, σ = σ_mle, invH = invH_mle, result = result_mle,
-                   mzr = update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
-                   disp = update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
+    # return (map = (μ = μ_map, σ = σ_map, invH = invH_map, result = result_map,
+    #                mzr = update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
+    #                disp = update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
+    #         mle = (μ = μ_mle, σ = σ_mle, invH = invH_mle, result = result_mle,
+    #                mzr = update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
+    #                disp = update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
+
+    return (map = BFGSResult(μ_map, σ_map, invH_map, result_map,
+                             update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
+                             update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
+            mle = BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
+                             update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
+                             update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
     
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
