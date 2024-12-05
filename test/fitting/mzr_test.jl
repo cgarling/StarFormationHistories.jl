@@ -150,6 +150,7 @@ end
                          smodels, sdata2, logAge, MH,
                          x0=x0)
     @test result.mle.μ ≈ true_vals # With no error, we should converge exactly
+    # @test result.mle.invH == I(length(true_vals)) # Covariance matrix is identity, not sure why ...
     # MAP will always have some deviation from MLE under transformation, but it should be within
     # a few σ ...
     @test all(isapprox(result.map.μ[i], true_vals[i]; atol=result.map.σ[i]) for i in eachindex(true_vals))
