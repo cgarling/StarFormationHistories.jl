@@ -1,7 +1,7 @@
 module StarFormationHistories
 
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    quantile, Multivariate, MvNormal, sampler, Uniform # cdf
+    quantile, Multivariate, MvNormal, sampler, Uniform, PDMat # cdf
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
@@ -9,7 +9,7 @@ using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
 # Need mul! for composite!, ∇loglikelihood!;
-using LinearAlgebra: diag, Hermitian, mul!
+using LinearAlgebra: diag, Hermitian, hermitianpart, mul!
 import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
 import LoopVectorization: can_turbo # Extending for our functions
@@ -23,8 +23,8 @@ using SpecialFunctions: erf
 # LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)
 using VectorizationBase: AbstractSIMD, verf # SIMD-capable erf for Float32 and Float64
 using StaticArrays: SVector, SMatrix, sacollect
-using StatsBase: fit, Histogram, Weights, sample, median
-import StatsBase: mean # Extending
+using StatsBase: fit, Histogram, Weights, sample
+import StatsBase: mean, median, mode, std # Extending
 import KissMCMC
 import MCMCChains
 

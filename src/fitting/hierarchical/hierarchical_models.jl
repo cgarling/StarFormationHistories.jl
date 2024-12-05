@@ -56,7 +56,9 @@ exptransform(params, transformations) =
       for i in eachindex(params, transformations) ]
 
 
+
 include("dispersion_models.jl")
+include("bfgs_result.jl")
 include("fixed_amr.jl")
 include("linear_amr/linear_amr.jl")
 include("log_amr/log_amr.jl")
