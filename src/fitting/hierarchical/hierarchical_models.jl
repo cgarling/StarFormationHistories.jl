@@ -38,7 +38,7 @@ Applies exponential transform to parameters `params`, effectively inverting `log
 
 # Examples
 ```jldoctest; setup=:(using StarFormationHistories: exptransform)
-julia> logtransform((log(0.5), -1.0, 0.0), (1, 0, 1)) ≈ [0.5, -1.0, 1.0]
+julia> exptransform((log(0.5), -1.0, 0.0), (1, 0, 1)) ≈ [0.5, -1.0, 1.0]
 true
 ```
 """
