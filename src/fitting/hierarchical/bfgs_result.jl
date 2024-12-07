@@ -40,7 +40,8 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     
     Base.require_one_based_indexing(x) 
     Zmodel, dispmodel = result.Zmodel, result.dispmodel
-    Nbins = length(result.μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
+    μ = result.μ
+    Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(result.result), result.invH)
     _rand!(rng, dist, x)
     # Perform variable transformations, first for SFR parameters
@@ -51,19 +52,27 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     end
     # Now perform variable transformations for metallicity and dispersion models
     tf = (transforms(Zmodel)..., transforms(dispmodel)...)
+    free = (free_params(Zmodel)..., free_params(dispmodel)...)
     for i in axes(x,1)[Nbins+1:end]
-        # idx = 
-        t = tf[i - Nbins]
-        if t == 1
-            for j in axes(x,2)
-                x[i,j] = exp(x[i,j])
+        tfi = tf[i - Nbins]
+        freei = free[i - Nbins] # true if variable is free, false if fixed
+        if freei # Variable is free, -- transform samples if necessary
+            if tfi == 1
+                for j in axes(x,2)
+                    x[i,j] = exp(x[i,j])
+                end
+            elseif tfi == -1
+                for j in axes(x,2)
+                    x[i,j] = -exp(x[i,j])
+                end
+                # elseif tfi == 0
+                #     continue
             end
-        elseif t == -1
+        else # Variable is fixed -- overwrite samples with μi
+            μi = μ[i]
             for j in axes(x,2)
-                x[i,j] = -exp(x[i,j])
+                x[i,j] = μ[i]
             end
-        # elseif t == 0
-        #     continue
         end
     end
     return x
