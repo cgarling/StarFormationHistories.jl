@@ -180,6 +180,10 @@ end
             @test size(randmat) == (length(true_vals), 100_000)
             @test median.(eachrow(randmat)) ≈ median(fresult.mle) rtol=1e-3
             # @test std.(eachrow(randmat)) ≈ std(fresult.mle) rtol=1e-3
+            # For fixed parameters, all samples should have same fixed value
+            for idx in length(Mstars)+1:length(true_vals)
+                @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
+            end
         end
     end
 end
