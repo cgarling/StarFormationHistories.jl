@@ -29,6 +29,7 @@ logtransform(params, transformations) =
          end
       end
       for i in eachindex(params, transformations) ]
+
 """
     exptransform(params, transformations)
 Applies exponential transform to parameters `params`, effectively inverting `logtransform`. Applied transformations are as follows:
@@ -55,7 +56,47 @@ exptransform(params, transformations) =
       end
       for i in eachindex(params, transformations) ]
 
-
+function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
+                               μ::AbstractVector{<:Number}, 
+                               transformations,
+                               free)
+    
+    Base.require_one_based_indexing(samples)
+    # length of transformations and free are equal to the number of
+    # metallicity model parameters plus dispersion model parameters
+    @assert length(transformations) == length(free)
+    # size(samples) = (nvariables, nsamples)
+    Nsamples = size(samples, 2)
+    Nbins = size(samples, 1) - length(free) # Number of stellar mass coefficients / SFRs
+    # Perform variable transformations, first for SFR parameters
+    for i in axes(samples,1)[begin:Nbins]
+        for j in axes(samples,2)
+            samples[i,j] = exp(samples[i,j])
+        end
+    end
+    for i in axes(samples,1)[Nbins+1:end]
+        tfi = transformations[i - Nbins]
+        freei = free[i - Nbins] # true if variable is free, false if fixed
+        if freei # Variable is free, -- transform samples if necessary
+            if tfi == 1
+                for j in axes(samples,2)
+                    samples[i,j] = exp(samples[i,j])
+                end
+            elseif tfi == -1
+                for j in axes(samples,2)
+                    samples[i,j] = -exp(samples[i,j])
+                end
+                # elseif tfi == 0
+                #     continue
+            end
+        else # Variable is fixed -- overwrite samples with μi
+            μi = μ[i]
+            for j in axes(samples,2)
+                samples[i,j] = μ[i]
+            end
+        end
+    end
+end
 
 include("dispersion_models.jl")
 include("bfgs_result.jl")
