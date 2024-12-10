@@ -358,13 +358,117 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     #                mzr = update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
     #                disp = update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
 
-    return (map = BFGSResult(μ_map, σ_map, invH_map, result_map,
-                             update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
-                             update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
-            mle = BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
-                             update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
-                             update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
+    # return (map = BFGSResult(μ_map, σ_map, invH_map, result_map,
+    #                          update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
+    #                          update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
+    #         mle = BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
+    #                          update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
+    #                          update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
+    return CompositeBFGSResult( BFGSResult(μ_map, σ_map, invH_map, result_map,
+                                           update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
+                                           update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
+                                BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
+                                           update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
+                                           update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))) )
+                                
     
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
 fit_sfh(mzr0::AbstractMZR, disp0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(mzr0, disp0, stack_models(models), vec(data), logAge, metallicities; kws...)
+
+
+# # HMC sampling routine; uses stacked data layout
+# function sample_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
+#                     models::AbstractMatrix{S},
+#                     data::AbstractVector{<:Number},
+#                     logAge::AbstractVector{<:Number},
+#                     metallicities::AbstractVector{<:Number},
+#                     Nsteps::Integer;
+#                     x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
+#                     invH::AbstractMatrix{<:Number} = I(length(x0) + nparams(mzr0) + nparams(disp0)),
+#                     ϵ::Real = 0.05,
+#                     composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)),
+#                     rng::AbstractRNG=default_rng(),
+#                     kws...) where {T, U, S <: Number}
+
+#     # instance = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities,
+#     #                         Vector{S}(undef, length(unique(logAge)) + 3), true)
+#     # return DynamicHMC.mcmc_with_warmup(rng, instance, Nsteps; kws...)
+
+#     x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
+#     for i in eachindex(x0); x0[i] = log(x0[i]); end
+#     # Perform logarithmic transformation on MZR and dispersion parameters
+#     par = (values(fittable_params(mzr0))..., values(fittable_params(disp0))...)
+#     tf = (transforms(mzr0)..., transforms(disp0)...)
+#     # Apply logarithmic transformations
+#     x0_mzrdisp = logtransform(par, tf)
+#     # Concatenate transformed stellar mass coefficients and MZR / disp parameters
+#     x0 = vcat(x0, x0_mzrdisp)
+#     # return x0
+
+#     instance = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities,
+#                             Vector{S}(undef, length(unique(logAge)) + 3), true)
+#     # return DynamicHMC.mcmc_keep_warmup(rng, instance, Nsteps;
+#     #                                    initialization = (q = x0, κ = DynamicHMC.GaussianKineticEnergy(invH)),
+#     #                                    kws...)
+#     warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
+#                                                       q=x0, κ = DynamicHMC.GaussianKineticEnergy(Diagonal(invH)), ϵ = ϵ)
+#     # return warmup_state
+#     sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(), DynamicHMC.NoProgressReport())
+#     return DynamicHMC.mcmc(sampling_logdensity, Nsteps, warmup_state)
+# end
+
+# Use BFGS result to get initial position, Gaussian kinetic energy matrix
+# function sample_sfh(bfgs_result::NamedTuple{(:map, :mle), NTuple{2, T}},
+function sample_sfh(bfgs_result::CompositeBFGSResult,
+                    models::AbstractMatrix{S},
+                    data::AbstractVector{<:Number},
+                    logAge::AbstractVector{<:Number},
+                    metallicities::AbstractVector{<:Number},
+                    Nsteps::Integer;
+                    ϵ::Real = 0.05, # HMC step size
+                    reporter = DynamicHMC.ProgressMeterReport(),
+                    show_convergence::Bool=true,
+                    composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)),
+                    rng::AbstractRNG=default_rng(),
+                    kws...) where {S <: Number}
+
+    # Will use MLE for best-fit values, MAP for invH
+    MAP, MLE = bfgs_result.map, bfgs_result.mle
+    # Best-fit values from optimization in transformed fitting variables
+    x0 = Optim.minimizer(MLE.result)
+    Zmodel, dispmodel = MLE.Zmodel, MLE.dispmodel
+    
+    # Get transformation parameters
+    tf = (transforms(Zmodel)..., transforms(dispmodel)...)
+    free = (free_params(Zmodel)..., free_params(dispmodel)...)
+    if false in free
+        @warn "sample_sfh is not optimized for use cases with fixed parameters."
+    end
+
+    # Setup
+    instance = MZROptimizer(Zmodel, dispmodel, models, data, composite, logAge, metallicities,
+                            Vector{S}(undef, length(unique(logAge)) + 3), true)
+    warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
+        q = x0, # Initial position vector
+        κ = DynamicHMC.GaussianKineticEnergy(MAP.invH), # Kinetic energy
+        ϵ = ϵ) # HMC step size
+    sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(), reporter)
+    
+    # Sample
+    result = DynamicHMC.mcmc(sampling_logdensity, Nsteps, warmup_state)
+
+    # Test convergence
+    tree_stats = DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)
+    show_convergence && display(tree_stats)
+    if tree_stats.a_mean < 0.8
+        @warn "Acceptance ratio for samples less than 80%, recommend re-running with smaller step size ϵ."
+    end
+    if tree_stats.termination_counts.divergence > (0.1 * Nsteps)
+        @warn "More than 10% of samples diverged, recommend re-running with smaller step size ϵ."
+    end
+
+    # Transform samples
+    exptransform_samples!(result.posterior_matrix, MLE.μ, tf, free)
+    return result
+end

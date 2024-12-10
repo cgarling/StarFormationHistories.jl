@@ -1,4 +1,5 @@
 using Distributions: Poisson
+using DynamicHMC: NoProgressReport
 import StarFormationHistories as SFH
 using StableRNGs: StableRNG
 using StatsBase: sample, median
@@ -163,6 +164,14 @@ end
                            atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
         @test all(isapprox(rresult.map.μ[i], true_vals[i];
                            atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
+        @testset "sample_sfh" begin
+            Nsteps = 10
+            sample_result = @test_nowarn SFH.sample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
+                                                        ϵ=0.2, reporter = NoProgressReport(),
+                                                        show_convergence=false)
+            @test sample_result.posterior_matrix isa Matrix{T}
+            @test size(sample_result.posterior_matrix) == (length(true_vals), Nsteps)
+        end
 
         # Run with fixed parameters on noisy data, verify that best-fit values are unchanged
         fresult = SFH.fit_sfh(SFH.PowerLawMZR(mzr.α, mzr.MH0, mzr.logMstar0, (false, false)),
@@ -180,6 +189,18 @@ end
             @test size(randmat) == (length(true_vals), 100_000)
             @test median.(eachrow(randmat)) ≈ median(fresult.mle) rtol=1e-3
             # @test std.(eachrow(randmat)) ≈ std(fresult.mle) rtol=1e-3
+            # For fixed parameters, all samples should have same fixed value
+            for idx in length(Mstars)+1:length(true_vals)
+                @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
+            end
+        end
+        @testset "CompositeBFGSResult" begin
+            @test rand(fresult) isa Vector{promote_type(eltype(fresult.mle.μ), eltype(fresult.mle.invH))}
+            @test length(rand(fresult)) == length(true_vals)
+            # Test that median of random samples ≈ median(fresult.mle)
+            randmat = rand(rng, fresult, 100_000)
+            @test size(randmat) == (length(true_vals), 100_000)
+            @test median.(eachrow(randmat)) ≈ median(fresult.mle) rtol=1e-3
             # For fixed parameters, all samples should have same fixed value
             for idx in length(Mstars)+1:length(true_vals)
                 @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
