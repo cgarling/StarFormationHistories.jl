@@ -351,19 +351,6 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
         end
     end
     
-    # return (map = (μ = μ_map, σ = σ_map, invH = invH_map, result = result_map,
-    #                mzr = update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
-    #                disp = update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
-    #         mle = (μ = μ_mle, σ = σ_mle, invH = invH_mle, result = result_mle,
-    #                mzr = update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
-    #                disp = update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
-
-    # return (map = BFGSResult(μ_map, σ_map, invH_map, result_map,
-    #                          update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
-    #                          update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
-    #         mle = BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
-    #                          update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
-    #                          update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))))
     return CompositeBFGSResult( BFGSResult(μ_map, σ_map, invH_map, result_map,
                                            update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
                                            update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
