@@ -377,50 +377,10 @@ end
 fit_sfh(mzr0::AbstractMZR, disp0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(mzr0, disp0, stack_models(models), vec(data), logAge, metallicities; kws...)
 
 
-# # HMC sampling routine; uses stacked data layout
-# function sample_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
-#                     models::AbstractMatrix{S},
-#                     data::AbstractVector{<:Number},
-#                     logAge::AbstractVector{<:Number},
-#                     metallicities::AbstractVector{<:Number},
-#                     Nsteps::Integer;
-#                     x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
-#                     invH::AbstractMatrix{<:Number} = I(length(x0) + nparams(mzr0) + nparams(disp0)),
-#                     ϵ::Real = 0.05,
-#                     composite::AbstractVector{<:Number}=Vector{S}(undef,length(data)),
-#                     rng::AbstractRNG=default_rng(),
-#                     kws...) where {T, U, S <: Number}
 
-#     # instance = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities,
-#     #                         Vector{S}(undef, length(unique(logAge)) + 3), true)
-#     # return DynamicHMC.mcmc_with_warmup(rng, instance, Nsteps; kws...)
-
-#     x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
-#     for i in eachindex(x0); x0[i] = log(x0[i]); end
-#     # Perform logarithmic transformation on MZR and dispersion parameters
-#     par = (values(fittable_params(mzr0))..., values(fittable_params(disp0))...)
-#     tf = (transforms(mzr0)..., transforms(disp0)...)
-#     # Apply logarithmic transformations
-#     x0_mzrdisp = logtransform(par, tf)
-#     # Concatenate transformed stellar mass coefficients and MZR / disp parameters
-#     x0 = vcat(x0, x0_mzrdisp)
-#     # return x0
-
-#     instance = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities,
-#                             Vector{S}(undef, length(unique(logAge)) + 3), true)
-#     # return DynamicHMC.mcmc_keep_warmup(rng, instance, Nsteps;
-#     #                                    initialization = (q = x0, κ = DynamicHMC.GaussianKineticEnergy(invH)),
-#     #                                    kws...)
-#     warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
-#                                                       q=x0, κ = DynamicHMC.GaussianKineticEnergy(Diagonal(invH)), ϵ = ϵ)
-#     # return warmup_state
-#     sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(), DynamicHMC.NoProgressReport())
-#     return DynamicHMC.mcmc(sampling_logdensity, Nsteps, warmup_state)
-# end
-
+# HMC sampling routine; uses stacked data layout
 # Use BFGS result to get initial position, Gaussian kinetic energy matrix
-# function sample_sfh(bfgs_result::NamedTuple{(:map, :mle), NTuple{2, T}},
-function sample_sfh(bfgs_result::CompositeBFGSResult,
+function sample_sfh(bfgs_result::CompositeBFGSResult, # ::NamedTuple{(:map, :mle), NTuple{2, T}},
                     models::AbstractMatrix{S},
                     data::AbstractVector{<:Number},
                     logAge::AbstractVector{<:Number},
@@ -472,3 +432,5 @@ function sample_sfh(bfgs_result::CompositeBFGSResult,
     exptransform_samples!(result.posterior_matrix, MLE.μ, tf, free)
     return result
 end
+# For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
+sample_sfh(bfgs_result::CompositeBFGSResult, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, Nsteps::Integer; kws...) = sample_sfh(bfgs_result, stack_models(models), vec(data), logAge, metallicities, Nsteps; kws...)
