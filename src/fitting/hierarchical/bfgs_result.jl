@@ -17,8 +17,10 @@ Type for containing the maximum likelihood estimate (MLE) *or* maximum a posteri
 
 This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution constructed from the `invH`. You can obtain `N::Integer` samples from the distribution with `rand(R, N)` where `R` is an instance of this type. This will return a size `(length(μ)+2) x N` matrix.
 
+You can also directly obtain the per-SSP template coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) using the optimization results stored in a `BFGSResult` with [`calculate_coeffs`](@ref calculate_coeffs(::StarFormationHistory.BFGSResult, ::AbstractVector{<:Number}, ::AbstractVector{<:Number})).
+
 # See also
- - [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) is a type that contains two instances of `BFGSResult`; one for the MAP and one for the MLE.
+ - [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) is a type that contains two instances of `BFGSResult`, one for the MAP and one for the MLE.
 """
 struct BFGSResult{A <: AbstractVector{<:Number},
                   B <: AbstractVector{<:Number},
@@ -51,9 +53,35 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     exptransform_samples!(samples, μ, tf, free)
     return samples
 end
+"""
+    calculate_coeffs(result::Union{BFGSResult, CompositeBFGSResult}
+                     logAge::AbstractVector{<:Number},
+                     metallicities::AbstractVector{<:Number})
+
+Returns per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) using the optimized metallicity model, metallicity dispersion model, and stellar mass coefficients from the result of a BFGS optimization. In the case that the provided `result` is a `CompositeBFGSResult` containing both the maximum a posteriori and maximum likelihood estimate (MLE), the MLE is used to construct the coefficients.
+"""
+function calculate_coeffs(result::BFGSResult,
+                          logAge::AbstractVector{<:Number},
+                          metallicities::AbstractVector{<:Number})
+    Zmodel, dispmodel, μ = result.Zmodel, result.dispmodel, result.μ
+    # Get number of stellar mass coefficients
+    Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel)
+    return calculate_coeffs(result.Zmodel, result.dispmodel,
+                            @view(μ[begin:Nbins]), logAge,
+                            metallicities)
+end
 
 # Put MAP and MLE result together so we can use MLE for best-fit values
 # and MAP for its better conditioned inverse Hessian approximation
+"""
+    CompositeBFGSResult(map::BFGSResult, mle::BFGSResult)
+
+Type for containing the maximum a posteriori (MAP) *AND* maximum likelihood estimate (MLE) results from BFGS optimizations that use Optim.jl, which are individually accessible via the `:mle` and `:map` properties (i.e., for an instance of this type `t`, `t.mle` or `getproperty(t, :mle)` and `t.map` or `getproperty(t, :map)`).
+
+Random sampling with `rand(t, N::Integer)` will use the MLE result for the best-fit values and the inverse Hessian approximation to the covariance matrix from the MAP result, which is more robust when best-fit values that are constrained to be positive approach 0.
+
+Per-SSP coefficients can be calculated with `calculate_coeffs(result::CompositeBFGSResult, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number})`, which uses the MLE result (see [these docs](@ref StarFormationHistories.calculate_coeffs(::BFGSResult, ::AbstractVector{<:Number}, ::AbstractVector{<:Number}))).
+"""
 struct CompositeBFGSResult{A <: BFGSResult,
                            B <: BFGSResult} <: Sampleable{Multivariate, Continuous}
     map::A
@@ -80,3 +108,4 @@ function _rand!(rng::AbstractRNG,
     exptransform_samples!(samples, μ, tf, free)
     return samples
 end
+calculate_coeffs(result::CompositeBFGSResult, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) = calculate_coeffs(result.mle, logAge, metallicities)

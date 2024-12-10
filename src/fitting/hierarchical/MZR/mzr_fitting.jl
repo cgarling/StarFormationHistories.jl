@@ -1,5 +1,30 @@
 # This file contains SFH fitting and sampling methods that support the mass-metallicity relations defined in mzr_models.jl
 
+"""
+    calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispersionModel{U},
+                     mstars::AbstractVector{<:Number}, 
+                     logAge::AbstractVector{<:Number},
+                     metallicities::AbstractVector{<:Number}) where {T, U}
+
+Returns per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) using the provided MZR model `mzr_model` and metallicity dispersion model `disp_model` for the set of SSPs with logarithmic ages `logAge` and metallicities `metallicities`.
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: calculate_coeffs, PowerLawMZR, GaussianDispersion)
+julia> n_logage, n_mh = 10, 20; # Number of unique logAges, MHs
+
+julia> coeffs = calculate_coeffs(PowerLawMZR(1.0, -1.0),
+                                 GaussianDispersion(0.2),
+                                 rand(n_logage),
+                                 repeat(range(7.0, 10.0; length=n_logage); inner=n_mh),
+                                 repeat(range(-2.0, 0.0; length=n_mh); outer=n_logage));
+
+julia> coeffs isa Vector{Float64}
+true
+
+julia> length(coeffs) == n_logage * n_mh
+true
+```
+"""
 function calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispersionModel{U},
                           mstars::AbstractVector{<:Number}, 
                           logAge::AbstractVector{<:Number},
@@ -261,7 +286,6 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
 end
 
 
-# Optim.jl BFGS fitting routine
 function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                  models::AbstractMatrix{S},
                  data::AbstractVector{<:Number},
@@ -317,9 +341,20 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     # Random sampling from the inverse Hessian approximation to the Gaussian covariance
     # matrix will use Distributions.MvNormal, which requires a
     # PDMat input, which includes the Cholesky decomposition of the matrix.
-    # For sampling efficiency, we will construct this object here.
+    # For sampling efficiency, we will construct this object for the MAP result here.
+    # For the MLE, cases can arise where many best-fit stellar mass coefficients are 0,
+    # making invH poorly conditioned so that it is not useful for sampling. We will try to
+    # construct the PDMat, but if we fail, we will simply save the raw matrix. This will
+    # likely result in any calls like rand(result.mle) failing as result.mle.invH will not
+    # be positive definite, but you should not really sample from the MLE anyway, and none
+    # of our exposed methods use result.mle.invH, so this is acceptable.
     invH_map = PDMat(hermitianpart(Optim.trace(result_map)[end].metadata["~inv(H)"]))
-    invH_mle = PDMat(hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"]))
+    invH_mle = hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"])
+    try
+        invH_mle = PDMat(invH_mle)
+    catch
+        @debug "Inverse Hessian matrix of MLE estimate is not positive definite" invH_mle
+    end
     # diagonal of invH gives vector of parameter variances -- standard error is sqrt
     σ_map = sqrt.(diag(invH_map))
     σ_mle = sqrt.(diag(invH_mle))

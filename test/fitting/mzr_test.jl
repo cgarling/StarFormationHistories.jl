@@ -181,7 +181,7 @@ end
         @test fresult.mle.μ[end-2:end] ≈ [mzr.α, mzr.MH0, disp.σ]
         @test all(fresult.map.σ[end-2:end] .== 0) # Uncertainties for fixed quantities should be 0
 
-        @testset "BFGSResult" begin # Test random sampling, median
+        @testset "BFGSResult" begin
             @test rand(fresult.mle) isa Vector{promote_type(eltype(fresult.mle.μ), eltype(fresult.mle.invH))}
             @test length(rand(fresult.mle)) == length(true_vals)
             # Test that median of random samples ≈ median(fresult.mle)
@@ -193,6 +193,9 @@ end
             for idx in length(Mstars)+1:length(true_vals)
                 @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
             end
+            @test SFH.calculate_coeffs(fresult.mle, logAge, MH) ==
+                SFH.calculate_coeffs(fresult.mle.Zmodel, fresult.mle.dispmodel,
+                                 @view(fresult.mle.μ[begin:length(unique_logAge)]), logAge, MH)
         end
         @testset "CompositeBFGSResult" begin
             @test rand(fresult) isa Vector{promote_type(eltype(fresult.mle.μ), eltype(fresult.mle.invH))}
@@ -205,6 +208,8 @@ end
             for idx in length(Mstars)+1:length(true_vals)
                 @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
             end
+            @test SFH.calculate_coeffs(fresult, logAge, MH) ==
+                SFH.calculate_coeffs(fresult.mle, logAge, MH)
         end
     end
 end

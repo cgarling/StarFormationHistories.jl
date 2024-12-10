@@ -42,12 +42,12 @@ makedocs(
                  ["fitting/fitting_intro.md",
                   "fitting/unconstrained.md",
                   "Constrained Metallicity Evolution" => 
-                      ["fitting/linear_amr.md",
-                       "fitting/log_amr.md",
-                       "fitting/fixed_amr.md",
+                      ["fitting/hierarchical/linear_amr.md",
+                       "fitting/hierarchical/log_amr.md",
+                       "fitting/hierarchical/fixed_amr.md",
                        "MZRs" =>
-                           ["fitting/MZR/MZR.md"],
-                       "fitting/dispersion_models.md"],
+                           ["fitting/hierarchical/MZR/MZR.md"],
+                       "fitting/hierarchical/dispersion_models.md"],
                   "Internals" => ["fitting/internals.md",
                                   "fitting/kernels.md"]],
              "examples.md",
