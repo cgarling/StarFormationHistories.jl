@@ -45,7 +45,7 @@ free_params(model::AbstractDispersionModel)
 
 """
     GaussianDispersion(σ::Real, free::NTuple{1, Bool} = (true,)) <: AbstractDispersionModel
-Dispersion model for a Gaussian (i.e., Normal) spread in metallicities with standard deviation `σ` (which must be greater than 0) at fixed age. The relative weights for this model are given by ``r_{j,k} = \\exp(-((x_k - μ_j)/σ)^2/2).`` The `σ` can be fit during optimizations if `free == (true,)` or fixed if `free == (false,)`.
+Dispersion model for a Gaussian (i.e., Normal) spread in metallicities with standard deviation `σ` (which must be greater than 0) at fixed age. The relative weights for this model are given by ``A_{j,k} = \\exp(-((x_k - μ_j)/σ)^2/2).`` The `σ` can be fit during optimizations if `free == (true,)` or fixed if `free == (false,)`.
 
 # Examples
 ```jldoctest; setup=:(using StarFormationHistories: nparams, gradient, update_params, transforms, free_params)

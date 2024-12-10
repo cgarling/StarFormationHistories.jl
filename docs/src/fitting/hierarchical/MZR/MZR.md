@@ -22,6 +22,12 @@ We provide a generic interface for describing the analytic form of the MZR so th
 PowerLawMZR
 ```
 
+The per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) can be derived from an MZR model, a [metallicity dispersion model](@ref dispersion_models), the per-unique-log(age) stellar mass coefficients (``R_j`` in the [derivation](@ref mzr_derivation)), and the set of SSP logarithmic ages `logAge = log10(age [yr])` and metallicites using [`calculate_coeffs`](@ref),
+
+```@docs
+calculate_coeffs(::StarFormationHistories.AbstractMZR, ::StarFormationHistories.AbstractDispersionModel, ::AbstractVector{<:Number}, ::AbstractVector{<:Number}, ::AbstractVector{<:Number})
+```
+
 ## [Mass-Metallicity Relation API](@id mzr_API)
 
 Below we describe the API that must be followed in order to implement new types for describing a mass-metallicity relation, such that they will work with our provided fitting and sampling methods.
@@ -36,7 +42,7 @@ StarFormationHistories.transforms(::StarFormationHistories.AbstractMZR)
 StarFormationHistories.free_params(::StarFormationHistories.AbstractMZR)
 ```
 
-## Derivation
+## [Derivation](@id mzr_derivation)
 
 We once again wish to derive the gradient of the objective function with respect to the fitting parameters to enable gradient-based optimization. Our derivation will reuse some of the notation developed in the section on the [linear AMR](@ref linear_amr_section). The main difference is that instead of expressing the mean metallicity as a function of time ``\langle [\text{M}/\text{H}] \rangle (t)``, with an MZR we express the mean metallicity as a function of stellar mass at that time ``\langle [\text{M}/\text{H}] \rangle (\text{M}_*(t))``. This means that the partial derivatives of the objective with respect to the stellar mass coefficients have a more complex form than in the AMR case, as changing the stellar mass formed 10 Gyr ago (for example) would change the total stellar mass at all more recent times, which in turn changes the mean metallicity expected at all more recent times.
 

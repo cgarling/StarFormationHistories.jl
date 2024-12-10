@@ -15,7 +15,7 @@ with ``T_\text{max}`` being the earliest lookback time under consideration, such
 
 ```@example
 ENV["GKSwstype"] = "100" # https://discourse.julialang.org/t/generation-of-documentation-fails-qt-qpa-xcb-could-not-connect-to-display/60988 # hide
-include("../../../examples/log_amr/log_amr_example.jl") # hide
+include("../../../../examples/log_amr/log_amr_example.jl") # hide
 savefig("log_amr_plot.svg"); nothing # hide
 ```
 
