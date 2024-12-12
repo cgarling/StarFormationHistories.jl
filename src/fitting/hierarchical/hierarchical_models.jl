@@ -63,7 +63,7 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
                                transformations,
                                free)
     
-    Base.require_one_based_indexing(samples)
+    Base.require_one_based_indexing(samples, μ, transformations, free)
     # length of transformations and free are equal to the number of
     # metallicity model parameters plus dispersion model parameters
     @assert length(transformations) == length(free)
@@ -71,21 +71,19 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
     Nsamples = size(samples, 2)
     Nbins = size(samples, 1) - length(free) # Number of stellar mass coefficients / SFRs
     # Perform variable transformations, first for SFR parameters
-    for i in axes(samples,1)[begin:Nbins]
-        for j in axes(samples,2)
-            samples[i,j] = exp(samples[i,j])
-        end
+    @turbo for i=1:Nbins, j=1:size(samples,2)
+        samples[i,j] = exp(samples[i,j])
     end
-    for i in axes(samples,1)[Nbins+1:end]
+    for i in Nbins+1:size(samples,1)
         tfi = transformations[i - Nbins]
         freei = free[i - Nbins] # true if variable is free, false if fixed
         if freei # Variable is free, -- transform samples if necessary
             if tfi == 1
-                for j in axes(samples,2)
+                for j in 1:size(samples,2)
                     samples[i,j] = exp(samples[i,j])
                 end
             elseif tfi == -1
-                for j in axes(samples,2)
+                for j in 1:size(samples,2)
                     samples[i,j] = -exp(samples[i,j])
                 end
                 # elseif tfi == 0
@@ -93,7 +91,7 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
             end
         else # Variable is fixed -- overwrite samples with μi
             μi = μ[i]
-            for j in axes(samples,2)
+            for j in 1:size(samples,2)
                 samples[i,j] = μ[i]
             end
         end
