@@ -1,6 +1,6 @@
 "
-    stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models))
-Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix. This data layout enables more efficient calculations in some of our internal functions like [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!).
+    stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}})
+Transforms a vector of matrices into a single matrix, with each matrix from `models` being transcribed into a single column in the output matrix. This data layout enables more efficient calculations in some of our internal functions like [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!). This function is just `reduce(hcat, map(vec, models))`.
 
 # Examples
 ```julia-repl
@@ -9,7 +9,8 @@ julia> stack_models([rand(5,5) for i in 1:10])
 ...
 ```
 "
-stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) = reduce(hcat,map(vec,models)) # mapreduce(vec, hcat, models)
+stack_models(models::AbstractVector{<:AbstractMatrix{<:Number}}) =
+    reduce(hcat, map(vec, models)) # mapreduce(vec, hcat, models)
 
 """
     x0::typeof(logage) = construct_x0(logAge::AbstractVector{T},
@@ -27,7 +28,8 @@ julia> sum(x0)
 4.99... # Close to `normalize_value`.
 ```
 """
-function construct_x0(logAge::AbstractVector{T}, T_max::Number; normalize_value::Number=one(T)) where T <: Number
+function construct_x0(logAge::AbstractVector{T}, T_max::Number;
+                      normalize_value::Number=one(T)) where T <: Number
     min_log, max_log = extrema(logAge)
     max_logAge = log10(T_max) + 9 # T_max in units of Gyr
     @assert max_logAge > max_log # max_logAge must be greater than maximum(logAge)
@@ -59,7 +61,7 @@ Calculates cumulative star formation history, star formation rates, and mean met
  - `coeffs::AbstractVector` is a vector of stellar mass coefficients such as those returned by [`fit_templates`](@ref), for example. Actual stellar mass in stellar population `j` is `coeffs[j] * normalize_value`.
  - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations corresponding to the provided `coeffs`. For the purposes of calculating star formation rates, these are assumed to be left-bin edges.
  - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations corresponding to the provided `coeffs`.
- - `T_max::Number` is the rightmost final bin edge for calculating star formation rates. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths. In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
+ - `T_max::Number` is the rightmost final bin edge for calculating star formation rates in units of Gyr. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths. In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
 
 # Keyword Arguments
  - `normalize_value` is a multiplicative prefactor to apply to all the `coeffs`; same as the keyword in [`partial_cmd_smooth`](@ref).
@@ -114,4 +116,98 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     cum_sfr_arr = cumsum(reverse(mstar_arr)) ./ mstar_total
     reverse!(cum_sfr_arr)
     return unique_logAge, cum_sfr_arr, mstar_arr ./ dt, mean_mh_arr
+end
+
+"""
+    (cum_sfh, sfr, mean_MH, samples) = 
+        cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
+                          MH::AbstractVector{<:Number}, T_max::Number,
+                          Nsamples::Integer, q; kws...)
+
+Draws `Nsamples` independent star formation histories from the solution `result` and calculates quantiles `q` across the samples in each unique time bin (i.e., `unique(logAge)`) for the cumulative star formation histories, star formation rates, and mean metallicities. Also returns the drawn samples.
+
+# Arguments
+ - `result::CompositeBFGSResult` is a BFGS result object as returned by [`fit_sfh`](@ref), for example, whose contents will be used to sample random, independent star formation histories.
+ - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations that were used to derive `result`. For the purposes of calculating star formation rates, these are assumed to be left-bin edges.
+ - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations that were used to derive `result`.
+ - `T_max::Number` is the rightmost final bin edge for calculating star formation rates in units of Gyr. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths. In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
+ - `Nsamples::Integer` is the number of random, independent star formation histories to draw from `result` to use when calculating quantiles.
+  - `q` are the quantiles you wish to have calculated. Can be one number (i.e., `0.5` for median), or most iterable types (e.g., `(0.16, 0.5, 0.84)` for median and 1-σ range).
+
+# Keyword Arguments
+ - `kws...` are passed to [`calculate_cum_sfr`](@ref StarFormationHistories.calculate_cum_sfr), see that method's documentation for more information.
+
+# Returns
+ - `cum_sfh::Matrix` has size `(length(unique(logAge)), length(q))` and contains the normalized cumulative SFH. This is ~1 at the most recent time in `logAge` and decreases as `logAge` increases.
+ - `sfr::Matrix` has size `(length(unique(logAge)), length(q))` and gives the star formation rate across each bin in `unique(logAge)`.
+ - `mean_MH::Matrix` has size `(length(unique(logAge)), length(q))` and gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique(logAge)`.
+ - `samples::Matrix` has size `(length(unique(logAge)), Nsamples)` and contains the unique samples drawn from `result` that were used to derive the quantiles.
+
+# Examples
+```julia-repl
+julia> result = fit_sfh(...)
+CompositeBFGSResult{...} ...
+
+julia> q = (0.16, 0.5, 0.84) # quantiles we want
+
+julia> result = cum_sfr_quantiles(result, logAge, MH, 13.7, 10_000, q);
+
+julia> length(result) == 4
+true
+
+julia> all(size(result[i]) == (length(unique(logAge)), length(q)) for i in 1:3)
+true
+
+julia> size(result[4], 2) == 10_000
+```
+"""
+function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
+                           MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
+                           kws...)
+    MLE, MAP = result.mle, result.map
+    Zmodel, dispmodel = MLE.Zmodel, MLE.dispmodel
+    
+    # Get number of unique time bins
+    npar_Zmodel = nparams(MLE.Zmodel)
+    npar_dispmodel = nparams(MLE.dispmodel)
+    Nbins = length(MLE.μ) - npar_Zmodel - npar_dispmodel
+
+    # Generate samples
+    samples = rand(result, Nsamples)
+    
+    # Allocate matrices to accumulate cumulative SFHs, SFRs, and <[M/H]> for
+    # all samples
+    cum_sfh_mat = Matrix{Float64}(undef, Nsamples, Nbins)
+    sfrs_mat = similar(cum_sfh_mat)
+    mean_mh_mat = similar(cum_sfh_mat)
+    Threads.@threads for i in 1:Nsamples
+        r = view(samples, :, i)
+        new_Zmodel = update_params(Zmodel, @view(r[Nbins+1:end-npar_dispmodel]))
+        new_dispmodel = update_params(dispmodel, @view(r[end-npar_dispmodel+1:end]))
+        tmp_coeffs = calculate_coeffs(new_Zmodel, new_dispmodel, @view(r[begin:Nbins]),
+                                      logAge, MH)
+        # We are doing a lot of extra work in calculate_cum_sfr
+        # that we could do once here, but it would require a bespoke implementation
+        _, mdf_1, mdf_2, mdf_3 = calculate_cum_sfr(tmp_coeffs, logAge, MH, T_max; kws...)
+        cum_sfh_mat[i,:] .= mdf_1
+        sfrs_mat[i,:] .= mdf_2
+        mean_mh_mat[i,:] .= mdf_3
+    end
+
+    # Allocate matrices to accumulate quantiles
+    cum_sfh_q = Matrix{Float64}(undef, Nbins, length(q))
+    sfrs_q = similar(cum_sfh_q)
+    mean_mh_q = similar(cum_sfh_q)
+    # Calculate quantiles on samples
+    Threads.@threads for i in 1:Nbins
+        cum_sfh_q[i,:] .= quantile(view(cum_sfh_mat, :, i), q)
+        sfrs_q[i,:] .= quantile(view(sfrs_mat, :, i), q)
+        mean_mh_q[i,:] .= quantile(view(mean_mh_mat, :, i), q)
+    end
+    # cum_sfh_quantiles = [quantile(row, q) for row in eachrow(cum_sfh)]
+    # cum_sfh_quantiles = [SVector(quantile(row, q)) for row in eachrow(cum_sfh)]
+    # cum_sfh_quantiles = tups_to_mat([quantile(row, q) for row in eachrow(cum_sfh)])
+    # return cum_sfh_quantiles
+    return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
+
 end

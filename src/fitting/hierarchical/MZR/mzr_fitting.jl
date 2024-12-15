@@ -302,8 +302,7 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     composite = Vector{S}(undef, length(data)) # Scratch matrix for storing complex Hess model
     # G = Vector{S}(undef, length(x0) + nparams(mzr0) + nparams(disp0)) # Scratch matrix for storing gradient
     # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
-    x0 = copy(x0) # We don't actually want to modify x0 externally to this program, so copy
-    for i in eachindex(x0); x0[i] = log(x0[i]); end
+    x0 = map(log, x0) # Does not modify x0 in place
     # Perform logarithmic transformation on MZR and dispersion parameters
     par = (values(fittable_params(mzr0))..., values(fittable_params(disp0))...)
     tf = (transforms(mzr0)..., transforms(disp0)...)
