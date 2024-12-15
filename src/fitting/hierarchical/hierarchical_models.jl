@@ -71,7 +71,7 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
     Nsamples = size(samples, 2)
     Nbins = size(samples, 1) - length(free) # Number of stellar mass coefficients / SFRs
     # Perform variable transformations, first for SFR parameters
-    @turbo for i=1:Nbins, j=1:size(samples,2)
+    for i=1:Nbins, j=1:size(samples,2)
         samples[i,j] = exp(samples[i,j])
     end
     for i in Nbins+1:size(samples,1)
