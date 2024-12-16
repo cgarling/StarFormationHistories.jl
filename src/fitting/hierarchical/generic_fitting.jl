@@ -143,7 +143,7 @@ The primary method signature uses flattened formats for `models` and `data`. See
 # Returns
  - This function returns a [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) that contains the output from both MLE and MAP optimizations, accessible via `result.mle` and `result.map`. These are each instances of [`BFGSResult`](@ref StarFormationHistories.BFGSResult). See the docs for these structs for more information.
 """
-function fit_sfh(Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
+function fit_sfh(Zmodel0::AbstractMetallicityModel{T}, dispmodel0::AbstractDispersionModel{U},
                  models::AbstractMatrix{S},
                  data::AbstractVector{<:Number},
                  logAge::AbstractVector{<:Number},
@@ -261,7 +261,7 @@ function fit_sfh(Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U}
     
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
-fit_sfh(Zmodel0::AbstractMZR, dispmodel0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(Zmodel0, dispmodel0, stack_models(models), vec(data), logAge, metallicities; kws...)
+fit_sfh(Zmodel0::AbstractMetallicityModel, dispmodel0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(Zmodel0, dispmodel0, stack_models(models), vec(data), logAge, metallicities; kws...)
 
 
 
