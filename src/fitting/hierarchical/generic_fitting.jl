@@ -22,6 +22,35 @@ end
 LogDensityProblems.capabilities(::Type{<:HierarchicalOptimizer}) = LogDensityProblems.LogDensityOrder{1}()
 LogDensityProblems.dimension(problem::HierarchicalOptimizer) = length(problem.G)
 
+"""
+    fg!(F, G, Zmodel0::AbstractMetallicityModel,
+        dispmodel0::AbstractDispersionModel,
+        variables::AbstractVector{<:Number},
+        models::Union{AbstractMatrix{<:Number},
+                      AbstractVector{<:AbstractMatrix{<:Number}}},
+        data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+        composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+        logAge::AbstractVector{<:Number},
+        metallicities::AbstractVector{<:Number})
+
+Main function that differs between AMR and MZR models that accounts for the difference in the gradient formulations between models. `F` and `G` mirror the [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/user/tipsandtricks/#Avoid-repeating-computations) interface for computing the objective and gradient in a single function to make use of common intermediate computations.
+
+# Arguments
+ - `F` controls whether the objective is being requested. If `!isnothing(F)`, the negative log likelihood will be returned from `fg!`.
+ - `G` controls whether the gradient of the objective with respect to the `variables` is being requested. If `!isnothing(G)`, `G` will be updated in-place with the gradient of the negative log likelihood with respect to the fitting parameters `variables`.
+ - `Zmodel0` is an instance of a concrete subtype of `AbstractMetallicityModel` (e.g., [`PowerLawMZR`](@ref)) that specifies the metallicity evolution model to use. The parameters contained in `Zmodel0` are used as initial parameters to begin the optimization in [`fit_sfh`](@ref), but are not used internally in `fg!` -- new instances are constructed from `variables` instead.
+ - `dispmodel0` is an instance of a concrete subtype of `AbstractDispersionModel` (e.g., [`GaussianDispersion`](@ref)) that specifies the PDF of the metallicities of stars forming at fixed time. The parameters contained in `dispmodel0` are used as initial parameters to begin the optimization in [`fit_sfh`](@ref), but are not used internally in `fg!` -- new instances are constructed from `variables` instead.
+ - `models` are the template Hess diagrams for the SSPs that compose the observed Hess diagram.
+ - `data` is the Hess diagram for the observed data.
+ - `composite` is the pre-allocated array in which to store the complex Hess diagram model. Must have same shape as `data`.
+ - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
+ - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. This is most commonly a logarithmic abundance like [M/H] or [Fe/H], but you could use a linear abundance like the metal mass fraction Z if you wanted to. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful.
+
+# Returns
+ - Negative log likelihood if `!isnothing(F)`.
+"""
+function fg! end
+
 function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimizer, xvec)
     # Unpack struct
     Zmodel0 = problem.Zmodel0
@@ -267,7 +296,7 @@ fit_sfh(Zmodel0::AbstractMetallicityModel, dispmodel0::AbstractDispersionModel, 
 
 # HMC sampling routine; uses stacked data layout
 # Use BFGS result to get initial position, Gaussian kinetic energy matrix
-function sample_sfh(bfgs_result::CompositeBFGSResult, # ::NamedTuple{(:map, :mle), NTuple{2, T}},
+function sample_sfh(bfgs_result::CompositeBFGSResult, 
                     models::AbstractMatrix{S},
                     data::AbstractVector{<:Number},
                     logAge::AbstractVector{<:Number},
