@@ -46,13 +46,27 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     μ = result.μ
     Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(result.result), result.invH)
-    _rand!(rng, dist, samples)
-    # Now perform variable transformations for metallicity and dispersion models
+    # Construct view into samples to get rows corresponding to free parameters
     tf = (transforms(Zmodel)..., transforms(dispmodel)...)
-    free = (free_params(Zmodel)..., free_params(dispmodel)...)
-    exptransform_samples!(samples, μ, tf, free)
+    free = SVector(free_params(Zmodel)..., free_params(dispmodel)...)
+    # Now sure why but this vcat causes _rand! to make an allocation for each sample
+    # Still somehow faster than using a LazyArrays.Vcat ...
+    row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
+    # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
+    fittable_view = view(samples, row_idxs, :)
+    _rand!(rng, dist, fittable_view)
+    # Now perform variable transformations for free metallicity and dispersion parameters
+    exptransform_samples!(fittable_view, μ, tf[free], free[free])
+    # Now write in fixed parameters
+    par = (values(fittable_params(Zmodel))..., values(fittable_params(dispmodel))...)
+    for i in 1:length(free)
+        if ~free[i] # if parameter is fixed,
+            samples[Nbins+i, :] .= par[i]
+        end
+    end
     return samples
 end
+
 """
     calculate_coeffs(result::Union{BFGSResult, CompositeBFGSResult}
                      logAge::AbstractVector{<:Number},
@@ -94,18 +108,31 @@ std(result::CompositeBFGSResult) = result.map.σ
 function _rand!(rng::AbstractRNG,
                 result::CompositeBFGSResult,
                 samples::Union{AbstractVector{S}, DenseMatrix{S}}) where {S <: Real}
-    
+
     MLE, MAP = result.mle, result.map
     Zmodel, dispmodel = MLE.Zmodel, MLE.dispmodel
     μ = MLE.μ
     Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(MLE.result), MAP.invH)
-    _rand!(rng, dist, samples)
-    
-    # Now perform variable transformations for metallicity and dispersion models
+    # Construct view into samples to get rows corresponding to free parameters
     tf = (transforms(Zmodel)..., transforms(dispmodel)...)
-    free = (free_params(Zmodel)..., free_params(dispmodel)...)
-    exptransform_samples!(samples, μ, tf, free)
+    free = SVector(free_params(Zmodel)..., free_params(dispmodel)...)
+    # Now sure why but this vcat causes _rand! to make an allocation for each sample
+    # Still somehow faster than using a LazyArrays.Vcat ...
+    row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
+    # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
+    fittable_view = view(samples, row_idxs, :)
+    _rand!(rng, dist, fittable_view)
+    # Now perform variable transformations for free metallicity and dispersion parameters
+    exptransform_samples!(fittable_view, μ, tf[free], free[free])
+    # Now write in fixed parameters
+    par = (values(fittable_params(Zmodel))..., values(fittable_params(dispmodel))...)
+    for i in 1:length(free)
+        if ~free[i] # if parameter is fixed,
+            samples[Nbins+i, :] .= par[i]
+        end
+    end
     return samples
 end
+
 calculate_coeffs(result::CompositeBFGSResult, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}) = calculate_coeffs(result.mle, logAge, metallicities)

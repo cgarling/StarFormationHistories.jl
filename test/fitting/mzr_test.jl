@@ -109,17 +109,14 @@ end
             rvals = vcat(Mstars[rperm], mzr.α, mzr.MH0, disp.σ)
             @test SFH.fg_mzr!(true, nothing, mzr, disp, rvals, rmodels,
                               data, C, rlogAge, rMH) ≈ nlogL
-            G2 = similar(G)
-            @test SFH.fg_mzr!(true, G2, mzr, disp, rvals, rmodels,
+            @test SFH.fg_mzr!(true, G, mzr, disp, rvals, rmodels,
                               data, C, rlogAge, rMH) ≈ nlogL
             fdr_result = vcat(fd_result[begin:end-3][rperm], fd_result[end-2:end])
-            @test G2 ≈ fdr_result
-            # [fdr_result vcat(G[begin:end-3][rperm], G[end-2:end]) G2] |> display
-            # [G2 fdr_result] |> display
+            @test G ≈ fdr_result
         end
     end
 
-    @testset "logdensity_and_gradient" begin
+    @testset "logdensity_and_gradient all free" begin
         transformed_vals = vcat(log.(Mstars), log(mzr.α), mzr.MH0, log(disp.σ))
         # Gradient of objective with respect to transformed variables
         G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
@@ -139,6 +136,56 @@ end
         logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
         resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
         @test resultj[1] ≈ logLJ
+    end
+
+    @testset "logdensity_and_gradient σ fixed" begin
+        let disp = SFH.GaussianDispersion(disp.σ, (false,))
+            G2 = G[begin:end-1] # Fixed parameters are not included in G gradient
+            transformed_vals = vcat(log.(Mstars), log(mzr.α), mzr.MH0)
+            # Gradient of objective with respect to transformed variables
+            G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
+                                 fd_result[end-2] * mzr.α, fd_result[end-1])
+            # Test with jacobian corrections off, we get -nlogL as expected
+            S = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                                 MH, G2, false)
+            result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
+            @test result[1] ≈ -nlogL     #  positive logL
+            @test result[2] ≈ -G_transformed #  positive ∇logL
+            # To support Optim.jl, we need G to be updated in place with -∇logL,
+            # with variable transformations applied
+            @test G2 ≈ G_transformed
+            # Test with jacobian corrections on
+            SJ = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                                  MH, G2, true)
+            logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α)
+            resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
+            @test resultj[1] ≈ logLJ
+        end
+    end
+    
+    @testset "logdensity_and_gradient MH0 fixed" begin
+        let mzr = SFH.PowerLawMZR(mzr.α, mzr.MH0, mzr.logMstar0, (true, false))
+            G2 = vcat(G[begin:end-2], G[end])  # Fixed parameters are not included in G gradient
+            transformed_vals = vcat(log.(Mstars), log(mzr.α), log(disp.σ))
+            # Gradient of objective with respect to transformed variables
+            G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
+                                 fd_result[end-2] * mzr.α, fd_result[end] * disp.σ)
+            # Test with jacobian corrections off, we get -nlogL as expected
+            S = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                                 MH, G2, false)
+            result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
+            @test result[1] ≈ -nlogL     #  positive logL
+            @test result[2] ≈ -G_transformed #  positive ∇logL
+            # To support Optim.jl, we need G to be updated in place with -∇logL,
+            # with variable transformations applied
+            @test G2 ≈ G_transformed
+            # Test with jacobian corrections on
+            SJ = SFH.MZROptimizer(mzr, disp, smodels, sdata, sC, logAge,
+                                  MH, G2, true)
+            logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
+            resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
+            @test resultj[1] ≈ logLJ
+        end
     end
 
     @testset "fit_sfh" begin
@@ -164,14 +211,6 @@ end
                            atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
         @test all(isapprox(rresult.map.μ[i], true_vals[i];
                            atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
-        @testset "sample_sfh" begin
-            Nsteps = 10
-            sample_result = @test_nowarn SFH.sample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
-                                                        ϵ=0.2, reporter = NoProgressReport(),
-                                                        show_convergence=false)
-            @test sample_result.posterior_matrix isa Matrix{T}
-            @test size(sample_result.posterior_matrix) == (length(true_vals), Nsteps)
-        end
 
         # Run with fixed parameters on noisy data, verify that best-fit values are unchanged
         fresult = SFH.fit_sfh(SFH.PowerLawMZR(mzr.α, mzr.MH0, mzr.logMstar0, (false, false)),
@@ -180,6 +219,24 @@ end
         @test fresult.map.μ[end-2:end] ≈ [mzr.α, mzr.MH0, disp.σ]
         @test fresult.mle.μ[end-2:end] ≈ [mzr.α, mzr.MH0, disp.σ]
         @test all(fresult.map.σ[end-2:end] .== 0) # Uncertainties for fixed quantities should be 0
+
+        @testset "sample_sfh" begin
+            Nsteps = 10
+            # Test with all variables free
+            sample_rresult = @test_nowarn SFH.sample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
+                                                         ϵ=0.2, reporter = NoProgressReport(),
+                                                         show_convergence=false)
+            @test sample_rresult.posterior_matrix isa Matrix{T}
+            @test size(sample_rresult.posterior_matrix) == (length(true_vals), Nsteps)
+            # Test with fixed parameters
+            sample_fresult = @test_nowarn SFH.sample_sfh(fresult, smodels, sdata, logAge, MH, Nsteps;
+                                                         ϵ=0.2, reporter = NoProgressReport(),
+                                                         show_convergence=false)
+            @test sample_fresult.posterior_matrix isa Matrix{T}
+            @test size(sample_fresult.posterior_matrix) == (length(true_vals), Nsteps)
+            # Test that all samples have correct fixed parameters
+            @test all(sample_fresult.posterior_matrix[end-2:end,:] .≈ [mzr.α, mzr.MH0, disp.σ])
+        end
 
         @testset "BFGSResult" begin
             @test rand(fresult.mle) isa Vector{promote_type(eltype(fresult.mle.μ), eltype(fresult.mle.invH))}
@@ -197,6 +254,7 @@ end
                 SFH.calculate_coeffs(fresult.mle.Zmodel, fresult.mle.dispmodel,
                                  @view(fresult.mle.μ[begin:length(unique_logAge)]), logAge, MH)
         end
+        
         @testset "CompositeBFGSResult" begin
             @test rand(fresult) isa Vector{promote_type(eltype(fresult.mle.μ), eltype(fresult.mle.invH))}
             @test length(rand(fresult)) == length(true_vals)
