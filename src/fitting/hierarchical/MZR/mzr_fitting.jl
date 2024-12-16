@@ -59,7 +59,7 @@ end
 
 
 # Function to compute objective and gradient for MZR models
-function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
+function fg_mzr!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
                  variables::AbstractVector{<:Number},
                  models::Union{AbstractMatrix{<:Number},
                                AbstractVector{<:AbstractMatrix{<:Number}}},
@@ -74,17 +74,17 @@ function fg_mzr!(F, G, mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
                      T, U)
     # Number of fittable parameters in MZR model;
     # in G, these come after the stellar mass coefficients R_j
-    mzrpar = nparams(mzr0)
+    mzrpar = nparams(Zmodel0)
     # Number of fittable parameters in metallicity dispersion model;
     # in G, these come after the MZR parameters
-    disppar = nparams(disp0)
+    disppar = nparams(dispmodel0)
 
-    # Construct new instance of mzr0 with updated parameters
-    mzr_model = update_params(mzr0, @view(variables[end-(mzrpar+disppar)+1:(end-disppar)]))
+    # Construct new instance of Zmodel0 with updated parameters
+    mzr_model = update_params(Zmodel0, @view(variables[end-(mzrpar+disppar)+1:(end-disppar)]))
     # Get indices of free parameters in MZR model
     mzr_free = BitVector(free_params(mzr_model))
-    # Construct new instance of disp0 with updated parameters
-    disp_model = update_params(disp0, @view(variables[end-(disppar)+1:end]))
+    # Construct new instance of dispmodel0 with updated parameters
+    disp_model = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
     # Get indices of free parameters in metallicity dispersion model
     disp_free = BitVector(free_params(disp_model))
     # Calculate all coefficients r_{j,k} for each template
@@ -199,9 +199,9 @@ end
 # to reuse for BFGS optimization with Optim.jl rather
 # than rewriting the closure
 
-struct MZROptimizer{A,B,C,D,E,F,G,H}
-    mzr0::A
-    disp0::B
+struct HierarchicalOptimizer{A,B,C,D,E,F,G,H}
+    Zmodel0::A
+    dispmodel0::B
     models::C
     data::D
     composite::E
@@ -212,13 +212,13 @@ struct MZROptimizer{A,B,C,D,E,F,G,H}
 end
 
 # This model will return loglikelihood and gradient
-LogDensityProblems.capabilities(::Type{<:MZROptimizer}) = LogDensityProblems.LogDensityOrder{1}()
-LogDensityProblems.dimension(problem::MZROptimizer) = length(problem.G)
+LogDensityProblems.capabilities(::Type{<:HierarchicalOptimizer}) = LogDensityProblems.LogDensityOrder{1}()
+LogDensityProblems.dimension(problem::HierarchicalOptimizer) = length(problem.G)
 
-function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
+function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimizer, xvec)
     # Unpack struct
-    mzr0 = problem.mzr0
-    disp0 = problem.disp0
+    Zmodel0 = problem.Zmodel0
+    dispmodel0 = problem.dispmodel0
     models = problem.models
     data = problem.data
     composite = problem.composite
@@ -227,10 +227,10 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
     G = problem.G
     jacobian_corrections = problem.jacobian_corrections
     
-    mzrpar = nparams(mzr0)
-    disppar = nparams(disp0)
-    tf = SVector(transforms(mzr0)..., transforms(disp0)...)
-    free = SVector(free_params(mzr0)..., free_params(disp0)...)
+    mzrpar = nparams(Zmodel0)
+    disppar = nparams(dispmodel0)
+    tf = SVector(transforms(Zmodel0)..., transforms(dispmodel0)...)
+    free = SVector(free_params(Zmodel0)..., free_params(dispmodel0)...)
     Nfixed = count(~, free)
     @assert axes(G) == axes(xvec)
     # Calculate number of age bins from length of xvec and number of MZR, disp parameters
@@ -251,13 +251,13 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
     # Concatenate transformed stellar mass coefficients and MZR / disp parameters
     x[(Nbins+1:lastindex(x))[free]] .= x_mzrdisp
     # Write fixed parameters into x
-    init_par = SVector(fittable_params(mzr0)..., fittable_params(disp0)...)
+    init_par = SVector(fittable_params(Zmodel0)..., fittable_params(dispmodel0)...)
     fixed = .~free
     x[(Nbins+1:lastindex(x))[fixed]] .= init_par[fixed]
 
 
     G2 = similar(x)
-    nlogL = fg_mzr!(true, G2, mzr0, disp0, x, models, data, composite, logAge, metallicities)
+    nlogL = fg_mzr!(true, G2, Zmodel0, dispmodel0, x, models, data, composite, logAge, metallicities)
     # Add Jacobian corrections for transformed variables if jacobian_corrections == true
     # fg_mzr! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
     ptf = findall(==(1), tf)  # Find indices of variables constrained to always be positive
@@ -305,7 +305,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::MZROptimizer, xvec)
 end
 
 
-function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
+function fit_sfh(Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
                  models::AbstractMatrix{S},
                  data::AbstractVector{<:Number},
                  logAge::AbstractVector{<:Number},
@@ -322,9 +322,9 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
     x0 = map(log, x0) # Does not modify x0 in place
     # Perform logarithmic transformation on MZR and dispersion parameters
-    par = (values(fittable_params(mzr0))..., values(fittable_params(disp0))...)
-    tf = (transforms(mzr0)..., transforms(disp0)...)
-    free = SVector(free_params(mzr0)..., free_params(disp0)...)
+    par = (values(fittable_params(Zmodel0))..., values(fittable_params(dispmodel0))...)
+    tf = (transforms(Zmodel0)..., transforms(dispmodel0)...)
+    free = SVector(free_params(Zmodel0)..., free_params(dispmodel0)...)
     # Apply logarithmic transformations
     x0_mzrdisp = logtransform(par, tf)
     # Concatenate transformed stellar mass coefficients and *free* MZR / disp parameters
@@ -340,12 +340,12 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     function fg_map!(F, G, X)
         # Creating structs doesn't copy data so this should be free
-        tmpstruct = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities, G, true)
+        tmpstruct = HierarchicalOptimizer(Zmodel0, dispmodel0, models, data, composite, logAge, metallicities, G, true)
         return -LogDensityProblems.logdensity_and_gradient(tmpstruct, X)[1]
     end
     function fg_mle!(F, G, X)
         # Creating structs doesn't copy data so this should be free
-        tmpstruct = MZROptimizer(mzr0, disp0, models, data, composite, logAge, metallicities, G, false)
+        tmpstruct = HierarchicalOptimizer(Zmodel0, dispmodel0, models, data, composite, logAge, metallicities, G, false)
         return -LogDensityProblems.logdensity_and_gradient(tmpstruct, X)[1]
     end
     result_map = Optim.optimize(Optim.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
@@ -370,7 +370,7 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     end
     # Allocate vectors to hold best-fit values μ and standard errors σ for all parameters,
     # including fixed parameters
-    μ_map = similar(Optim.minimizer(result_map), Nbins + nparams(mzr0) + nparams(disp0))
+    μ_map = similar(Optim.minimizer(result_map), Nbins + nparams(Zmodel0) + nparams(dispmodel0))
     μ_mle = similar(μ_map)
     σ_map = similar(invH_map, length(μ_map))
     σ_mle = similar(σ_map)
@@ -415,15 +415,15 @@ function fit_sfh(mzr0::AbstractMZR{T}, disp0::AbstractDispersionModel{U},
     end
     
     return CompositeBFGSResult( BFGSResult(μ_map, σ_map, invH_map, result_map,
-                                           update_params(mzr0, @view(μ_map[Nbins+1:Nbins+nparams(mzr0)])),
-                                           update_params(disp0, @view(μ_map[Nbins+nparams(mzr0)+1:end]))),
+                                           update_params(Zmodel0, @view(μ_map[Nbins+1:Nbins+nparams(Zmodel0)])),
+                                           update_params(dispmodel0, @view(μ_map[Nbins+nparams(Zmodel0)+1:end]))),
                                 BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
-                                           update_params(mzr0, @view(μ_mle[Nbins+1:Nbins+nparams(mzr0)])),
-                                           update_params(disp0, @view(μ_mle[Nbins+nparams(mzr0)+1:end]))) )
+                                           update_params(Zmodel0, @view(μ_mle[Nbins+1:Nbins+nparams(Zmodel0)])),
+                                           update_params(dispmodel0, @view(μ_mle[Nbins+nparams(Zmodel0)+1:end]))) )
     
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
-fit_sfh(mzr0::AbstractMZR, disp0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(mzr0, disp0, stack_models(models), vec(data), logAge, metallicities; kws...)
+fit_sfh(Zmodel0::AbstractMZR, dispmodel0::AbstractDispersionModel, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}; kws...) = fit_sfh(Zmodel0, dispmodel0, stack_models(models), vec(data), logAge, metallicities; kws...)
 
 
 
@@ -455,7 +455,7 @@ function sample_sfh(bfgs_result::CompositeBFGSResult, # ::NamedTuple{(:map, :mle
     free = SVector(free_params(Zmodel)..., free_params(dispmodel)...)
 
     # Setup structs to pass to DynamicHMC.mcmc
-    instance = MZROptimizer(Zmodel, dispmodel, models, data, composite, logAge, metallicities,
+    instance = HierarchicalOptimizer(Zmodel, dispmodel, models, data, composite, logAge, metallicities,
                             similar(x0), true)
     # The call signature for the kinetic energy is κ = DynamicHMC.GaussianKineticEnergy(M⁻¹),
     # where M is the mass matrix (e.g., equation 5.5 in "Handbook of Markov Chain Monte Carlo").
