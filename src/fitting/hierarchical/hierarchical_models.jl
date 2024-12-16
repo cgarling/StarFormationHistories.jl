@@ -98,9 +98,11 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
     end
 end
 
+# Generic fitting and sampling methods
+
 """
     fit_sfh(Zmodel0::AbstractMetallicityModel,
-            disp0::AbstractDispersionModel,
+            dispmodel0::AbstractDispersionModel,
             models::AbstractMatrix{<:Number},
             data::AbstractVector{<:Number},
             logAge::AbstractVector{<:Number},
@@ -108,17 +110,17 @@ end
             x0::AbstractVector{<:Number} = <...>
             kws...)
 
-Returns a [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) instance that contains the maximum a posteriori (MAP) and maximum likelihood estimates (MLE) obtained from fitting the provided simple stellar population (SSP) templates `models` (with logarithmic ages `logAge = log10(age [yr])` and metallicities `metallicities`) to the provided `data`. The metallicity evolution is modelled using the provided `Zmodel0`, whose parameters can be free or fixed, with metallicity dispersion at fixed time modelled by `disp0`, whose parameters can be free or fixed.
+Returns a [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) instance that contains the maximum a posteriori (MAP) and maximum likelihood estimates (MLE) obtained from fitting the provided simple stellar population (SSP) templates `models` (with logarithmic ages `logAge = log10(age [yr])` and metallicities `metallicities`) to the provided `data`. The metallicity evolution is modelled using the provided `Zmodel0`, whose parameters can be free or fixed, with metallicity dispersion at fixed time modelled by `dispmodel0`, whose parameters can be free or fixed.
 
-This method is designed to work best with a "grid" of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage.
+This method is designed to work best with a grid of stellar models, defined by the outer product of `N` unique entries in `logAge` and `M` unique entries in `metallicities`. See the examples for more information on usage.
 
-We provide several options for age-metallicity relations and mass-metallicity relations that can be used for `Zmodel0` and define APIs for users to create new models that will integrate with this function. Similar flexibility is allowed for the metallicity dispersion model `disp0`.
+We provide several options for age-metallicity relations and mass-metallicity relations that can be used for `Zmodel0` and define APIs for users to create new models that will integrate with this function. Similar flexibility is allowed for the metallicity dispersion model `dispmodel0`.
 
 The primary method signature uses flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details, as well as [`stack_models`](@ref StarFormationHistories.stack_models) that facilitates rearranging the `models` into this flattened format.
 
 # Arguments
  - `Zmodel0` is an instance of [`AbstractMetallicityModel`](@ref StarFormationHistories.AbstractMetallicityModel) that defines how the average metallicity stars being formed in the population changes over time. The fittable parameters contained in this instance are used as the initial values to start the optimization. 
- - `disp0` is an instance of [`AbstractDispersionModel`](@ref StarFormationHistories.AbstractDispersionModel) that defines the distribution of metallicities of stars forming in a fixed time bin (i.e., the dispersion in metallicity around the mean at fixed time). The fittable parameters contained in this instance are used as the initial values to start the optimization. 
+ - `dispmodel0` is an instance of [`AbstractDispersionModel`](@ref StarFormationHistories.AbstractDispersionModel) that defines the distribution of metallicities of stars forming in a fixed time bin (i.e., the dispersion in metallicity around the mean at fixed time). The fittable parameters contained in this instance are used as the initial values to start the optimization. 
  - `models` are the template Hess diagrams for the SSPs that compose the observed Hess diagram.
  - `data` is the Hess diagram for the observed data.
  - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.

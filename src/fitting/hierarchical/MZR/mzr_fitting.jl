@@ -59,14 +59,14 @@ end
 
 
 # Function to compute objective and gradient for MZR models
-function fg_mzr!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
-                 variables::AbstractVector{<:Number},
-                 models::Union{AbstractMatrix{<:Number},
-                               AbstractVector{<:AbstractMatrix{<:Number}}},
-                 data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
-                 composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
-                 logAge::AbstractVector{<:Number},
-                 metallicities::AbstractVector{<:Number}) where {T, U}
+function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
+             variables::AbstractVector{<:Number},
+             models::Union{AbstractMatrix{<:Number},
+                           AbstractVector{<:AbstractMatrix{<:Number}}},
+             data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+             composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+             logAge::AbstractVector{<:Number},
+             metallicities::AbstractVector{<:Number}) where {T, U}
 
     @assert axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
@@ -194,7 +194,7 @@ function fg_mzr!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionMo
 end
 
 # Define struct to hold optimization-time constants
-# needed to calculate the logL and gradient with fg_mzr!,
+# needed to calculate the logL and gradient with fg!,
 # used for sampling with DynamicHMC and it may also be easier
 # to reuse for BFGS optimization with Optim.jl rather
 # than rewriting the closure
@@ -227,29 +227,29 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     G = problem.G
     jacobian_corrections = problem.jacobian_corrections
     
-    mzrpar = nparams(Zmodel0)
+    zpar = nparams(Zmodel0)
     disppar = nparams(dispmodel0)
     tf = SVector(transforms(Zmodel0)..., transforms(dispmodel0)...)
     free = SVector(free_params(Zmodel0)..., free_params(dispmodel0)...)
     Nfixed = count(~, free)
     @assert axes(G) == axes(xvec)
-    # Calculate number of age bins from length of xvec and number of MZR, disp parameters
-    Nbins = lastindex(xvec) - mzrpar - disppar
+    # Calculate number of age bins from length of xvec and number of Zmodel, disp parameters
+    Nbins = lastindex(xvec) - zpar - disppar
     # Subtract off fixed parameters that do not appear in xvec
     Nbins += Nfixed # Gives count of false entries
-    # Extract mzr and disp parameters from xvec
+    # Extract Zmodel and disp parameters from xvec
     par = @view(xvec[Nbins+1:end])
     # Transform the provided x
     # All stellar mass coefficients are transformed as they must be > 0,
-    # but MZR and dispersion model coefficients may or may not be similarly constrained.
+    # but Zmodel and dispersion model coefficients may or may not be similarly constrained.
     # Use the transforms() function to determine which parameters should be transformed.
-    x = Vector{eltype(xvec)}(undef, Nbins + mzrpar + disppar)
+    x = Vector{eltype(xvec)}(undef, Nbins + zpar + disppar)
     # These are the stellar mass coefficients
     for i in eachindex(xvec)[begin:Nbins]; x[i] = exp(xvec[i]); end
     # Apply logarithmic transformations
-    x_mzrdisp = exptransform(par, SVector(tf)[free])
-    # Concatenate transformed stellar mass coefficients and MZR / disp parameters
-    x[(Nbins+1:lastindex(x))[free]] .= x_mzrdisp
+    x_zdisp = exptransform(par, SVector(tf)[free])
+    # Concatenate transformed stellar mass coefficients and Zmodel / disp parameters
+    x[(Nbins+1:lastindex(x))[free]] .= x_zdisp
     # Write fixed parameters into x
     init_par = SVector(fittable_params(Zmodel0)..., fittable_params(dispmodel0)...)
     fixed = .~free
@@ -257,9 +257,9 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
 
 
     G2 = similar(x)
-    nlogL = fg_mzr!(true, G2, Zmodel0, dispmodel0, x, models, data, composite, logAge, metallicities)
+    nlogL = fg!(true, G2, Zmodel0, dispmodel0, x, models, data, composite, logAge, metallicities)
     # Add Jacobian corrections for transformed variables if jacobian_corrections == true
-    # fg_mzr! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
+    # fg! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
     ptf = findall(==(1), tf)  # Find indices of variables constrained to always be positive
     ptf = ptf[free[ptf]]      # Only keep indices for variables that we are fitting
     ptf_idx = ptf .+ Nbins
@@ -272,7 +272,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
             G2[i] = G2[i] * x[i] - 1
         end
         for i in ntf
-            @warn "Negative transformations for MZR models have not yet been validated."
+            @warn "Negative transformations have not yet been validated."
             i += Nbins
             nlogL += log(x[i])
             G2[i] = -G2[i] * x[i] + 1
@@ -283,7 +283,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
             G2[i] = G2[i] * x[i]
         end
         for i in ntf
-            @warn "Negative transformations for MZR models have not yet been validated."
+            @warn "Negative transformations have not yet been validated."
             G2[i] = -G2[i] * x[i]
         end        
     end
