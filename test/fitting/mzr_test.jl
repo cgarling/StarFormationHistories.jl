@@ -77,15 +77,14 @@ end
     nlogL = 4917.491550052553
     # Gradient result from ForwardDiff.gradient
     fd_result = [-0.00014821148519279933, -0.00013852612731050684, -0.00012883365448787643, -0.00013224499379724353, -0.00013304264503999908, -0.00013141207154566565, -0.00013956083036823194, -0.00011818954688379261, -8.652358169076432e-5, -0.00010979288408696192, -0.00010299174097368632, -8.968648332825651e-5, -0.00011051661215933656, -9.664530693628639e-5, -0.00011448658353345554, -0.00012390106090859644, -0.00011506434863758139, -0.0001358595304639743, -9.920490692529175e-5, -8.412262247606323e-5, -0.0001095265086536905, -49.091387751034475, -180.99883434459917, -207.04960375880725]
-
-    @testset "fg_mzr!" begin
-        @test SFH.fg_mzr!(true, nothing, mzr, disp, true_vals, models, data, C, logAge, MH) ≈ nlogL
-        @test SFH.fg_mzr!(true, G, mzr, disp, true_vals, models, data, C, logAge, MH) ≈ nlogL
+    @testset "fg! for MZR" begin
+        @test SFH.fg!(true, nothing, mzr, disp, true_vals, models, data, C, logAge, MH) ≈ nlogL
+        @test SFH.fg!(true, G, mzr, disp, true_vals, models, data, C, logAge, MH) ≈ nlogL
         @test G ≈ fd_result
         # Test stacked models / data
         rand!(rng, G) # Fill G with random numbers so we aren't reusing last correct result
-        @test SFH.fg_mzr!(true, G, mzr, disp, true_vals, smodels,
-                          sdata, sC, logAge, MH) ≈ nlogL
+        @test SFH.fg!(true, G, mzr, disp, true_vals, smodels,
+                      sdata, sC, logAge, MH) ≈ nlogL
 
         # Test that results are not sensitive to the ordering of the logAge argument
         let rperm = randperm(length(unique_logAge))
@@ -107,10 +106,10 @@ end
             end
             @test rlogAge == logAge[longrperm]
             rvals = vcat(Mstars[rperm], mzr.α, mzr.MH0, disp.σ)
-            @test SFH.fg_mzr!(true, nothing, mzr, disp, rvals, rmodels,
-                              data, C, rlogAge, rMH) ≈ nlogL
-            @test SFH.fg_mzr!(true, G, mzr, disp, rvals, rmodels,
-                              data, C, rlogAge, rMH) ≈ nlogL
+            @test SFH.fg!(true, nothing, mzr, disp, rvals, rmodels,
+                          data, C, rlogAge, rMH) ≈ nlogL
+            @test SFH.fg!(true, G, mzr, disp, rvals, rmodels,
+                          data, C, rlogAge, rMH) ≈ nlogL
             fdr_result = vcat(fd_result[begin:end-3][rperm], fd_result[end-2:end])
             @test G ≈ fdr_result
         end
