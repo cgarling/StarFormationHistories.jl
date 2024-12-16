@@ -148,7 +148,7 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
     # Need to do compute logL before ∇loglikelihood! because it will overwrite composite
     logL = loglikelihood(composite, data)
 
-    if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
+    if !isnothing(G) # Optim.optimize wants gradient -- update G in place
         Base.require_one_based_indexing(G)
         @assert axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients
@@ -234,8 +234,9 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
                     (dAjk_dP[j] - tmp_coeffs_vec[j] / A * ksum_dAjk_dP) for j in idxs)
             end
         end
-        return -logL
-    elseif F != nothing # Optim.optimize wants only objective
+    end
+    
+    if !isnothing(F) # Optim.optimize wants objective returned
         return -logL
     end
 end
