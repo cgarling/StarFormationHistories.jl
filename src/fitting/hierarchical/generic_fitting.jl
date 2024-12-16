@@ -169,6 +169,7 @@ The primary method signature uses flattened formats for `models` and `data`. See
 
 # Keyword Arguments
  - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`. We try to set reasonable defaults, but in most cases users should be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare `x0` assuming a constant star formation rate and total stellar mass, which is typically a good initial guess.
+ - `kws...` are passed to `Optim.Options` and can be used to control tolerances for convergence.
 
 # Returns
  - This function returns a [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) that contains the output from both MLE and MAP optimizations, accessible via `result.mle` and `result.map`. These are each instances of [`BFGSResult`](@ref StarFormationHistories.BFGSResult). See the docs for these structs for more information.
