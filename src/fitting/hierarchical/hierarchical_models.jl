@@ -5,12 +5,11 @@ abstract type AbstractMetallicityModel{T <: Real} end
 Base.Broadcast.broadcastable(m::AbstractMetallicityModel) = Ref(m)
 
 
-include("transformations.jl")
-include("dispersion_models.jl")
-include("bfgs_result.jl")
-include("fixed_amr.jl")
+include("transformations.jl")   # Variable transformations
+include("dispersion_models.jl") # AbstractDispersionModel
+include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
+include("fixed_amr.jl")         # Fit under a fixed AMR -- deprecate?
 include("linear_amr/linear_amr.jl")
 include("log_amr/log_amr.jl")
-include("MZR/mzr_models.jl")
-include("MZR/mzr_fitting.jl")
-include("generic_fitting.jl")
+include("mzr.jl")               # Mass-metallicity relations
+include("generic_fitting.jl")   # Fitting and sampling functions for both AMR and MZR
