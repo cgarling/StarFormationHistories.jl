@@ -106,7 +106,7 @@ end
 ###############################################
 # Compute objective and gradient for MZR models
 
-function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
+function fg!(F, G, MHmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{U},
              variables::AbstractVector{<:Number},
              models::Union{AbstractMatrix{<:Number},
                            AbstractVector{<:AbstractMatrix{<:Number}}},
@@ -119,23 +119,23 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
                      T, U)
-    # Number of fittable parameters in Zmodel;
+    # Number of fittable parameters in MHmodel;
     # in G, these come after the stellar mass coefficients R_j
-    Zpar = nparams(Zmodel0)
+    Zpar = nparams(MHmodel0)
     # Number of fittable parameters in metallicity dispersion model;
-    # in G, these come after the Zmodel parameters
+    # in G, these come after the MHmodel parameters
     disppar = nparams(dispmodel0)
 
-    # Construct new instance of Zmodel0 with updated parameters
-    Zmodel = update_params(Zmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
+    # Construct new instance of MHmodel0 with updated parameters
+    MHmodel = update_params(MHmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
     # Get indices of free parameters in MZR model
-    Zfree = BitVector(free_params(Zmodel))
+    Zfree = BitVector(free_params(MHmodel))
     # Construct new instance of dispmodel0 with updated parameters
     dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
     # Get indices of free parameters in metallicity dispersion model
     dispfree = BitVector(free_params(dispmodel))
     # Calculate all coefficients r_{j,k} for each template
-    coeffs = calculate_coeffs(Zmodel, dispmodel,
+    coeffs = calculate_coeffs(MHmodel, dispmodel,
                               @view(variables[begin:end-(Zpar+disppar)]),
                               logAge, metallicities)
 
@@ -165,10 +165,10 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
         jidx_inv = [findall(==(unique_logAge[i]), logAge) for i in eachindex(unique_logAge)]
         
         # Calculate quantities from MZR model
-        μvec = Zmodel.(cum_mstar) # Find the mean metallicity of each time bin
+        μvec = MHmodel.(cum_mstar) # Find the mean metallicity of each time bin
         # Calculate full gradient of MZR model with respect to parameters and
         # cumulative stellar masses
-        gradμ = tups_to_mat(values.(gradient.(Zmodel, cum_mstar)))
+        gradμ = tups_to_mat(values.(gradient.(MHmodel, cum_mstar)))
         # \frac{\partial μ_j}{\partial M_*}; This should always be the last row in gradμ
         dμ_dRj_vec = gradμ[end,:]
         
@@ -214,7 +214,7 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
                 (dAjk_dRj[idx] - (ksum_dAjk_dRj[i] * tmp_coeffs_vec[idx] / A)) *
                 variables[i] / A) for idx in idxs)
             
-            # Add Zmodel terms
+            # Add MHmodel terms
             ksum_dAjk_dμj = sum(dAjk_dμj[j] for j in idxs)
             psum = -sum( fullG[j] * variables[i] / A *
                 (dAjk_dμj[j] - tmp_coeffs_vec[j] / A * ksum_dAjk_dμj) for j in idxs)
