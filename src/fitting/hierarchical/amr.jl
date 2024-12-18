@@ -75,7 +75,7 @@ end
 ###############################################
 # Compute objective and gradient for AMR models
 
-function fg!(F, G, Zmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{U},
+function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{U},
              variables::AbstractVector{<:Number},
              models::Union{AbstractMatrix{<:Number},
                            AbstractVector{<:AbstractMatrix{<:Number}}},
@@ -88,23 +88,23 @@ function fg!(F, G, Zmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
                      T, U)
-    # Number of fittable parameters in Zmodel;
+    # Number of fittable parameters in MHmodel;
     # in G, these come after the stellar mass coefficients R_j
-    Zpar = nparams(Zmodel0)
+    Zpar = nparams(MHmodel0)
     # Number of fittable parameters in metallicity dispersion model;
-    # in G, these come after the Zmodel parameters
+    # in G, these come after the MHmodel parameters
     disppar = nparams(dispmodel0)
 
-    # Construct new instance of Zmodel0 with updated parameters
-    Zmodel = update_params(Zmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
+    # Construct new instance of MHmodel0 with updated parameters
+    MHmodel = update_params(MHmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
     # Get indices of free parameters in MZR model
-    Zfree = BitVector(free_params(Zmodel))
+    Zfree = BitVector(free_params(MHmodel))
     # Construct new instance of dispmodel0 with updated parameters
     dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
     # Get indices of free parameters in metallicity dispersion model
     dispfree = BitVector(free_params(dispmodel))
     # Calculate all coefficients r_{j,k} for each template
-    coeffs = calculate_coeffs(Zmodel, dispmodel,
+    coeffs = calculate_coeffs(MHmodel, dispmodel,
                               @view(variables[begin:end-(Zpar+disppar)]),
                               logAge, metallicities)
 
@@ -127,7 +127,7 @@ function fg!(F, G, Zmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{
         # Loop over j
         for i in eachindex(unique_logAge)
             la = unique_logAge[i]
-            μ = Zmodel(la)
+            μ = MHmodel(la)
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_mh = metallicities[idxs]
             tmp_coeffs = dispmodel.(tmp_mh, μ)
@@ -140,15 +140,15 @@ function fg!(F, G, Zmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{
             # \end{aligned}
             G[i] = -sum(fullG[j] * coeffs[j] / variables[i] for j in idxs)
 
-            # Gradient of Zmodel with respect to parameters
-            gradμ = values(gradient(Zmodel, la))
+            # Gradient of MHmodel with respect to parameters
+            gradμ = values(gradient(MHmodel, la))
             # Gradient of the dispersion model with respect to parameters
             # and mean metallicity μ_j
             grad_disp = tups_to_mat(values.(gradient.(dispmodel, tmp_mh, μ)))
             # \frac{\partial A_{j,k}}{\partial \mu_j}
             dAjk_dμj = grad_disp[end,:]
             
-            # Partial derivatives with respect to Zmodel parameters
+            # Partial derivatives with respect to MHmodel parameters
             ksum_dAjk_dμj = sum(dAjk_dμj)
             psum = -sum( fullG[idxs[j]] * variables[i] / A *
                 (dAjk_dμj[j] - tmp_coeffs[j] / A * ksum_dAjk_dμj) for j in eachindex(idxs))
@@ -175,8 +175,11 @@ end
 ###################
 # Concrete subtypes
 
+############
+# Linear AMR
+
 struct LinearAMR{T <: Real} <: AbstractAMR{T}
-    α::T     # Power-law slope
+    α::T     # Slope
     β::T     # Normalization / intercept
     T_max::T # Earliest valid lookback time in Gyr, at which <[M/H]> = β; e.g. 
     free::NTuple{2, Bool}
@@ -201,3 +204,118 @@ update_params(model::LinearAMR, newparams) =
     LinearAMR(newparams..., model.T_max, model.free)
 transforms(::LinearAMR) = (1, 0)
 free_params(model::LinearAMR) = model.free
+
+"""
+    LinearAMR(constraint1, constraint2, T_max::Real=137//10,
+              free::NTuple{2, Bool}=(true, true))
+Construct an instance of `LinearAMR` from MH constraints at two different lookback times. Each of `constraint1` and `constraint2` should be length-2 indexables (e.g., tuples) whose first element is a metallicity [M/H] and second element is a lookback time in Gyr. The order of the constraints does not matter. 
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: LinearAMR)
+julia> LinearAMR((-2.5, 13.7), (-1.0, 0.0), 13.7) isa LinearAMR{Float64}
+true
+
+julia> LinearAMR((-2.5, 13.7), (-1.0, 0.0), 13.7) == LinearAMR((-1.0, 0.0), (-2.5, 13.7), 13.7)
+true
+```
+"""
+function LinearAMR(constraint1, constraint2, T_max::Real=137//10,
+                   free::NTuple{2, Bool}=(true, true))
+    @assert length(constraint1) == length(constraint2) == 2
+    times = (last(constraint1), last(constraint2))
+    MH_constraints = (first(constraint1), first(constraint2))
+    δt = times[2] - times[1]
+    if δt == 0
+        throw(ArgumentError("Constraints are given at identical times."))
+    end
+    δMH = MH_constraints[2] - MH_constraints[1]
+    if !(sign(δt) != sign(δMH))
+        throw(ArgumentError("The constraints passed to `LinearAMR` indicate metallicity is decreasing towards present-day. This is not allowed under the `LinearAMR` model. Note that the time variables in the constraints should be lookback times in units of Gyr."))
+    end
+    α = δMH / -δt
+    β = minimum(MH_constraints) - α * (T_max - maximum(times))
+    return LinearAMR(α, β, T_max, free)
+end
+
+#################
+# Logarithmic AMR
+
+struct LogarithmicAMR{T <: Real, S, V} <: AbstractAMR{T}
+    α::T     # Slope
+    β::T     # Normalization / intercept
+    T_max::T # Earliest valid lookback time in Gyr, at which <[M/H]> = β; e.g.
+    MH_func::S # Function to convert Z to MH
+    dMH_dZ::V  # Function to return the derivative of MH_func with respect to Z
+    free::NTuple{2, Bool}
+    function LogarithmicAMR(α::T, β::T, T_max::T,
+                            MH_func::S, dMH_dZ::V,
+                            free::NTuple{2, Bool}) where {T <: Real, S, V}
+        if α ≤ zero(T)
+            throw(ArgumentError("α must be > 0"))
+        elseif β ≤ zero(T)
+            throw(ArgumentError("β must be > 0"))
+        elseif T_max ≤ zero(T)
+            throw(ArgumentError("T_max must be > 0"))
+        end
+        return new{T,S,V}(α, β, T_max, MH_func, dMH_dZ, free)
+    end
+end
+LogarithmicAMR(α::Real, β::Real, T_max::Real=137//10,
+               MH_func = MH_from_Z, dMH_dZ = dMH_dZ, free::NTuple{2, Bool}=(true, true)) =
+                   LogarithmicAMR(promote(α, β, T_max)..., MH_func, dMH_dZ, free)
+nparams(::LogarithmicAMR) = 2
+fittable_params(model::LogarithmicAMR) = (α = model.α, β = model.β)
+(model::LogarithmicAMR)(logAge::Real) =
+    model.MH_func(model.β + model.α * (model.T_max - exp10(logAge - 9)))
+function gradient(model::LogarithmicAMR{T}, logAge::S) where {T, S <: Real}
+    age = exp10(logAge - 9) # Convert logAge to age in Gyr
+    μ_Z = model.β + model.α * (model.T_max - age)
+    dMHdZ = model.dMH_dZ(μ_Z)
+    dZdα = model.T_max - age
+    dZdβ = one(promote_type(T, S))
+    return (α = dMHdZ * dZdα,
+            β = dMHdZ * dZdβ)
+end
+update_params(model::LogarithmicAMR, newparams) =
+    LogarithmicAMR(newparams..., model.T_max, model.MH_func, model.dMH_dZ, model.free)
+transforms(::LogarithmicAMR) = (1, 1)
+free_params(model::LogarithmicAMR) = model.free
+
+
+"""
+    LogarithmicAMR(constraint1, constraint2, T_max::Real=137//10,
+                   MH_func = MH_from_Z, dMH_dZ = dMH_dZ, Z_func = Z_from_MH,
+                   free::NTuple{2, Bool}=(true, true))
+Construct an instance of `LogarithmicAMR` from MH constraints at two different lookback times. Each of `constraint1` and `constraint2` should be length-2 indexables (e.g., tuples) whose first element is a metallicity [M/H] and second element is a lookback time in Gyr. The order of the constraints does not matter.
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: LogarithmicAMR)
+julia> LogarithmicAMR((-2.5, 13.7), (-1.0, 0.0), 13.7) isa LogarithmicAMR{Float64}
+true
+
+julia> LogarithmicAMR((-2.5, 13.7), (-1.0, 0.0), 13.7) ==
+           LogarithmicAMR((-1.0, 0.0), (-2.5, 13.7), 13.7)
+true
+```
+"""
+function LogarithmicAMR(constraint1, constraint2, T_max::Real=137//10,
+                        MH_func = MH_from_Z, dMH_dZ = dMH_dZ, Z_func = Z_from_MH,
+                        free::NTuple{2, Bool}=(true, true))
+    @assert length(constraint1) == length(constraint2) == 2
+    times = (last(constraint1), last(constraint2))
+    Z_constraints = (Z_func(first(constraint1)), Z_func(first(constraint2)))
+    δt = times[2] - times[1]
+    if δt == 0
+        throw(ArgumentError("Constraints are given at identical times."))
+    end
+    δZ = Z_constraints[2] - Z_constraints[1]
+    if !(sign(δt) != sign(δZ))
+        throw(ArgumentError("The constraints passed to `LinearAMR` indicate metallicity is decreasing towards present-day. This is not allowed under the `LinearAMR` model. Note that the time variables in the constraints should be lookback times in units of Gyr."))
+    end
+    α = δZ / -δt
+    β = minimum(Z_constraints) - α * (T_max - maximum(times))
+    if β < 0
+        throw(ArgumentError("Given constraints and Z_func result in a metal mass fraction Z < 0 at T_max. Please revise arguments."))
+    end
+    return LogarithmicAMR(α, β, T_max, MH_func, dMH_dZ, free)
+end

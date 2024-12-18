@@ -133,15 +133,13 @@ This function is an approximation and may not be suitable for precision calculat
 MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = log10(Z / X_from_Z(Z, Y_p, γ)) - log10(solZ / X_from_Z(solZ, Y_p, γ)) # Originally had X_from_Z(solZ) without passing through the Y_p. Don't remember why
 """
     dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
-Partial derivative of [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z) with respect to the input metal mass fraction `Z`. Used for some optimizations. 
+Partial derivative of [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z) with respect to the input metal mass fraction `Z`. Used for [`LogarithmicAMR`](@ref StarFormationHistories.LogarithmicAMR).
 """
 dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = (Y_p - 1) / (log(10) * Z * (Y_p + Z + γ * Z - 1))
 
 """
     Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
-Calculates metal mass fraction `Z` assuming
- - the PARSEC relation for the helium mass fraction `Y = Y_p + γ * Z` with primordial helium abundance `Y_p = 0.2485`, and `γ = 1.78`, and
- - the solar metal mass fraction `solZ = 0.01524`.
+Calculates metal mass fraction `Z` assuming that the solar metal mass fraction is `solZ` and using the PARSEC relation for the helium mass fraction `Y = Y_p + γ * Z` with primordial helium abundance `Y_p = 0.2485`, and `γ = 1.78`.
 """
 function Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
     # [M/H] = log(Z/X)-log(Z/X)☉ with Z☉ = solz

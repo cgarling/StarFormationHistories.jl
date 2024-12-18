@@ -4,7 +4,6 @@
 abstract type AbstractMetallicityModel{T <: Real} end
 Base.Broadcast.broadcastable(m::AbstractMetallicityModel) = Ref(m)
 
-
 include("transformations.jl")   # Variable transformations
 include("dispersion_models.jl") # AbstractDispersionModel and subtypes
 include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
