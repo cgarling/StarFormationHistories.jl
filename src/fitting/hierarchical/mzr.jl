@@ -1,5 +1,5 @@
 # This file contains types and methods implementing mass-metallicity relations
-# for use with the SFH fitting routines in mzr_fitting.jl
+# for use with the SFH fitting routines in generic_fitting.jl
 
 # AbstractMZR API
 
@@ -12,7 +12,6 @@
  - `transforms(model::T)` should return a tuple of length `nparams(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
  - `free_params(model::T)` should return an `NTuple{nparams(model), Bool}` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization. """
 abstract type AbstractMZR{T <: Real} <: AbstractMetallicityModel{T} end
-Base.Broadcast.broadcastable(m::AbstractMZR) = Ref(m)
 
 """
     nparams(model::AbstractMZR)::Int
@@ -26,7 +25,7 @@ Returns the values of the fittable parameters in the provided MZR `model`.
 fittable_params(model::AbstractMZR)
 """
     gradient(model::AbstractMZR{T}, Mstar::Real)::NTuple{nparams(model)+1, T}
- Returns a tuple containing the partial derivative of the mean metallicity with respect to all fittable parameters, plus the partial derivative with respect to the stellar mass `Mstar` as the final element. These partial derivatives are evaluated at stellar mass `Mstar`.
+Returns a tuple containing the partial derivative of the mean metallicity with respect to all fittable parameters, plus the partial derivative with respect to the stellar mass `Mstar` as the final element. These partial derivatives are evaluated at stellar mass `Mstar`.
 """
 gradient(model::AbstractMZR, Mstar::Real)
 """
@@ -45,7 +44,7 @@ Returns an tuple of length `nparams(model)` that is `true` for fittable paramete
  """
 free_params(model::AbstractMZR)
 
-##############################################
+########################################################
 # Calculating per-SSP weights (r_{j,k}) from AbstractMZR
 
 """
@@ -88,17 +87,16 @@ function calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispers
 
     # Set up to calculate coefficients
     coeffs = Vector{S}(undef, length(logAge))
-    # norm_vals = Vector{S}(undef, length(unique_logAge))
     # Calculate cumulative stellar mass vector, properly sorted, then put back into original order
     cum_mstar = cumsum(mstars[s_idxs])[invperm(s_idxs)]# [reverse(s_idxs)]
     for i in eachindex(unique_logAge)
         la = unique_logAge[i]
         # Find the mean metallicity of this age bin based on the cumulative stellar mass
         μ = mzr_model(cum_mstar[i])
-        idxs = findall(==(la), logAge) # Find all entries that match this logAge
-        tmp_coeffs = [disp_model(metallicities[ii], μ) for ii in idxs] # Calculate relative weights
+        idxs = findall(==(la), logAge)
+        # Calculate relative weights
+        tmp_coeffs = [disp_model(metallicities[ii], μ) for ii in idxs]
         A = sum(tmp_coeffs)
-        # norm_vals[i] = A
         # Make sure sum over tmp_coeffs equals 1 and write to coeffs
         coeffs[idxs] .= tmp_coeffs .* mstars[i] ./ A
     end
@@ -121,24 +119,24 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
                      T, U)
-    # Number of fittable parameters in MZR model;
+    # Number of fittable parameters in Zmodel;
     # in G, these come after the stellar mass coefficients R_j
-    mzrpar = nparams(Zmodel0)
+    Zpar = nparams(Zmodel0)
     # Number of fittable parameters in metallicity dispersion model;
-    # in G, these come after the MZR parameters
+    # in G, these come after the Zmodel parameters
     disppar = nparams(dispmodel0)
 
     # Construct new instance of Zmodel0 with updated parameters
-    mzr_model = update_params(Zmodel0, @view(variables[end-(mzrpar+disppar)+1:(end-disppar)]))
+    Zmodel = update_params(Zmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
     # Get indices of free parameters in MZR model
-    mzr_free = BitVector(free_params(mzr_model))
+    Zfree = BitVector(free_params(Zmodel))
     # Construct new instance of dispmodel0 with updated parameters
-    disp_model = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
+    dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
     # Get indices of free parameters in metallicity dispersion model
-    disp_free = BitVector(free_params(disp_model))
+    dispfree = BitVector(free_params(dispmodel))
     # Calculate all coefficients r_{j,k} for each template
-    coeffs = calculate_coeffs(mzr_model, disp_model,
-                              @view(variables[begin:end-(mzrpar+disppar)]),
+    coeffs = calculate_coeffs(Zmodel, dispmodel,
+                              @view(variables[begin:end-(Zpar+disppar)]),
                               logAge, metallicities)
 
     # Fill the composite array with the equivalent of sum( coeffs .* models )
@@ -167,20 +165,20 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
         jidx_inv = [findall(==(unique_logAge[i]), logAge) for i in eachindex(unique_logAge)]
         
         # Calculate quantities from MZR model
-        μvec = mzr_model.(cum_mstar) # Find the mean metallicity of each time bin
+        μvec = Zmodel.(cum_mstar) # Find the mean metallicity of each time bin
         # Calculate full gradient of MZR model with respect to parameters and
         # cumulative stellar masses
-        gradμ = tups_to_mat(values.(gradient.(mzr_model, cum_mstar)))
+        gradμ = tups_to_mat(values.(gradient.(Zmodel, cum_mstar)))
         # \frac{\partial μ_j}{\partial M_*}; This should always be the last row in gradμ
         dμ_dRj_vec = gradμ[end,:]
         
         # Calculate quantities from metallicity dispersion model
         # Relative weights A_{j,k} for *all* templates
-        tmp_coeffs_vec = disp_model.(metallicities, μvec[jidx])
+        tmp_coeffs_vec = dispmodel.(metallicities, μvec[jidx])
         # Full gradient of the dispersion model with respect to parameters
         # and mean metallicity μ_j
-        grad_disp = tups_to_mat(values.(gradient.(disp_model, metallicities, μvec[jidx])))
-        # # \frac{\partial A_{j,k}}{\partial \mu_j}
+        grad_disp = tups_to_mat(values.(gradient.(dispmodel, metallicities, μvec[jidx])))
+        # \frac{\partial A_{j,k}}{\partial \mu_j}
         dAjk_dμj = grad_disp[end,:]
         # Calculate sum_k A_{j,k} for all j
         A_vec = [sum(tmp_coeffs_vec[ii] for ii in idxs) for idxs in jidx_inv]
@@ -216,17 +214,17 @@ function fg!(F, G, Zmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel{
                 (dAjk_dRj[idx] - (ksum_dAjk_dRj[i] * tmp_coeffs_vec[idx] / A)) *
                 variables[i] / A) for idx in idxs)
             
-            # Add MZR terms
+            # Add Zmodel terms
             ksum_dAjk_dμj = sum(dAjk_dμj[j] for j in idxs)
             psum = -sum( fullG[j] * variables[i] / A *
                 (dAjk_dμj[j] - tmp_coeffs_vec[j] / A * ksum_dAjk_dμj) for j in idxs)
-            for par in (1:mzrpar)[mzr_free]
-                G[end-(mzrpar+disppar-par)] += psum * gradμ[par,i]
+            for par in (1:Zpar)[Zfree]
+                G[end-(Zpar+disppar-par)] += psum * gradμ[par,i]
             end
 
             # Add metallicity dispersion terms
-            for par in (1:disppar)[disp_free]
-                # View into grad_disp giving the partial derivative of A_jk
+            for par in (1:disppar)[dispfree]
+                # Extract the partial derivative of A_jk
                 # with respect to parameter P
                 dAjk_dP = view(grad_disp, par, :)
                 ksum_dAjk_dP = sum(dAjk_dP[j] for j in idxs)
