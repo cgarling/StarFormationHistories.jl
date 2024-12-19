@@ -292,7 +292,7 @@ using Test
             # x0 = Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5)
             x0 = SFH.construct_x0_mdf(logAge, convert(T,T_max); normalize_value=sum(logx))
             result = SFH.fit_sfh(SFH.update_params(logMHmodel, (logMHmodel.α + 1e-4, logMHmodel.β + 1e-4)),
-                                 SFH.update_params(disp, (disp.σ + 0.05,)),
+                                 SFH.update_params(disp, (disp.σ + 0.1,)),
                                  smodels, logsdata2, logAge, MH,
                                  x0=x0)
             @test result.mle.μ ≈ log_true_vals # With no error, we should converge exactly
