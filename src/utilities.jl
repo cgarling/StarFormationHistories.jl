@@ -135,7 +135,7 @@ MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = log10(Z / X_from_Z(Z, Y_p,
     dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
 Partial derivative of [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z) with respect to the input metal mass fraction `Z`. Used for [`LogarithmicAMR`](@ref StarFormationHistories.LogarithmicAMR).
 """
-dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = (Y_p - 1) / (log(10) * Z * (Y_p + Z + γ * Z - 1))
+dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = (Y_p - 1) / (logten * Z * (Y_p + Z + γ * Z - 1))
 
 """
     Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
@@ -158,6 +158,16 @@ function Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
     # Originally had X_from_Z(solZ) without passing through the Y_p. Don't remember why
     zoverx = exp10(MH + log10(solZ / X_from_Z(solZ, Y_p, γ)))
     return (1 - Y_p) * zoverx / (1 + (1 + γ) * zoverx)
+end
+"""
+    dZ_dMH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
+Partial derivative of [`Z_from_MH`](@ref StarFormationHistories.Z_from_MH) with respect to the input metal abundance `MH`. Used for [`LogarithmicAMR`](@ref StarFormationHistories.LogarithmicAMR).
+"""
+function dZ_dMH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
+    prefac = exp10(MH) * solZ
+    X = X_from_Z(solZ, Y_p, γ)
+    return -prefac * X * (Y_p - 1) * logten /
+        (X + prefac * (1 + γ))^2
 end
 
 # PARSEC says that the solar Z is 0.0152 and Z/X = 0.0207, but they don't quite agree
