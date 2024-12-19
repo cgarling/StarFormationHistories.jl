@@ -130,13 +130,24 @@ The present-day solar Z is measured to be 0.01524 ([Caffau et al. 2011](https://
 
 This function is an approximation and may not be suitable for precision calculations.
 """
-MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = log10(Z / X_from_Z(Z, Y_p, γ)) - log10(solZ / X_from_Z(solZ, Y_p, γ)) # Originally had X_from_Z(solZ) without passing through the Y_p. Don't remember why
+function MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
+    # @assert all(var > 0 for var in (Z, solZ, Y_p)) "Metal mass fraction `Z`, solar metal mass fraction `solZ`, and primordial helium mass fraction `Y_p` must be greater than 0."
+    X = X_from_Z(Z, Y_p, γ)
+    # return log10(Z / X) - log10(solZ / X_from_Z(solZ, Y_p, γ))
+    # By default log10 will throw an error for negative argument; such negative arguments
+    # can be manifested during the linesearch procedure of a BFGS solve. To prevent errors
+    # and enable the fit to proceed, we return NaN if X <= 0.
+    # Also fuse expression into one log10 call for efficiency.
+    return X > 0 ? log10(Z / (X * solZ) * X_from_Z(solZ, Y_p, γ)) : NaN
+end
 """
     dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
 Partial derivative of [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z) with respect to the input metal mass fraction `Z`. Used for [`LogarithmicAMR`](@ref StarFormationHistories.LogarithmicAMR).
 """
-dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78) = (Y_p - 1) / (logten * Z * (Y_p + Z + γ * Z - 1))
-
+function dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
+    # @assert Z > 0 "Metal mass fraction `Z` must be greater than 0."
+    return (Y_p - 1) / (logten * Z * (Y_p + Z + γ * Z - 1))
+end
 """
     Z_from_MH(MH, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
 Calculates metal mass fraction `Z` assuming that the solar metal mass fraction is `solZ` and using the PARSEC relation for the helium mass fraction `Y = Y_p + γ * Z` with primordial helium abundance `Y_p = 0.2485`, and `γ = 1.78`.
