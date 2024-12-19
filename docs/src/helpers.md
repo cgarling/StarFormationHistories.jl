@@ -28,6 +28,7 @@ StarFormationHistories.X_from_Z
 StarFormationHistories.MH_from_Z
 StarFormationHistories.dMH_dZ
 StarFormationHistories.Z_from_MH
+StarFormationHistories.dZ_dMH
 StarFormationHistories.mdf_amr
 ```
 
