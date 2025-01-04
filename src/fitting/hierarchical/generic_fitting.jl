@@ -533,7 +533,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     free = SVector(free_params(MH_model)..., free_params(disp_model)...)
 
     # Set up places to write results into
-    posterior_matrices = Matrix{eltype(μ)}(undef, length(μ), Nsteps)
+    posterior_matrices = Matrix{eltype(μ)}(undef, length(μ) - count(~, free), Nsteps) # Sized for free params
     tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, Nsteps)
     # Calculate number of steps to take in each thread, accounting for uneven remainder
     idxs_all = collect(Iterators.partition(1:Nsteps, cld(Nsteps, Nthreads)))
