@@ -118,16 +118,13 @@ end
         G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
                              fd_result[end-2] * MHmodel.α, fd_result[end-1], fd_result[end] * disp.σ)
         # Test with jacobian corrections off, we get -nlogL as expected
-        S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+        S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                       MH, true, G, false)
         result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
         @test result[1] ≈ -nlogL # positive logL
         @test result[2] ≈ -G_transformed # positive ∇logL
-        # To support Optim.jl, we need G to be updated in place with -∇logL,
-        # with variable transformations applied
-        @test G ≈ G_transformed
         # Test with jacobian corrections on
-        SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+        SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                        MH, true, G, true)
         logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α) + log(disp.σ)
         resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
@@ -142,16 +139,13 @@ end
             G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
                                  fd_result[end-2] * MHmodel.α, fd_result[end-1])
             # Test with jacobian corrections off, we get -nlogL as expected
-            S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+            S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                           MH, true, G2, false)
             result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
             @test result[1] ≈ -nlogL # positive logL
             @test result[2] ≈ -G_transformed # positive ∇logL
-            # To support Optim.jl, we need G to be updated in place with -∇logL,
-            # with variable transformations applied
-            @test G2 ≈ G_transformed
             # Test with jacobian corrections on
-            SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+            SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                            MH, true, G2, true)
             logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α)
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
@@ -167,16 +161,13 @@ end
             G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
                                  fd_result[end-2] * MHmodel.α, fd_result[end] * disp.σ)
             # Test with jacobian corrections off, we get -nlogL as expected
-            S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+            S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                           MH, true, G2, false)
             result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
             @test result[1] ≈ -nlogL # positive logL
             @test result[2] ≈ -G_transformed # positive ∇logL
-            # To support Optim.jl, we need G to be updated in place with -∇logL,
-            # with variable transformations applied
-            @test G2 ≈ G_transformed
             # Test with jacobian corrections on
-            SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, sC, logAge,
+            SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                   MH, true, G2, true)
             logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α) + log(disp.σ)
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
@@ -238,14 +229,12 @@ end
             ϵ = 0.2
             # Test with all variables free
             tsample_rresult = @test_nowarn SFH.tsample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
-                                                           ϵ=ϵ, reporter = NoProgressReport(),
-                                                           show_convergence=false)
+                                                           ϵ=ϵ, show_progress=false, show_convergence=false)
             @test tsample_rresult.posterior_matrix isa Matrix{T}
             @test size(tsample_rresult.posterior_matrix) == (length(true_vals), Nsteps)
             # Test with fixed parameters
             tsample_fresult = @test_nowarn SFH.tsample_sfh(fresult, smodels, sdata, logAge, MH, Nsteps;
-                                                           ϵ=ϵ, reporter = NoProgressReport(),
-                                                           show_convergence=false)
+                                                           ϵ=ϵ, show_progress=false, show_convergence=false)
             @test tsample_fresult.posterior_matrix isa Matrix{T}
             @test size(tsample_fresult.posterior_matrix) == (length(true_vals), Nsteps)
             # Test that all samples have correct fixed parameters
