@@ -551,41 +551,6 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     bthreads = BLAS.get_num_threads()
     BLAS.set_num_threads(1)
 
-    # # Implemented based on https://discourse.julialang.org/t/multithreading-with-shared-memory-caches/100194/2
-    # # Chunking work with one shared HierarchicalOptimizer. This object contains
-    # # no caches that will be overwritten during computation, so it is thread-safe.
-    # instance = HierarchicalOptimizer(MH_model, disp_model, models, data, logAge, metallicities,
-    #                                  true, similar(x0), true)
-    # warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
-    #                                                   q = x0, # Initial position vector
-    #                                                   κ = DynamicHMC.GaussianKineticEnergy(MAP.invH), # Kinetic energy
-    #                                                   ϵ = ϵ) # HMC step size
-    # sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(),
-    #                                                     DynamicHMC.NoProgressReport())
-    # # Break your work into chunks
-    # # More chunks per thread has lower overhead but worse load balancing
-    # Nthreads = Threads.nthreads()
-    # # chunks_per_thread = max(min_chunks, Nsteps ÷ Nthreads)
-    # chunks = Iterators.partition(1:Nsteps, chain_length)
-
-    # # Set up progress meter
-    # pbar = ProgressMeter.Progress(Nsteps; enabled=show_progress,
-    #                               desc="HMC Sampling: ", showspeed=true)
-
-    # # Map over the chunks, creating an array of spawned tasks
-    # tasks = map(chunks) do chunk
-    #     Threads.@spawn begin
-    #         # return DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-    #         abc = DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-    #         ProgressMeter.next!(pbar, step=length(chunk))
-    #         return abc
-    #     end
-    # end
-    
-    # # Now we fetch all the results from the spawned tasks
-    # results = fetch.(tasks)
-    # ProgressMeter.finish!(pbar)
-
     # Implemented based on https://discourse.julialang.org/t/multithreading-with-shared-memory-caches/100194/2
     # Chunking work with one shared HierarchicalOptimizer. This object contains
     # no caches that will be overwritten during computation, so it is thread-safe.
