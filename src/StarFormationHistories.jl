@@ -15,6 +15,7 @@ using LoopVectorization: @turbo
 import LoopVectorization: can_turbo # Extending for our functions
 import Optim
 using Printf: @sprintf
+import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 using Random: AbstractRNG, default_rng, rand
 using Roots: find_zero # For mass_limits in simulate.jl
