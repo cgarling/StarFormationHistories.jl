@@ -1,14 +1,6 @@
 # [Linear Age-Metallicity Relation](@id linear_amr_section)
 
-## [Why Should Metallicity Evolutions Be Constrained?](@id metal_evo_intro)
-
-While the above methods work well for optimizing the per-template ``r_j`` as a means for fitting SFHs, these methods can produce metallicity evolutions that could be considered unphysical, with large changes in the mean metallicity over small changes in time. An example of this type of behavior is shown in the SFH fit below.
-
-![Example of a SFH fit with variations in the metallicity evolution.](figures/mean_mh.png)
-
-While some metallicity variation in the star-forming gas is to be expected, these variations in the SFH fit can end up being quite large depending on the data and isochrone grid adopted. A solution is to construct a more physically-motivated model.
-
-We can do this using a hierarchical model with a parameterized metallicity distribution function (MDF) where the the ``r_j`` are not the parameters directly optimized. Rather, we can optimize one stellar mass (or star formation rate) parameter per age bin, and then a number of MDF parameters that determine how that stellar mass is split between models with different metallicities at fixed age. An example for one such MDF model is a linear mean metallicity relation ``\langle [\text{M}/\text{H}] \rangle (t) = \alpha \, \left( T_\text{max} - t \right) + \beta`` with a Gaussian distribution in metallicity at fixed age. ``T_\text{max}`` here is the earliest lookback time under consideration such that ``\langle [\text{M}/\text{H}] \rangle (T_\text{max}) = \beta``. If the per-age-bin stellar mass coefficients are ``R_j``, the age of the stellar population ``j`` is ``t_j``, and the metallicity of population ``k`` is ``[\text{M}/\text{H}]_k``, then we can write the per-model ``r_{j,k}`` (where we are now using separate indices for age and metallicity) as
+Here we describe the linear age-metallicity relation ``\langle [\text{M}/\text{H}] \rangle (t) = \alpha \, \left( T_\text{max} - t \right) + \beta`` with a Gaussian distribution in metallicity at fixed age as described by the [`GaussianDispersion`](@ref) dispersion model. ``T_\text{max}`` here is the earliest lookback time under consideration such that ``\langle [\text{M}/\text{H}] \rangle (T_\text{max}) = \beta``. If the per-age-bin stellar mass coefficients are ``R_j``, the age of the stellar population ``j`` is ``t_j``, and the metallicity of population ``k`` is ``[\text{M}/\text{H}]_k``, then we can write the per-model ``r_{j,k}`` (where we are now using separate indices for age and metallicity) as
 
 ```math
 \begin{aligned}
@@ -23,39 +15,28 @@ where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}
 m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
 ```
 
-Below we show a fit using this hierarchical model to the same data as above. 
+Below we show a fit using this hierarchical model to the same data as was used to derive the unconstrained fit in [the introduction](@ref metal_evo_intro). 
 
 ![Example of a SFH fit with a linear metallicity evolution.](figures/mdf_model.png)
 
-## Fitting Functions
-
-We provide the method [`StarFormationHistories.fit_templates_mdf`](@ref) to fit this model to an observed Hess diagram.
+This model is represented by the [`LinearAMR`](@ref) type, which is a subtype of [`AbstractAMR`](@ref StarFormationHistories.AbstractAMR).
 
 ```@docs
-StarFormationHistories.fit_templates_mdf
-StarFormationHistories.LogTransformMDFσResult
-StarFormationHistories.LogTransformMDFResult
+StarFormationHistories.AbstractAMR
+LinearAMR
 ```
 
-The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`
+## Fitting Functions
+
+[`fit_sfh`](@ref) and [`sample_sfh`](@ref) both work with this AMR model.
+
+The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`.
 
 ```@docs
 StarFormationHistories.construct_x0_mdf
 ```
 
-and [`StarFormationHistories.calculate_coeffs_mdf`](@ref) can be used to calculate per-template stellar mass coefficients (the ``r_{j,k}`` above) given the results of a fit (which will be the ``R_j`` in the equations above)
-
-```@docs
-StarFormationHistories.calculate_coeffs_mdf
-```
-
-## Sampling Methods
-
-We additionally offer a sampling method for this linear age-metallicity relation using HMC:
-
-```@docs
-StarFormationHistories.hmc_sample_mdf
-```
+and [`calculate_coeffs`](@ref) can be used to calculate per-template stellar mass coefficients (the ``r_{j,k}`` above) given the results of a fit (which will be the ``R_j`` in the equations above).
 
 ## [Implementation](@id linear_amr_implementation)
 

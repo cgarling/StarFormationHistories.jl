@@ -119,7 +119,7 @@ end
                              fd_result[end-2] * mzr.α, fd_result[end-1], fd_result[end] * disp.σ)
         # Test with jacobian corrections off, we get -nlogL as expected
         S = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                      MH, G, false)
+                                      MH, true, G, false)
         result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
         @test result[1] ≈ -nlogL # positive logL
         @test result[2] ≈ -G_transformed # positive ∇logL
@@ -128,7 +128,7 @@ end
         @test G ≈ G_transformed
         # Test with jacobian corrections on
         SJ = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                       MH, G, true)
+                                       MH, true, G, true)
         logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
         resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
         @test resultj[1] ≈ logLJ
@@ -143,7 +143,7 @@ end
                                  fd_result[end-2] * mzr.α, fd_result[end-1])
             # Test with jacobian corrections off, we get -nlogL as expected
             S = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                          MH, G2, false)
+                                          MH, true, G2, false)
             result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
             @test result[1] ≈ -nlogL # positive logL
             @test result[2] ≈ -G_transformed # positive ∇logL
@@ -152,7 +152,7 @@ end
             @test G2 ≈ G_transformed
             # Test with jacobian corrections on
             SJ = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                           MH, G2, true)
+                                           MH, true, G2, true)
             logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α)
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
             @test resultj[1] ≈ logLJ
@@ -168,7 +168,7 @@ end
                                  fd_result[end-2] * mzr.α, fd_result[end] * disp.σ)
             # Test with jacobian corrections off, we get -nlogL as expected
             S = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                          MH, G2, false)
+                                          MH, true, G2, false)
             result = SFH.LogDensityProblems.logdensity_and_gradient(S, transformed_vals)
             @test result[1] ≈ -nlogL # positive logL
             @test result[2] ≈ -G_transformed # positive ∇logL
@@ -177,7 +177,7 @@ end
             @test G2 ≈ G_transformed
             # Test with jacobian corrections on
             SJ = SFH.HierarchicalOptimizer(mzr, disp, smodels, sdata, sC, logAge,
-                                  MH, G2, true)
+                                  MH, true, G2, true)
             logLJ = -nlogL + sum(log.(Mstars)) + log(mzr.α) + log(disp.σ)
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
             @test resultj[1] ≈ logLJ
@@ -246,7 +246,7 @@ end
                 @test all(isequal(randmat[idx,i], true_vals[idx]) for i in axes(randmat,2))
             end
             @test SFH.calculate_coeffs(fresult.mle, logAge, MH) ==
-                SFH.calculate_coeffs(fresult.mle.Zmodel, fresult.mle.dispmodel,
+                SFH.calculate_coeffs(fresult.mle.MH_model, fresult.mle.disp_model,
                                  @view(fresult.mle.μ[begin:length(unique_logAge)]), logAge, MH)
         end
         

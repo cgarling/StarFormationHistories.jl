@@ -1,6 +1,6 @@
 # Code that is generic between AMRs and MZRs will be placed here
 
-""" `AbstractMetallicityModel{T <: Real}` is the abstract supertype for all hierarchical metallicity models. Abstract subtypes are `AbstractAMR` for age-metallicity relations and [`AbstractMZR`](@ref StarFormationHistories.AbstractMZR) for mass-metallicity relations. """
+""" `AbstractMetallicityModel{T <: Real}` is the abstract supertype for all hierarchical metallicity models. Abstract subtypes are [`AbstractAMR`](@ref StarFormationHistories.AbstractAMR) for age-metallicity relations and [`AbstractMZR`](@ref StarFormationHistories.AbstractMZR) for mass-metallicity relations. """
 abstract type AbstractMetallicityModel{T <: Real} end
 Base.Broadcast.broadcastable(m::AbstractMetallicityModel) = Ref(m)
 
