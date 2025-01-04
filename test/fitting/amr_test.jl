@@ -210,20 +210,39 @@ using Test
 
         @testset "sample_sfh" begin
             Nsteps = 10
+            ϵ = 0.2
             # Test with all variables free
             sample_rresult = @test_nowarn SFH.sample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
-                                                         ϵ=0.2, reporter = NoProgressReport(),
+                                                         ϵ=ϵ, reporter = NoProgressReport(),
                                                          show_convergence=false)
             @test sample_rresult.posterior_matrix isa Matrix{T}
             @test size(sample_rresult.posterior_matrix) == (length(true_vals), Nsteps)
             # Test with fixed parameters
             sample_fresult = @test_nowarn SFH.sample_sfh(fresult, smodels, sdata, logAge, MH, Nsteps;
-                                                         ϵ=0.2, reporter = NoProgressReport(),
+                                                         ϵ=ϵ, reporter = NoProgressReport(),
                                                          show_convergence=false)
             @test sample_fresult.posterior_matrix isa Matrix{T}
             @test size(sample_fresult.posterior_matrix) == (length(true_vals), Nsteps)
             # Test that all samples have correct fixed parameters
             @test all(sample_fresult.posterior_matrix[end-2:end,:] .≈ [MHmodel.α, MHmodel.β, disp.σ])
+        end
+        @testset "tsample_sfh" begin
+            Nsteps = Threads.nthreads()
+            ϵ = 0.2
+            # Test with all variables free
+            tsample_rresult = @test_nowarn SFH.tsample_sfh(rresult, smodels, sdata, logAge, MH, Nsteps;
+                                                           ϵ=ϵ, reporter = NoProgressReport(),
+                                                           show_convergence=false)
+            @test tsample_rresult.posterior_matrix isa Matrix{T}
+            @test size(tsample_rresult.posterior_matrix) == (length(true_vals), Nsteps)
+            # Test with fixed parameters
+            tsample_fresult = @test_nowarn SFH.tsample_sfh(fresult, smodels, sdata, logAge, MH, Nsteps;
+                                                           ϵ=ϵ, reporter = NoProgressReport(),
+                                                           show_convergence=false)
+            @test tsample_fresult.posterior_matrix isa Matrix{T}
+            @test size(tsample_fresult.posterior_matrix) == (length(true_vals), Nsteps)
+            # Test that all samples have correct fixed parameters
+            @test all(tsample_fresult.posterior_matrix[end-2:end,:] .≈ [MHmodel.α, MHmodel.β, disp.σ])
         end
         # BFGSResult and CompositeBFGSResult are tested in mzr_test.jl
     end
