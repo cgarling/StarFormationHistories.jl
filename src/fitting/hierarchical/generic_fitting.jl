@@ -529,8 +529,9 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
                      ϵ::Real = 0.05, # HMC step size
                      show_progress::Bool=true,
                      show_convergence::Bool=true,
+                     # rng::AbstractRNG=default_rng()) where {S <: Number}
                      rng::AbstractRNG=default_rng(),
-                     chain_length::Integer=1) where {S <: Number}
+                     chain_length::Integer=10) where {S <: Number}
 
     # Will use MLE for best-fit values, MAP for invH
     MAP, MLE = bfgs_result.map, bfgs_result.mle
@@ -590,13 +591,16 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     # no caches that will be overwritten during computation, so it is thread-safe.
     instance = HierarchicalOptimizer(MH_model, disp_model, models, data, logAge, metallicities,
                                      true, similar(x0), true)
+    # The call signature for the kinetic energy is κ = DynamicHMC.GaussianKineticEnergy(M⁻¹),
+    # where M is the mass matrix (e.g., equation 5.5 in "Handbook of Markov Chain Monte Carlo").
+    # As explained in section 5.4.1 of that text, on pg 134, if you have an estimate for the covariance
+    # matrix of the fitting variables Σ (in our case, the inverse Hessian), you can improve the efficiency
+    # of the HMC sampling by setting M⁻¹ to Σ, which is what we do here.
     κ = DynamicHMC.GaussianKineticEnergy(MAP.invH)
     sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(),
                                                         DynamicHMC.NoProgressReport())
     # Break your work into chunks
-    # More chunks per thread has lower overhead but worse load balancing
-    Nthreads = Threads.nthreads()
-    # chunks_per_thread = max(min_chunks, Nsteps ÷ Nthreads)
+    # More work per chunk has lower overhead but worse load balancing
     chunks = Iterators.partition(1:Nsteps, chain_length)
 
     # Set up progress meter
@@ -608,36 +612,16 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
         Threads.@spawn begin
             q = rand(rng, sampler)
             warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
-                                                              # q = x0, # Initial position vector
                                                               q = q, # Initial position vector
                                                               κ = κ, # Kinetic energy
                                                               ϵ = ϵ) # HMC step size
             return DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-            # abc = DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-            # ProgressMeter.next!(pbar, step=length(chunk))
-            # return abc
         end
     end
     
     # Now we fetch all the results from the spawned tasks
-    # results = fetch.(tasks)
     results = ProgressMeter.progress_map(fetch, tasks; progress=pbar)
-    
-    # ProgressMeter.finish!(pbar)
-
-    # tasks = Vector{Task}(undef, length(chunks))
-    # for (i, chunk) in enumerate(chunks)
-    #     tasks[i] = Threads.@spawn begin
-    #         # return DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-    #         abc = DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
-    #         ProgressMeter.next!(pbar, step=length(chunk))
-    #         return abc
-    #     end
-    # end
-    # wait.(tasks)
-    # results = fetch.(tasks)
-    # ProgressMeter.finish!(pbar)
-    
+    # Reorganize into expected shape
     result = (posterior_matrix = reduce(hcat, i[1] for i in results),
               tree_statistics = reduce(vcat, i[2] for i in results))
     BLAS.set_num_threads(bthreads)
