@@ -535,15 +535,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     # Set up places to write results into
     posterior_matrices = Matrix{eltype(μ)}(undef, length(μ), Nsteps)
     tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, Nsteps)
-    # # Calculate number of steps to take in each thread, accounting for uneven remainder
-    # # This can be replaced by Iterators.partition
-    # tsteps = repeat([Nsteps ÷ Nthreads], Nthreads)
-    # tsteps[end] += Nsteps % Nthreads
-    # cum_tsteps = cumsum(tsteps)
-    # idxs_all = vcat([range(1,tsteps[1])],
-    #                 [range(cum_tsteps[i-1]+1,cum_tsteps[i]) for i in 2:(Nthreads-1)],
-    #                 [range(cum_tsteps[end-1]+1, Nsteps)])
-    # cld is integer division rounded up = div(x, y, RoundUp)
+    # Calculate number of steps to take in each thread, accounting for uneven remainder
     idxs_all = collect(Iterators.partition(1:Nsteps, cld(Nsteps, Nthreads)))
 
     # Disable BLAS threading
@@ -571,15 +563,6 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
         
         # Sample
         result = DynamicHMC.mcmc(sampling_logdensity, length(idxs), warmup_state)
-        # result = DynamicHMC.mcmc(sampling_logdensity, tsteps[i], warmup_state)
-        # Write into shared output array
-        # if i == 1
-        #     idxs = range(1, tsteps[1])
-        # elseif i == Nthreads
-        #     idxs = range(cum_tsteps[end-1]+1, Nsteps)
-        # else
-        #     idxs = range(cum_tsteps[i-1]+1, cum_tsteps[i])
-        # end
         posterior_matrices[:, idxs] .= result.posterior_matrix
         tree_statistics[idxs] .= result.tree_statistics
     end
