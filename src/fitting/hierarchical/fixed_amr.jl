@@ -172,9 +172,12 @@ end
 fixed_amr(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, args...; kws...) = fixed_amr(stack_models(models), vec(data), args...; kws...)
 
 """
-    keep_idx::Vector{Int} = truncate_relweights(relweightsmin::Number, relweights::AbstractVector{<:Number}, logAge::AbstractVector{<:Number})
+    keep_idx::Vector{Int} =
+        truncate_relweights(relweightsmin::Number,
+                            relweights::AbstractVector{<:Number},
+                            logAge::AbstractVector{<:Number})
 
-Method to truncate an isochrone grid with log10(age [yr]) values `logAge` and relative weights `relweights` due to an age-metallicity relation to only include models with `relweights` greater than `relweightsmin` times the maximum relative weight for each unique entry in `logAge`. The input vectors are the same as those for [`StarFormationHistories.fixed_amr`](@ref), which includes more information. Returns a vector of the indices into `relweights` and `logAge` of the isochrone models whose relative weights are significant given the provided `relweightsmin`.
+Method to truncate an isochrone grid with log10(age [yr]) values `logAge` and relative weights `relweights` derived from a hierarchical metallicity evolution model to only include template models with `relweights` greater than `relweightsmin` times the maximum relative weight for each unique entry in `logAge`. The input vectors are the same as those for [`StarFormationHistories.fixed_amr`](@ref), which includes more information. Returns a vector of the indices into `relweights` and `logAge` of the template models whose relative weights are significant given the provided `relweightsmin`.
 
 # Examples
 When using a fixed input age-metallicity relation as enabled by, for example, [`StarFormationHistories.fixed_amr`](@ref), only the star formation rate (or total stellar mass) coefficients need to be fit, as the metallicity distribution is no longer a free parameter in the model. As such, the relative weights of each model with identical `logAge` but different `metallicities` only need to be computed once at the start of the optimization. As the metallicity distribution is not a free parameter, it is also possible to truncate the list of models to only those that contribute significantly to the final composite model to improve runtime performance. That is what this method does.
