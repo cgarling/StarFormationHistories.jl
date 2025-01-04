@@ -11,7 +11,15 @@ This model differs from the [linear age-metallicity relation (AMR)](@ref linear_
 \end{aligned}
 ```
 
-with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z \rangle (T_\text{max}) = \beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. We model the spread in metallicities at fixed ``t`` as Gaussian in [M/H], identically to how it is modelled in the linear AMR case. This implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, shown below, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities. The per-model coefficients implied by a such a logarithmic AMR can be calculated with [`calculate_coeffs_logamr`](@ref StarFormationHistories.calculate_coeffs_logamr).
+with ``T_\text{max}`` being the earliest lookback time under consideration, such that ``\langle Z \rangle (T_\text{max}) = \beta``. We choose this parameterization so that positive ``\alpha`` and ``\beta`` result in an age-metallicity relation that is monotonically increasing with decreasing lookback time ``t``. If we model the spread in metallicities at fixed ``t`` as Gaussian in [M/H] with the [`GaussianDispersion`](@ref) dispersion model, this implies the spread is asymmetric in ``Z``; this can be seen in the output of `examples/log_amr/log_amr_example.jl`, shown below, which illustrates the relative weights due to a logarithmic AMR across a grid of ages and metallicities.
+
+This logarithmic AMR is implemented with the [`LogarithmicAMR`](@ref) type, which is a subtype of [`AbstractAMR`](@ref StarFormationHistories.AbstractAMR).
+
+```@docs
+LogarithmicAMR
+```
+
+The per-model coefficients (the ``r_{j,k}`` above) implied by a such a logarithmic AMR can be calculated with [`calculate_coeffs`](@ref) and an example is shown below.
 
 ```@example
 ENV["GKSwstype"] = "100" # https://discourse.julialang.org/t/generation-of-documentation-fails-qt-qpa-xcb-could-not-connect-to-display/60988 # hide
@@ -21,37 +29,11 @@ savefig("log_amr_plot.svg"); nothing # hide
 
 ![Visualization of the relative weights across a grid of logAge and metallicity under a logarithmic age-metallicity relation.](log_amr_plot.svg)
 
-```@docs
-StarFormationHistories.calculate_coeffs_logamr
-```
-
 ## Fitting Functions
 
-The main function we provide to fit star formation histories to Hess diagrams under the logarithmic age-metallicity relation is [`fit_templates_logamr`](@ref StarFormationHistories.fit_templates_logamr). This function operates similarly to the fitting function for the linear AMR model, [`fit_templates_mdf`](@ref StarFormationHistories.fit_templates_mdf). 
+[`fit_sfh`](@ref) and [`sample_sfh`](@ref) both work with this AMR model.
 
-```@docs
-StarFormationHistories.fit_templates_logamr
-```
-
-## Sampling Functions
-
-```@docs
-StarFormationHistories.hmc_sample_logamr
-```
-
-## Fixed Logarithmic Age-Metallicity Relation
-
-We support fitting only the star formation parameters by adopting fixed values for ``\alpha``, ``\beta``, and ``\sigma`` through the [`fixed_log_amr`](@ref StarFormationHistories.fixed_log_amr) method.
-
-```@docs
-StarFormationHistories.fixed_log_amr
-```
-
-We provide the [calculate\_αβ\_logamr](@ref StarFormationHistories.calculate_αβ_logamr) convenience function to calculate the slope ``\alpha`` and intercept ``\beta`` from two points on the age-metallicity relation.
-
-```@docs
-StarFormationHistories.calculate_αβ_logamr
-```
+The method [`StarFormationHistories.construct_x0_mdf`](@ref) can be used to construct the stellar mass components ``R_j`` of the initial guess vector `x0`.
 
 ## Implementation
 

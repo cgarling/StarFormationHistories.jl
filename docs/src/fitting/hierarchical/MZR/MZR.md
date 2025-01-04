@@ -22,11 +22,7 @@ We provide a generic interface for describing the analytic form of the MZR so th
 PowerLawMZR
 ```
 
-The per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) can be derived from an MZR model, a [metallicity dispersion model](@ref dispersion_models), the per-unique-log(age) stellar mass coefficients (``R_j`` in the [derivation](@ref mzr_derivation)), and the set of SSP logarithmic ages `logAge = log10(age [yr])` and metallicites using [`calculate_coeffs`](@ref),
-
-```@docs
-calculate_coeffs(::StarFormationHistories.AbstractMZR, ::StarFormationHistories.AbstractDispersionModel, ::AbstractVector{<:Number}, ::AbstractVector{<:Number}, ::AbstractVector{<:Number})
-```
+The per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) can be derived from an MZR model, a [metallicity dispersion model](@ref dispersion_models), the per-unique-log(age) stellar mass coefficients (``R_j`` in the [derivation](@ref mzr_derivation)), and the set of SSP logarithmic ages `logAge = log10(age [yr])` and metallicites using [`calculate_coeffs`](@ref StarFormationHistories.calculate_coeffs).
 
 ## [Mass-Metallicity Relation API](@id mzr_API)
 
@@ -41,6 +37,9 @@ StarFormationHistories.update_params(::StarFormationHistories.AbstractMZR, ::Any
 StarFormationHistories.transforms(::StarFormationHistories.AbstractMZR)
 StarFormationHistories.free_params(::StarFormationHistories.AbstractMZR)
 ```
+
+## Fitting and Sampling Methods
+The MZRs listed above support the generic fitting and sampling methods listed in the [overview](@ref metal_evo_intro).
 
 ## [Derivation](@id mzr_derivation)
 

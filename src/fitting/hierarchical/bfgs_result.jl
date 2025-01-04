@@ -3,8 +3,8 @@
                σ::AbstractVector{<:Number},
                invH::AbstractMatrix{<:Number},
                result,
-               Zmodel::AbstractMetallicityModel,
-               dispmodel::AbstractDispersionModel)
+               MH_model::AbstractMetallicityModel,
+               disp_model::AbstractDispersionModel)
 
 Type for containing the maximum likelihood estimate (MLE) *or* maximum a posteriori (MAP) results from BFGS optimizations that use Optim.jl. Fields are as follows:
 
@@ -12,12 +12,12 @@ Type for containing the maximum likelihood estimate (MLE) *or* maximum a posteri
  - `σ` contains the standard errors estimated for the parameters and is returned by the `std` method.
  - `invH` is the BFGS approximation to the inverse Hessian, which is an estimator for the covariance matrix of the parameters if the objective function is approximately Gaussian near the best-fit `μ`.
  - `result` is the full result object returned by Optim.jl.
- - `Zmodel` is the best-fit metallicity model.
- - `dispmodel` is the best-fit metallicity dispersion model.
+ - `MH_model` is the best-fit metallicity model.
+ - `disp_model` is the best-fit metallicity dispersion model.
 
-This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution constructed from the `invH`. You can obtain `N::Integer` samples from the distribution with `rand(R, N)` where `R` is an instance of this type. This will return a size `(length(μ)+2) x N` matrix.
+This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution constructed from the `invH`. You can obtain `N::Integer` samples from the distribution with `rand(R, N)` where `R` is an instance of this type. This will return a size `length(μ) x N` matrix.
 
-You can also directly obtain the per-SSP template coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) using the optimization results stored in a `BFGSResult` with [`calculate_coeffs`](@ref calculate_coeffs(::StarFormationHistory.BFGSResult, ::AbstractVector{<:Number}, ::AbstractVector{<:Number})).
+You can also directly obtain the per-SSP template coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) using the optimization results stored in a `BFGSResult` with [`calculate_coeffs`](@ref).
 
 # See also
  - [`CompositeBFGSResult`](@ref StarFormationHistories.CompositeBFGSResult) is a type that contains two instances of `BFGSResult`, one for the MAP and one for the MLE.
@@ -32,8 +32,8 @@ struct BFGSResult{A <: AbstractVector{<:Number},
     σ::B
     invH::C
     result::D
-    Zmodel::E
-    dispmodel::F
+    MH_model::E
+    disp_model::F
 end
 Base.length(result::BFGSResult) = length(result.μ)
 mode(result::BFGSResult) = result.μ
@@ -42,13 +42,13 @@ std(result::BFGSResult) = result.σ
 function _rand!(rng::AbstractRNG, result::BFGSResult,
                 samples::Union{AbstractVector{S}, DenseMatrix{S}}) where {S <: Real}
     
-    Zmodel, dispmodel = result.Zmodel, result.dispmodel
+    MH_model, disp_model = result.MH_model, result.disp_model
     μ = result.μ
-    Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
+    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(result.result), result.invH)
     # Construct view into samples to get rows corresponding to free parameters
-    tf = (transforms(Zmodel)..., transforms(dispmodel)...)
-    free = SVector(free_params(Zmodel)..., free_params(dispmodel)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
     # Now sure why but this vcat causes _rand! to make an allocation for each sample
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
@@ -58,7 +58,7 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     # Now perform variable transformations for free metallicity and dispersion parameters
     exptransform_samples!(fittable_view, μ, tf[free], free[free])
     # Now write in fixed parameters
-    par = (values(fittable_params(Zmodel))..., values(fittable_params(dispmodel))...)
+    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
     for i in 1:length(free)
         if ~free[i] # if parameter is fixed,
             samples[Nbins+i, :] .= par[i]
@@ -77,10 +77,10 @@ Returns per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref 
 function calculate_coeffs(result::BFGSResult,
                           logAge::AbstractVector{<:Number},
                           metallicities::AbstractVector{<:Number})
-    Zmodel, dispmodel, μ = result.Zmodel, result.dispmodel, result.μ
+    MH_model, disp_model, μ = result.MH_model, result.disp_model, result.μ
     # Get number of stellar mass coefficients
-    Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel)
-    return calculate_coeffs(result.Zmodel, result.dispmodel,
+    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model)
+    return calculate_coeffs(result.MH_model, result.disp_model,
                             @view(μ[begin:Nbins]), logAge,
                             metallicities)
 end
@@ -92,7 +92,7 @@ end
 
 Type for containing the maximum a posteriori (MAP) *AND* maximum likelihood estimate (MLE) results from BFGS optimizations that use Optim.jl, which are individually accessible via the `:mle` and `:map` properties (i.e., for an instance of this type `t`, `t.mle` or `getproperty(t, :mle)` and `t.map` or `getproperty(t, :map)`).
 
-Random sampling with `rand(t, N::Integer)` will use the MLE result for the best-fit values and the inverse Hessian approximation to the covariance matrix from the MAP result, which is more robust when best-fit values that are constrained to be positive approach 0.
+Random samples can be drawn from an instance `t` as `rand(t, N::Integer)`. This will return a size `length(μ) x N` matrix. This will use the MLE result for the best-fit values and the inverse Hessian approximation to the covariance matrix from the MAP result, which is more robust when best-fit values that are constrained to be positive approach 0.
 
 Per-SSP coefficients can be calculated with `calculate_coeffs(result::CompositeBFGSResult, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number})`, which uses the MLE result (see [these docs](@ref StarFormationHistories.calculate_coeffs(::BFGSResult, ::AbstractVector{<:Number}, ::AbstractVector{<:Number}))).
 """
@@ -110,13 +110,13 @@ function _rand!(rng::AbstractRNG,
                 samples::Union{AbstractVector{S}, DenseMatrix{S}}) where {S <: Real}
 
     MLE, MAP = result.mle, result.map
-    Zmodel, dispmodel = MLE.Zmodel, MLE.dispmodel
+    MH_model, disp_model = MLE.MH_model, MLE.disp_model
     μ = MLE.μ
-    Nbins = length(μ) - nparams(Zmodel) - nparams(dispmodel) # Number of SFR parameters
+    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(MLE.result), MAP.invH)
     # Construct view into samples to get rows corresponding to free parameters
-    tf = (transforms(Zmodel)..., transforms(dispmodel)...)
-    free = SVector(free_params(Zmodel)..., free_params(dispmodel)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
     # Now sure why but this vcat causes _rand! to make an allocation for each sample
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
@@ -126,7 +126,7 @@ function _rand!(rng::AbstractRNG,
     # Now perform variable transformations for free metallicity and dispersion parameters
     exptransform_samples!(fittable_view, μ, tf[free], free[free])
     # Now write in fixed parameters
-    par = (values(fittable_params(Zmodel))..., values(fittable_params(dispmodel))...)
+    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
     for i in 1:length(free)
         if ~free[i] # if parameter is fixed,
             samples[Nbins+i, :] .= par[i]
