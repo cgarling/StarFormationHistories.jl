@@ -535,13 +535,16 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     # Set up places to write results into
     posterior_matrices = Matrix{eltype(μ)}(undef, length(μ), Nsteps)
     tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, Nsteps)
-    # Calculate number of steps to take in each thread, accounting for uneven remainder
-    tsteps = repeat([Nsteps ÷ Nthreads], Nthreads)
-    tsteps[end] += Nsteps % Nthreads
-    cum_tsteps = cumsum(tsteps)
+    # # Calculate number of steps to take in each thread, accounting for uneven remainder
+    # # This can be replaced by Iterators.partition
+    # tsteps = repeat([Nsteps ÷ Nthreads], Nthreads)
+    # tsteps[end] += Nsteps % Nthreads
+    # cum_tsteps = cumsum(tsteps)
     # idxs_all = vcat([range(1,tsteps[1])],
     #                 [range(cum_tsteps[i-1]+1,cum_tsteps[i]) for i in 2:(Nthreads-1)],
     #                 [range(cum_tsteps[end-1]+1, Nsteps)])
+    # cld is integer division rounded up = div(x, y, RoundUp)
+    idxs_all = collect(Iterators.partition(1:Nsteps, cld(Nsteps, Nthreads)))
 
     # Disable BLAS threading
     bthreads = BLAS.get_num_threads()
@@ -549,6 +552,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     
     Threads.@threads for i in 1:Nthreads
         composite = similar(data, S)
+        idxs = idxs_all[i]
         # Setup structs to pass to DynamicHMC.mcmc
         instance = HierarchicalOptimizer(MH_model, disp_model, models, data, composite, logAge, metallicities,
                                          true, similar(x0), true)
@@ -566,16 +570,16 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
         sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(), ireporter)
         
         # Sample
-        result = DynamicHMC.mcmc(sampling_logdensity, tsteps[i], warmup_state)
+        result = DynamicHMC.mcmc(sampling_logdensity, length(idxs), warmup_state)
+        # result = DynamicHMC.mcmc(sampling_logdensity, tsteps[i], warmup_state)
         # Write into shared output array
-        # idxs = idxs_all[i]
-        if i == 1
-            idxs = range(1, tsteps[1])
-        elseif i == Nthreads
-            idxs = range(cum_tsteps[end-1]+1, Nsteps)
-        else
-            idxs = range(cum_tsteps[i-1]+1, cum_tsteps[i])
-        end
+        # if i == 1
+        #     idxs = range(1, tsteps[1])
+        # elseif i == Nthreads
+        #     idxs = range(cum_tsteps[end-1]+1, Nsteps)
+        # else
+        #     idxs = range(cum_tsteps[i-1]+1, cum_tsteps[i])
+        # end
         posterior_matrices[:, idxs] .= result.posterior_matrix
         tree_statistics[idxs] .= result.tree_statistics
     end
@@ -613,3 +617,117 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     end
     return result
 end
+# function tsample_sfh(bfgs_result::CompositeBFGSResult, 
+#                      models::AbstractMatrix{S},
+#                      data::AbstractVector{<:Number},
+#                      logAge::AbstractVector{<:Number},
+#                      metallicities::AbstractVector{<:Number},
+#                      Nsteps::Integer;
+#                      ϵ::Real = 0.05, # HMC step size
+#                      reporter = DynamicHMC.ProgressMeterReport(),
+#                      show_convergence::Bool=true,
+#                      # composite::AbstractVector{<:Number}=similar(data, S),
+#                      rng::AbstractRNG=default_rng()) where {S <: Number}
+
+#     Nthreads = Threads.nthreads()
+#     @assert Nsteps ≥ Nthreads "`tsample_sfh` requires you request at least as many samples as available threads (`Nsteps > Threads.nthreads`)."
+#     # Will use MLE for best-fit values, MAP for invH
+#     MAP, MLE = bfgs_result.map, bfgs_result.mle
+#     # Best-fit free parameter values from optimization in transformed fitting variables
+#     x0 = Optim.minimizer(MLE.result)
+#     # Best-fit all parameters (fixed included)
+#     μ = MLE.μ
+#     MH_model, disp_model = MLE.MH_model, MLE.disp_model
+    
+#     # Get transformation parameters
+#     tf = (transforms(MH_model)..., transforms(disp_model)...)
+#     free = SVector(free_params(MH_model)..., free_params(disp_model)...)
+
+#     # Set up places to write results into
+#     posterior_matrices = Matrix{eltype(μ)}(undef, length(μ), Nsteps)
+#     tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, Nsteps)
+#     # # Calculate number of steps to take in each thread, accounting for uneven remainder
+#     # tsteps = repeat([Nsteps ÷ Nthreads], Nthreads)
+#     # tsteps[end] += Nsteps % Nthreads
+#     # cum_tsteps = cumsum(tsteps)
+#     # # idxs_all = vcat([range(1,tsteps[1])],
+#     # #                 [range(cum_tsteps[i-1]+1,cum_tsteps[i]) for i in 2:(Nthreads-1)],
+#     # #                 [range(cum_tsteps[end-1]+1, Nsteps)])
+
+#     # Disable BLAS threading
+#     bthreads = BLAS.get_num_threads()
+#     BLAS.set_num_threads(1)
+
+#     # This chunking method works but results in very low length per MC chain,
+#     # which is suboptimal for statistical purposes. Sticking with one chain
+#     # per thread for now, although it is slower on efficiency cores.
+#     # Implemented based on https://discourse.julialang.org/t/multithreading-with-shared-memory-caches/100194/2
+#     # Break your work into chunks
+#     # More chunks per thread has lower overhead but worse load balancing
+#     chunks_per_thread = Nsteps % Nthreads
+#     chunks = Iterators.partition(1:Nsteps, chunks_per_thread)
+
+#     # Map over the chunks, creating an array of spawned tasks
+#     tasks = map(chunks) do chunk
+#         Threads.@spawn begin
+#             composite = similar(data, S)
+#             # Setup structs to pass to DynamicHMC.mcmc
+#             instance = HierarchicalOptimizer(MH_model, disp_model, models, data, composite, logAge, metallicities,
+#                                              true, similar(x0), true)
+#             # The call signature for the kinetic energy is κ = DynamicHMC.GaussianKineticEnergy(M⁻¹),
+#             # where M is the mass matrix (e.g., equation 5.5 in "Handbook of Markov Chain Monte Carlo").
+#             # As explained in section 5.4.1 of that text, on pg 134, if you have an estimate for the covariance
+#             # matrix of the fitting variables Σ (in our case, the inverse Hessian), you can improve the efficiency
+#             # of the HMC sampling by setting M⁻¹ to Σ, which is what we do here.
+#             warmup_state = DynamicHMC.initialize_warmup_state(rng, instance;
+#                                                               q = x0, # Initial position vector
+#                                                               κ = DynamicHMC.GaussianKineticEnergy(MAP.invH), # Kinetic energy
+#                                                               ϵ = ϵ) # HMC step size
+#             # Only use reporter on first thread
+#             # ireporter = i == 1 ? reporter : DynamicHMC.NoProgressReport()
+#             # sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(), ireporter)
+#             sampling_logdensity = DynamicHMC.SamplingLogDensity(rng, instance, DynamicHMC.NUTS(),
+#                                                                 DynamicHMC.NoProgressReport())
+            
+#             # Sample
+#             return DynamicHMC.mcmc(sampling_logdensity, length(chunk), warmup_state)
+#         end
+#     end
+#     # Now we fetch all the results from the spawned tasks
+#     results = fetch.(tasks)
+#     result = (posterior_matrix = reduce(hcat, i[1] for i in results),
+#               tree_statistics = reduce(vcat, i[2] for i in results))
+#     # result = (posterior_matrix = posterior_matrices, tree_statistics = tree_statistics)
+#     BLAS.set_num_threads(bthreads)
+
+#     # Test convergence
+#     tree_stats = DynamicHMC.Diagnostics.summarize_tree_statistics(result.tree_statistics)
+#     show_convergence && display(tree_stats)
+#     if tree_stats.a_mean < 0.8
+#         @warn "Acceptance ratio for samples less than 80%, recommend re-running with smaller step size ϵ."
+#     end
+#     if tree_stats.termination_counts.divergence > (0.1 * Nsteps)
+#         @warn "More than 10% of samples diverged, recommend re-running with smaller step size ϵ."
+#     end
+
+#     # Transform samples
+#     Nbins = length(μ) - nparams(MH_model) - nparams(disp_model)
+#     # Get indices into μ corresponding to free parameters
+#     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
+#     exptransform_samples!(result.posterior_matrix, μ[row_idxs], tf[free], free[free])
+
+#     # Now we need to expand posterior_samples to include fixed parameters as well
+#     if false in free
+#         samples = similar(result.posterior_matrix, (length(μ), Nsteps))
+#         samples[row_idxs, :] .= result.posterior_matrix
+#         # Now write in fixed parameters
+#         par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
+#         for i in 1:length(free)
+#             if ~free[i] # if parameter is fixed,
+#                 samples[Nbins+i, :] .= par[i]
+#             end
+#         end
+#         result = (posterior_matrix = samples, tree_statistics = result.tree_statistics)
+#     end
+#     return result
+# end
