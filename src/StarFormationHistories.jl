@@ -17,14 +17,14 @@ import Optim
 using Printf: @sprintf
 import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
-using Random: AbstractRNG, default_rng, rand
+using Random: AbstractRNG, default_rng
 using Roots: find_zero # For mass_limits in simulate.jl
 import Trapz: trapz
 using SpecialFunctions: erf
 # LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)
 using VectorizationBase: AbstractSIMD, verf # SIMD-capable erf for Float32 and Float64
-using StaticArrays: SVector, SMatrix, sacollect
-using StatsBase: fit, Histogram, Weights, sample
+using StaticArrays: SVector, sacollect
+using StatsBase: fit, Histogram, Weights
 import StatsBase: mean, median, mode, std # Extending
 import KissMCMC
 import MCMCChains
