@@ -1,6 +1,6 @@
 # StarFormationHistories.jl
 
-[![Build Status](https://github.com/cgarling/StarFormationHistories.jl/workflows/CI/badge.svg)](https://github.com/cgarling/InitialMassFunctions.jl/actions)
+[![Build Status](https://github.com/cgarling/StarFormationHistories.jl/workflows/CI/badge.svg)](https://github.com/cgarling/StarFormationHistories.jl/actions)
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://cgarling.github.io/StarFormationHistories.jl/stable/)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://cgarling.github.io/StarFormationHistories.jl/dev/)
 [![codecov](https://codecov.io/github/cgarling/StarFormationHistories.jl/graph/badge.svg?token=L69R23H29M)](https://codecov.io/github/cgarling/StarFormationHistories.jl)
