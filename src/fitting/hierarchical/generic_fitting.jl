@@ -383,18 +383,15 @@ fit_sfh(MH_model0::AbstractMetallicityModel, disp_model0::AbstractDispersionMode
                Nsteps::Integer;
                ϵ::Real = 0.05, # HMC step size
                reporter = DynamicHMC.ProgressMeterReport(),
-               show_convergence::Bool=true,
-               rng::AbstractRNG=default_rng())
+               show_convergence::Bool = true,
+               rng::AbstractRNG = default_rng())
     sample_sfh(bfgs_result::CompositeBFGSResult, 
                models::AbstractVector{<:AbstractMatrix{<:Number}},
                data::AbstractMatrix{<:Number},
                logAge::AbstractVector{<:Number},
                metallicities::AbstractVector{<:Number},
                Nsteps::Integer;
-               ϵ::Real = 0.05, # HMC step size
-               reporter = DynamicHMC.ProgressMeterReport(),
-               show_convergence::Bool=true,
-               rng::AbstractRNG=default_rng())
+               kws...)
 
 Takes the SFH fitting result in `bfgs_result` and uses it to initialize the Hamiltonian Monte Carlo (HMC) sampler from DynamicHMC.jl to sample `Nsteps` independent draws from the posterior.
 
@@ -489,7 +486,7 @@ function sample_sfh(bfgs_result::CompositeBFGSResult,
     return result
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
-sample_sfh(bfgs_result::CompositeBFGSResult, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, Nsteps::Integer) = sample_sfh(bfgs_result, stack_models(models), vec(data), logAge, metallicities, Nsteps)
+sample_sfh(bfgs_result::CompositeBFGSResult, models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, logAge::AbstractVector{<:Number}, metallicities::AbstractVector{<:Number}, Nsteps::Integer; kws...) = sample_sfh(bfgs_result, stack_models(models), vec(data), logAge, metallicities, Nsteps; kws...)
 
 # factor ~2.7 reduced runtime for 1 -> 4 threads
 # no real performance hit when nthreads=1 either
@@ -504,21 +501,25 @@ sample_sfh(bfgs_result::CompositeBFGSResult, models::AbstractVector{<:AbstractMa
                 metallicities::AbstractVector{<:Number},
                 Nsteps::Integer;
                 ϵ::Real = 0.05, # HMC step size
-                reporter = DynamicHMC.ProgressMeterReport(),
                 show_convergence::Bool=true,
-                rng::AbstractRNG=default_rng())
+                show_progress::Bool=true,
+                rng::AbstractRNG=default_rng(),
+                chain_length::Integer=100)
     tsample_sfh(bfgs_result::CompositeBFGSResult, 
                 models::AbstractVector{<:AbstractMatrix{<:Number}},
                 data::AbstractMatrix{<:Number},
                 logAge::AbstractVector{<:Number},
                 metallicities::AbstractVector{<:Number},
                 Nsteps::Integer;
-                ϵ::Real = 0.05, # HMC step size
-                reporter = DynamicHMC.ProgressMeterReport(),
-                show_convergence::Bool=true,
-                rng::AbstractRNG=default_rng())
+                kws...)
 
-Multi-threaded version of [`sample_sfh`](@ref); see that method's documentation for details. The requested Monte Carlo samples `Nsteps` are split equally between Julia threads and are combined before being returned. As work is divided statically and equally amongst available threads, and this function blocks until all threads are returned, this function's runtime is limited by the slowest available thread. In architectures with inhomogenous cores, e.g., "performance" and "efficiency" cores as used in Apple M-series chips, this function will often perform better when limiting Julia threads to the number of available performance cores (e.g., using 4 threads on Apple M2 which has 4 performance cores and 4 efficiency cores by starting Julia with `julia -t 4`).
+Multi-threaded version of [`sample_sfh`](@ref); see that method's documentation for details.
+
+# Implementation
+This method splits the requested number of samples `Nsamples` into a number of independent HMC chains, each of which has length `chain_length`. Initial positions for each chain are randomly drawn from the multivariate Gaussian approximation to the objective function stored in `bfgs_result`, approximating a warm start. Smaller values of `chain_length` achieve better load balancing while larger values of `chain_length` allow each chain more time to mix (see also [Chen et al. 2020](https://arxiv.org/abs/1905.12247)). The default value of 100 results in good mixing with 24 fitting variables and a well-scaled step length ϵ -- higher dimensional problems should increase `chain_length`. The downside to large `chain_length` is poor load balancing across available threads resulting in longer runtimes.
+
+# Notes
+ - if `show_progress` is `true`, we will show a progress bar that updates when individual chains complete. Currently this is not terribly useful unless the total number of chains is much greater than the number of available threads.
 """
 function tsample_sfh(bfgs_result::CompositeBFGSResult, 
                      models::AbstractMatrix{S},
@@ -527,11 +528,11 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
                      metallicities::AbstractVector{<:Number},
                      Nsteps::Integer;
                      ϵ::Real = 0.05, # HMC step size
-                     show_progress::Bool=true,
-                     show_convergence::Bool=true,
+                     show_progress::Bool = true,
+                     show_convergence::Bool = true,
                      # rng::AbstractRNG=default_rng()) where {S <: Number}
-                     rng::AbstractRNG=default_rng(),
-                     chain_length::Integer=10) where {S <: Number}
+                     rng::AbstractRNG = default_rng(),
+                     chain_length::Integer = 100) where {S <: Number}
 
     # Will use MLE for best-fit values, MAP for invH
     MAP, MLE = bfgs_result.map, bfgs_result.mle
