@@ -184,8 +184,8 @@ struct LinearAMR{T <: Real} <: AbstractAMR{T}
     T_max::T # Earliest valid lookback time in Gyr, at which <[M/H]> = β; e.g. 
     free::NTuple{2, Bool}
     function LinearAMR(α::T, β::T, T_max::T, free::NTuple{2, Bool}) where T <: Real
-        if α ≤ zero(T)
-            throw(ArgumentError("α must be > 0"))
+        if α < zero(T)
+            throw(ArgumentError("α must be ≥ 0"))
         elseif T_max ≤ zero(T)
             throw(ArgumentError("T_max must be > 0"))
         end
@@ -257,10 +257,10 @@ struct LogarithmicAMR{T <: Real, S, V} <: AbstractAMR{T}
     function LogarithmicAMR(α::T, β::T, T_max::T,
                             MH_func::S, dMH_dZ::V,
                             free::NTuple{2, Bool}) where {T <: Real, S, V}
-        if α ≤ zero(T)
-            throw(ArgumentError("α must be > 0"))
-        elseif β ≤ zero(T)
-            throw(ArgumentError("β must be > 0"))
+        if α < zero(T)
+            throw(ArgumentError("α must be ≥ 0"))
+        elseif β < zero(T)
+            throw(ArgumentError("β must be ≥ 0"))
         elseif T_max ≤ zero(T)
             throw(ArgumentError("T_max must be > 0"))
         end
