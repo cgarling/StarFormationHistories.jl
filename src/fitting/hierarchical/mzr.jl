@@ -266,7 +266,7 @@ struct PowerLawMZR{T <: Real} <: AbstractMZR{T}
     logMstar0::T # log10(Mstar) at which [M/H] = MH0
     free::NTuple{2, Bool}
     PowerLawMZR(α::T, MH0::T, logMstar0::T, free::NTuple{2, Bool}) where T <: Real =
-        α ≤ zero(T) ? throw(ArgumentError("α must be > 0")) : new{T}(α, MH0, logMstar0, free)
+        α < zero(T) ? throw(ArgumentError("α must be ≥ 0")) : new{T}(α, MH0, logMstar0, free)
 end
 PowerLawMZR(α::Real, MH0::Real, logMstar0::Real=6, free::NTuple{2, Bool}=(true, true)) =
     PowerLawMZR(promote(α, MH0, logMstar0)..., free)
