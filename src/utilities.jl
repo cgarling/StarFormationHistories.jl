@@ -275,7 +275,7 @@ vecs_to_svecs(vecs::Vararg{T, N}) where {T <: AbstractVector, N} = [SVector{N, e
 vecs_to_svecs(x::AbstractVector{<:AbstractVector}) = vecs_to_svecs(x...)
 
 """
-    tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
+    tups_to_mat(tups::Vararg{T, N}) where {M, S, N, T <: NTuple{M, S}}
 
 Takes a sequence of `N` `NTuples`, each of which has length `M` and element type `S`, and converts them into a matrix of size `(M, N)`.
 
@@ -284,7 +284,6 @@ julia> tups_to_mat((1,2,3), (4,5,6)) == [[1,2,3] [4,5,6]]
 true
 ```
 """
-# function tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
 function tups_to_mat(tups::Vararg{T, N}) where {M, S, N, T <: NTuple{M, S}}
     mat = Matrix{S}(undef, M, N)
     for i in 1:N
@@ -294,22 +293,40 @@ function tups_to_mat(tups::Vararg{T, N}) where {M, S, N, T <: NTuple{M, S}}
 end
 # Cover length-0 case to prevent unbound arguments
 tups_to_mat() = Matrix{Float64}(undef, (0, 0))
-tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple} = tups_to_mat(tups...)
-function tups_to_mat(tups::Vararg{T, N}) where {T <: Tuple, N}
+"""
+    tups_to_mat(tups::Vararg{T, N}) where {T <: Tuple, N}
+
+Implementation of `tups_to_mat` for `tups` which do not all have identical element types.
+```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
+julia> tups_to_mat((1.0,2,3), (4,5,6)) == Float64[[1,2,3] [4,5,6]]
+true
+```
+"""
+# function tups_to_mat(tups::Vararg{T, N}) where {T <: Tuple, N}
+function tups_to_mat(tups::Vararg{Tuple, N}) where N
     @assert allequal(length, tups) "All tuples passed as arguments to `tups_to_mat` must have same length."
     S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in tups)
     M = length(first(tups))
     mat = Matrix{S}(undef, M, N)
     for i in 1:N
         tup = tups[i]
-        # @assert length(tup) == M "Element $i in `tups` argument has length $(length(tup)), not $M as expected."
         for j in 1:M
             mat[j,i] = convert(S, tup[j])
         end
     end
     return mat
 end
+"""
+    tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple}
 
+Takes an `AbstractArray` which has `N` elements that are `Tuple`s of identical length `M` and converts it into a matrix of size `(M, N)`.
+
+```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
+julia> tups_to_mat([(1,2,3), (4,5,6)]) == [[1,2,3] [4,5,6]]
+true
+```
+"""
+tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple} = tups_to_mat(tups...)
 # """
 #     tups_to_mat(tups::AbstractVector{NTuple{M, S}}) where {M, S}
 
