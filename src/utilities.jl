@@ -275,7 +275,7 @@ vecs_to_svecs(vecs::Vararg{T, N}) where {T <: AbstractVector, N} = [SVector{N, e
 vecs_to_svecs(x::AbstractVector{<:AbstractVector}) = vecs_to_svecs(x...)
 
 """
-    tups_to_mat(tups::Vararg{T, N}) where {M, S, T <: NTuple{M, S}, N}
+    tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
 
 Takes a sequence of `N` `NTuples`, each of which has length `M` and element type `S`, and converts them into a matrix of size `(M, N)`.
 
@@ -293,7 +293,7 @@ function tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
 end
 
 """
-    tups_to_mat(tups::AbstractVector{T}) where {M, S, T <: NTuple{M, S}}
+    tups_to_mat(tups::AbstractVector{NTuple{M, S}}) where {M, S}
 
 Takes an `AbstractVector` which has elements that are `NTuples` of length `M` and element type `S` and converts it into a matrix of size `(M, N)`.
 
