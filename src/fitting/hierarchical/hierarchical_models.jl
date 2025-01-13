@@ -4,6 +4,18 @@
 abstract type AbstractMetallicityModel{T <: Real} end
 Base.Broadcast.broadcastable(m::AbstractMetallicityModel) = Ref(m)
 
+"""
+    nparams(models...)
+Returns the sum of the number of fittable parameters for each `model` in `models` via `mapreduce(nparams, +, models)`.
+
+# Examples
+```jldoctest; setup = :(import StarFormationHistories: nparams, LinearAMR, GaussianDispersion)
+julia> nparams(LinearAMR(1.0, 1.0), GaussianDispersion(0.2))
+3
+```
+"""
+nparams(models...) = mapreduce(nparams, +, models)
+
 include("transformations.jl")   # Variable transformations
 include("dispersion_models.jl") # AbstractDispersionModel and subtypes
 include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
