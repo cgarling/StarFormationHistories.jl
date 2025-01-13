@@ -284,7 +284,7 @@ julia> tups_to_mat((1,2,3), (4,5,6)) == [[1,2,3] [4,5,6]]
 true
 ```
 """
-function tups_to_mat(tups::Vararg{T, N}) where {M, S, T <: NTuple{M, S}, N}
+function tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
     mat = Matrix{S}(undef, M, N)
     for i in 1:N
         mat[:,i] .= tups[i]
@@ -302,7 +302,7 @@ julia> tups_to_mat([(1,2,3), (4,5,6)]) == [[1,2,3] [4,5,6]]
 true
 ```
 """
-function tups_to_mat(tups::AbstractVector{T}) where {M, S, T <: NTuple{M, S}}
+function tups_to_mat(tups::AbstractVector{NTuple{M, S}}) where {M, S}
     N = length(tups)
     mat = Matrix{S}(undef, M, N)
     for i in 1:N
