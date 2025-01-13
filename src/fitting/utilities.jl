@@ -165,12 +165,12 @@ function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
                            kws...)
     MLE, MAP = result.mle, result.map
-    Zmodel, dispmodel = MLE.Zmodel, MLE.dispmodel
+    MH_model, disp_model = MLE.MH_model, MLE.disp_model
     
     # Get number of unique time bins
-    npar_Zmodel = nparams(MLE.Zmodel)
-    npar_dispmodel = nparams(MLE.dispmodel)
-    Nbins = length(MLE.μ) - npar_Zmodel - npar_dispmodel
+    npar_MH_model = nparams(MLE.MH_model)
+    npar_disp_model = nparams(MLE.disp_model)
+    Nbins = length(MLE.μ) - npar_MH_model - npar_disp_model
 
     # Generate samples
     samples = rand(result, Nsamples)
@@ -182,9 +182,9 @@ function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<
     mean_mh_mat = similar(cum_sfh_mat)
     Threads.@threads for i in 1:Nsamples
         r = view(samples, :, i)
-        new_Zmodel = update_params(Zmodel, @view(r[Nbins+1:end-npar_dispmodel]))
-        new_dispmodel = update_params(dispmodel, @view(r[end-npar_dispmodel+1:end]))
-        tmp_coeffs = calculate_coeffs(new_Zmodel, new_dispmodel, @view(r[begin:Nbins]),
+        new_MH_model = update_params(MH_model, @view(r[Nbins+1:end-npar_disp_model]))
+        new_disp_model = update_params(disp_model, @view(r[end-npar_disp_model+1:end]))
+        tmp_coeffs = calculate_coeffs(new_MH_model, new_disp_model, @view(r[begin:Nbins]),
                                       logAge, MH)
         # We are doing a lot of extra work in calculate_cum_sfr
         # that we could do once here, but it would require a bespoke implementation
