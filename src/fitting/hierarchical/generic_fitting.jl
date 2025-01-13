@@ -306,8 +306,13 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     # likely result in any calls like rand(result.mle) failing as result.mle.invH will not
     # be positive definite, but you should not really sample from the MLE anyway, and none
     # of our exposed methods use result.mle.invH, so this is acceptable.
-    invH_map = PDMat(hermitianpart(Optim.trace(result_map)[end].metadata["~inv(H)"]))
-    invH_mle = hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"])
+    # If the invH approximation were strongly non-Hermitian then LinearAlgebra.hermitianpart
+    # would be better here, but that requires 1.10 and doesn't make a difference for
+    # nearly-Hermitian invH, so we just use Hermitian here.
+    # invH_map = PDMat(hermitianpart(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    # invH_mle = hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"])
+    invH_map = PDMat(Hermitian(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    invH_mle = Hermitian(Optim.trace(result_mle)[end].metadata["~inv(H)"])
     try
         invH_mle = PDMat(invH_mle)
     catch
