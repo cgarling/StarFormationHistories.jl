@@ -291,6 +291,8 @@ function tups_to_mat(tups::Vararg{NTuple{M, S}, N}) where {M, S, N}
     end
     return mat
 end
+# Cover length-0 case to prevent unbound arguments
+tups_to_mat() = Matrix{Float64}(undef, (0, 0))
 
 """
     tups_to_mat(tups::AbstractVector{NTuple{M, S}}) where {M, S}
@@ -310,7 +312,24 @@ function tups_to_mat(tups::AbstractVector{NTuple{M, S}}) where {M, S}
     end
     return mat
 end
-
+tups_to_mat(tups::AbstractVector{Tuple{}}) = Matrix{Float64}(undef, (0, 0))
+function tups_to_mat(tups::AbstractVector{T}) where T <: Tuple
+    S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in tups)
+    # NT = NTuple{length(first(tups)), S}
+    N = length(tups)
+    M = length(first(tups))
+    mat = Matrix{S}(undef, M, N)
+    for i in 1:N
+        tup = tups[i]
+        @assert length(tup) == M "Element $i in `tups` argument has length $(length(tup)), not $M as expected."
+        for j in 1:M
+            mat[j,i] = tup[j]
+        end
+        # mat[:,i] .= tups[i]
+        # mat[:,i] .= convert(NT, tups[i])
+    end
+    return mat
+end
 # vecs_to_svecs(vecs::Vararg{<:AbstractArray{<:Number},N}) where {N} = vecs
 # old implementation
 # vecs_to_svecs(x::AbstractVector{<:AbstractVector}) =
