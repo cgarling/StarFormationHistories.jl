@@ -1,7 +1,8 @@
 module StarFormationHistories
 
+using Compat: allequal
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    quantile, Multivariate, MvNormal, sampler, Uniform, PDMat # cdf
+    quantile, Multivariate, MvNormal, sampler, Uniform # cdf
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
@@ -14,6 +15,7 @@ import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
 import LoopVectorization: can_turbo # Extending for our functions
 import Optim
+using PDMats: PDMat
 using Printf: @sprintf
 import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
