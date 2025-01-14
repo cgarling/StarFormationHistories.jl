@@ -54,7 +54,9 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     fittable_view = view(samples, row_idxs, :)
-    _rand!(rng, dist, fittable_view)
+    # _rand!(rng, dist, fittable_view) # See issue #59
+    tmpsample = rand(rng, dist, size(samples, 2))
+    samples[row_idxs, :] .= tmpsample
     # Now perform variable transformations for free metallicity and dispersion parameters
     exptransform_samples!(fittable_view, μ, tf[free], free[free])
     # Now write in fixed parameters
@@ -122,7 +124,9 @@ function _rand!(rng::AbstractRNG,
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     fittable_view = view(samples, row_idxs, :)
-    _rand!(rng, dist, fittable_view)
+    # _rand!(rng, dist, fittable_view) # See issue #59
+    tmpsample = rand(rng, dist, size(samples, 2))
+    samples[row_idxs, :] .= tmpsample
     # Now perform variable transformations for free metallicity and dispersion parameters
     exptransform_samples!(fittable_view, μ, tf[free], free[free])
     # Now write in fixed parameters
