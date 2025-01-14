@@ -33,7 +33,7 @@ Below we additionally show example templates for different combinations of stell
 
 ## SFH Fitting
 
-Once templates have been generated for a reasonable set of isochrones, they can be used to estimate the SFH of an observed population by modelling the observed Hess diagram as a linear combination of the templates. The coefficients on the linear combination are simply the desired star formation rates. While this can work, and we provide fitting methods that support this use, this approach is crude as it does not guarantee that the solution has a physically realistic age-metallicity relation (AMR). We additionally define a few parametric AMRs that apply constraints during the fitting process to alleviate this issue. We plan to expand the set of AMR models in the future.
+Once templates have been generated for a reasonable set of isochrones, they can be used to estimate the SFH of an observed population by modelling the observed Hess diagram as a linear combination of the templates. The coefficients on the linear combination are simply the desired star formation rates. While this can work, and we provide fitting methods that support this use, this approach is crude as it does not guarantee that the solution has a physically realistic age-metallicity relation (AMR). We additionally define an API for describing general AMR models as well as mass-metallicity models (MZRs) for constraining the metallicity evolution of the population. We provide a few parametric AMRs and MZRs and describe how to define custom models.
 
 ## Acknowledgements
 Support for this work was provided by the Owens Family Foundation and by NASA through grant HST-AR-17560 from the Space Telescope Science Institute, which is operated by AURA, Inc., under NASA contract NAS5-26555.
