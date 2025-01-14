@@ -4,6 +4,7 @@ authors = ["cgarling <chris.t.garling@gmail.com>"]
 version = "0.2.0"
 
 [deps]
+Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DynamicHMC = "bbc10e6e-7c05-544b-b16e-64fede858acb"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
@@ -16,6 +17,7 @@ LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
 LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 MCMCChains = "c7f686f2-ff18-58e9-bc7b-31028e88f75d"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+PDMats = "90014a1f-27ba-587c-ab20-58faa44d9150"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
@@ -36,6 +38,7 @@ DataFramesExt = "DataFrames"
 TypedTablesExt = "TypedTables"
 
 [compat]
+Compat = "4.13" # for allequal(f, itr)
 DataFrames = "1"
 DelimitedFiles = "<0.0.1, 1"
 Distributions = "0.25"
@@ -52,6 +55,7 @@ LogDensityProblems = "1, 2"
 LoopVectorization = "0.12"
 MCMCChains = "6"
 Optim = "1.7" # Inverse Hessian estimate from BFGS
+PDMats = "0.11.15" # Removed StridedArray restriction
 Printf = "<0.0.1, 1"
 ProgressMeter = "1"
 QuadGK = "2"
