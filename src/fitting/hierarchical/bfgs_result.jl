@@ -53,12 +53,14 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
-    fittable_view = view(samples, row_idxs, :)
+    
+    # fittable_view = view(samples, row_idxs, :)
     # _rand!(rng, dist, fittable_view) # See issue #59
+    # exptransform_samples!(fittable_view, μ, tf[free], free[free])
     tmpsample = rand(rng, dist, size(samples, 2))
-    samples[row_idxs, :] .= tmpsample
     # Now perform variable transformations for free metallicity and dispersion parameters
-    exptransform_samples!(fittable_view, μ, tf[free], free[free])
+    exptransform_samples!(tmpsample, μ, tf[free], free[free])
+    samples[row_idxs, :] .= tmpsample
     # Now write in fixed parameters
     par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
     for i in 1:length(free)
@@ -123,12 +125,14 @@ function _rand!(rng::AbstractRNG,
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     # row_idxs = LazyArrays.Vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
-    fittable_view = view(samples, row_idxs, :)
+    
+    # fittable_view = view(samples, row_idxs, :)
     # _rand!(rng, dist, fittable_view) # See issue #59
+    # exptransform_samples!(fittable_view, μ, tf[free], free[free])
     tmpsample = rand(rng, dist, size(samples, 2))
-    samples[row_idxs, :] .= tmpsample
     # Now perform variable transformations for free metallicity and dispersion parameters
-    exptransform_samples!(fittable_view, μ, tf[free], free[free])
+    exptransform_samples!(tmpsample, μ, tf[free], free[free])
+    samples[row_idxs, :] .= tmpsample
     # Now write in fixed parameters
     par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
     for i in 1:length(free)
