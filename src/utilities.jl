@@ -284,7 +284,9 @@ julia> tups_to_mat((1,2,3), (4,5,6)) == [[1,2,3] [4,5,6]]
 true
 ```
 """
-function tups_to_mat(tups::Vararg{T, N}) where {M, S, N, T <: NTuple{M, S}}
+# function tups_to_mat(tups::Vararg{T, N}) where {M, S, N, T <: NTuple{M, S}}
+function tups_to_mat(tups::T...) where {M, S, T <: NTuple{M, S}}
+    N = length(tups)
     mat = Matrix{S}(undef, M, N)
     for i in 1:N
         mat[:,i] .= tups[i]
@@ -303,8 +305,10 @@ julia> tups_to_mat((1.0,2,3), (4,5,6)) == Float64[[1,2,3] [4,5,6]]
 true
 ```
 """
-function tups_to_mat(tups::Vararg{Tuple, N}) where N
+# function tups_to_mat(tups::Vararg{Tuple, N}) where N
+function tups_to_mat(tups::Tuple...) # where T <: Tuple
     @assert allequal(length, tups) "All tuples passed as arguments to `tups_to_mat` must have same length."
+    N = length(tups)
     S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in tups)
     M = length(first(tups))
     mat = Matrix{S}(undef, M, N)
@@ -327,6 +331,32 @@ true
 ```
 """
 tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple} = tups_to_mat(tups...)
+
+# function tups_to_mat(itr)
+#     iter = iterate(itr)
+#     M = length(iter[1])
+#     N = length(itr)
+#     # S = mapreduce(typeof, promote_type, iter[1])
+#     S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in itr)
+#     # return reshape(reinterpret(S, itr), (N,:))
+#     mat = Matrix{S}(undef, M, N)
+#     # for i in 1:N
+#     #     ii = iterate(itr, i)
+#     #     for j in 1:M
+#     #         mat[j,i] = convert(S, tup[j])
+#     #     end
+#     # end
+#     # state = firstiter[2]
+#     # mat[:,state] .= firstiter[1]
+#     while !isnothing(iter)
+#         for j in 1:M
+#             mat[j,iter[2]-1] = convert(S, iter[1][j])
+#         end
+#         iter = iterate(itr, iter[2])
+#         # iter[2] |> display
+#     end
+#     return mat
+# end
 
 # vecs_to_svecs(vecs::Vararg{<:AbstractArray{<:Number},N}) where {N} = vecs
 # old implementation
