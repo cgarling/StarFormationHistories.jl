@@ -305,8 +305,8 @@ julia> tups_to_mat((1.0,2,3), (4,5,6)) == Float64[[1,2,3] [4,5,6]]
 true
 ```
 """
-# function tups_to_mat(tups::Vararg{Tuple, N}) where N
-function tups_to_mat(tups::Tuple...) # where T <: Tuple
+# function tups_to_mat(tups::Vararg{Tuple, N}) where N # Don't specialize on N...
+function tups_to_mat(tups::Tuple...)
     @assert allequal(length, tups) "All tuples passed as arguments to `tups_to_mat` must have same length."
     N = length(tups)
     S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in tups)
@@ -320,17 +320,30 @@ function tups_to_mat(tups::Tuple...) # where T <: Tuple
     end
     return mat
 end
+tups_to_mat(itr...) = tups_to_mat(Tuple(i) for i in itr)
 """
-    tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple}
+    tups_to_mat(itr)
 
-Takes an `AbstractArray` which has `N` elements that are `Tuple`s of identical length `M` and converts it into a matrix of size `(M, N)`.
+Takes a length-`N` iterable whose elements have length `M` and converts it into a matrix of size `(M, N)`. Often useful for `itr::AbstractArray`.
 
 ```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
 julia> tups_to_mat([(1,2,3), (4,5,6)]) == [[1,2,3] [4,5,6]]
 true
 ```
 """
-tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple} = tups_to_mat(tups...)
+tups_to_mat(itr) = tups_to_mat(itr...)
+
+# """
+#     tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple}
+
+# Takes an `AbstractArray` which has `N` elements that are `Tuple`s of identical length `M` and converts it into a matrix of size `(M, N)`.
+
+# ```jldoctest; setup = :(import StarFormationHistories: tups_to_mat)
+# julia> tups_to_mat([(1,2,3), (4,5,6)]) == [[1,2,3] [4,5,6]]
+# true
+# ```
+# """
+# tups_to_mat(tups::AbstractArray{T}) where {T <: Tuple} = tups_to_mat(tups...)
 
 # function tups_to_mat(itr)
 #     iter = iterate(itr)
