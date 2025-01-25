@@ -198,6 +198,15 @@ end
         @test all(isapprox(rresult.map.μ[i], true_vals[i];
                            atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
 
+        # Run with fixed α, to check that free parameter indexing is working properly #35fe6c2
+        fαresult = SFH.fit_sfh(SFH.PowerLawMZR(MHmodel.α, MHmodel.MH0, MHmodel.logMstar0, (false, true)),
+                               SFH.GaussianDispersion(disp.σ, (true,)),
+                               smodels, sdata, logAge, MH, x0=x0)
+        @test fαresult.map.μ[end-2] ≈ MHmodel.α
+        @test fαresult.mle.μ[end-2] ≈ MHmodel.α
+        @test fαresult.map.σ[end-2] .== 0 # Uncertainties for fixed quantities should be 0        
+        @test fαresult.mle.σ[end-2] .== 0 # Uncertainties for fixed quantities should be 0   
+
         # Run with fixed parameters on noisy data, verify that best-fit values are unchanged
         fresult = SFH.fit_sfh(SFH.PowerLawMZR(MHmodel.α, MHmodel.MH0, MHmodel.logMstar0, (false, false)),
                               SFH.GaussianDispersion(disp.σ, (false,)),
