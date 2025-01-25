@@ -85,7 +85,8 @@ jobs:
           julia --project=docs --color=yes -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
-            Pkg.instantiate()'
+            Pkg.instantiate()
+            Pkg.build()'
         env:
           PYTHON: ${{ steps.cpython3.outputs.python-path }}
       - name: Run doctests
@@ -101,5 +102,6 @@ jobs:
       - name: Make and deploy docs
         run: julia --project=docs --color=yes docs/make.jl
         env:
+          PYTHON: ${{ steps.cpython3.outputs.python-path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
