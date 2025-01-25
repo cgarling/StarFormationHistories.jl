@@ -337,30 +337,35 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         σ_map[i] = μ_map[i] * σ_map_tmp[i]
         σ_mle[i] = μ_mle[i] * σ_mle_tmp[i]
     end
+    free_count = 0
     for i in Nbins+1:length(μ_map)
         if free[i-Nbins] # Parameter is free; need to check for transformations
             tfi = tf[i-Nbins]
+            # When indexing into μ_map_tmp, σ_map_tmp we
+            # need to offset for missing free parameters
+            j = i - free_count
             if tfi == 1
-                μ_map[i] = exp(μ_map_tmp[i])
-                μ_mle[i] = exp(μ_mle_tmp[i])
-                σ_map[i] = μ_map[i] * σ_map_tmp[i]
-                σ_mle[i] = μ_map[i] * σ_mle_tmp[i]
+                μ_map[i] = exp(μ_map_tmp[j])
+                μ_mle[i] = exp(μ_mle_tmp[j])
+                σ_map[i] = μ_map[j] * σ_map_tmp[j]
+                σ_mle[i] = μ_map[j] * σ_mle_tmp[j]
             elseif tfi == 0
-                μ_map[i] = μ_map_tmp[i]
-                μ_mle[i] = μ_mle_tmp[i]
-                σ_map[i] = σ_map_tmp[i]
-                σ_mle[i] = σ_mle_tmp[i]
+                μ_map[i] = μ_map_tmp[j]
+                μ_mle[i] = μ_mle_tmp[j]
+                σ_map[i] = σ_map_tmp[j]
+                σ_mle[i] = σ_mle_tmp[j]
             elseif tfi == -1
-                μ_map[i] = -exp(μ_map_tmp[i])
-                μ_mle[i] = -exp(μ_mle_tmp[i])
-                σ_map[i] = -μ_map[i] * σ_map_tmp[i]
-                σ_mle[i] = -μ_map[i] * σ_mle_tmp[i]
+                μ_map[i] = -exp(μ_map_tmp[j])
+                μ_mle[i] = -exp(μ_mle_tmp[j])
+                σ_map[i] = -μ_map[j] * σ_map_tmp[j]
+                σ_mle[i] = -μ_map[j] * σ_mle_tmp[j]
             end
         else # Parameter is fixed; no transformation applied
             μ_map[i] = par[i-Nbins]
             μ_mle[i] = par[i-Nbins]
             σ_map[i] = 0
             σ_mle[i] = 0
+            free_count += 1
         end
     end
     
