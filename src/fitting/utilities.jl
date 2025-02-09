@@ -120,14 +120,15 @@ end
 
 """
     (cum_sfh, sfr, mean_MH, samples) = 
-        cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
+        cum_sfr_quantiles(result::Union{CompositeBFGSResult,BFGSResult},
+                          logAge::AbstractVector{<:Number},
                           MH::AbstractVector{<:Number}, T_max::Number,
                           Nsamples::Integer, q; kws...)
 
 Draws `Nsamples` independent star formation histories from the solution `result` and calculates quantiles `q` across the samples in each unique time bin (i.e., `unique(logAge)`) for the cumulative star formation histories, star formation rates, and mean metallicities. Also returns the drawn samples.
 
 # Arguments
- - `result::CompositeBFGSResult` is a BFGS result object as returned by [`fit_sfh`](@ref), for example, whose contents will be used to sample random, independent star formation histories.
+ - `result::Union{CompositeBFGSResult,BFGSResult}` is a BFGS result object as returned by [`fit_sfh`](@ref), for example, whose contents will be used to sample random, independent star formation histories. If this is a `CompositeBFGSResult` containing both the MLE and MAP solutions, then the MLE solution is used for the best-fit values (SFRs and metallicity parameters) and the MAP solution is used for the uncertainty estimate.
  - `logAge::AbstractVector` is a vector giving the `log10(age [yr])` of the stellar populations that were used to derive `result`. For the purposes of calculating star formation rates, these are assumed to be left-bin edges.
  - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations that were used to derive `result`.
  - `T_max::Number` is the rightmost final bin edge for calculating star formation rates in units of Gyr. For example, you might have `logAge=[6.6, 6.7, 6.8]` in which case a final logAge of 6.9 would give equal bin widths. In this case you would set `T_max = exp10(6.9) / 1e9 ≈ 0.0079` so that the width of the final bin for the star formation rate calculation has the same `log10(Age [yr])` step as the other bins.
@@ -164,16 +165,23 @@ julia> size(result[4], 2) == 10_000
 function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
                            kws...)
-    MLE, MAP = result.mle, result.map
-    MH_model, disp_model = MLE.MH_model, MLE.disp_model
-    
-    # Get number of unique time bins
-    npar_MH_model = nparams(MLE.MH_model)
-    npar_disp_model = nparams(MLE.disp_model)
-    Nbins = length(MLE.μ) - npar_MH_model - npar_disp_model
-
-    # Generate samples
+    MH_model, disp_model = result.mle.MH_model, result.mle.disp_model
     samples = rand(result, Nsamples)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+end
+function cum_sfr_quantiles(result::BFGSResult, logAge::AbstractVector{<:Number},
+                           MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
+                           kws...)
+    MH_model, disp_model = result.MH_model, result.disp_model
+    samples = rand(result, Nsamples)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+end
+function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+    # Get number of unique time bins
+    npar_MH_model = nparams(MH_model)
+    npar_disp_model = nparams(disp_model)
+    Nbins = size(samples, 1) - npar_MH_model - npar_disp_model
+    Nsamples = size(samples, 2)
     
     # Allocate matrices to accumulate cumulative SFHs, SFRs, and <[M/H]> for
     # all samples
@@ -211,3 +219,53 @@ function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<
     return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
 
 end
+# function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
+#                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
+#                            kws...)
+#     MLE, MAP = result.mle, result.map
+#     MH_model, disp_model = MLE.MH_model, MLE.disp_model
+    
+#     # Get number of unique time bins
+#     npar_MH_model = nparams(MLE.MH_model)
+#     npar_disp_model = nparams(MLE.disp_model)
+#     Nbins = length(MLE.μ) - npar_MH_model - npar_disp_model
+
+#     # Generate samples
+#     samples = rand(result, Nsamples)
+    
+#     # Allocate matrices to accumulate cumulative SFHs, SFRs, and <[M/H]> for
+#     # all samples
+#     cum_sfh_mat = Matrix{Float64}(undef, Nsamples, Nbins)
+#     sfrs_mat = similar(cum_sfh_mat)
+#     mean_mh_mat = similar(cum_sfh_mat)
+#     Threads.@threads for i in 1:Nsamples
+#         r = view(samples, :, i)
+#         new_MH_model = update_params(MH_model, @view(r[Nbins+1:end-npar_disp_model]))
+#         new_disp_model = update_params(disp_model, @view(r[end-npar_disp_model+1:end]))
+#         tmp_coeffs = calculate_coeffs(new_MH_model, new_disp_model, @view(r[begin:Nbins]),
+#                                       logAge, MH)
+#         # We are doing a lot of extra work in calculate_cum_sfr
+#         # that we could do once here, but it would require a bespoke implementation
+#         _, mdf_1, mdf_2, mdf_3 = calculate_cum_sfr(tmp_coeffs, logAge, MH, T_max; kws...)
+#         cum_sfh_mat[i,:] .= mdf_1
+#         sfrs_mat[i,:] .= mdf_2
+#         mean_mh_mat[i,:] .= mdf_3
+#     end
+
+#     # Allocate matrices to accumulate quantiles
+#     cum_sfh_q = Matrix{Float64}(undef, Nbins, length(q))
+#     sfrs_q = similar(cum_sfh_q)
+#     mean_mh_q = similar(cum_sfh_q)
+#     # Calculate quantiles on samples
+#     Threads.@threads for i in 1:Nbins
+#         cum_sfh_q[i,:] .= quantile(view(cum_sfh_mat, :, i), q)
+#         sfrs_q[i,:] .= quantile(view(sfrs_mat, :, i), q)
+#         mean_mh_q[i,:] .= quantile(view(mean_mh_mat, :, i), q)
+#     end
+#     # cum_sfh_quantiles = [quantile(row, q) for row in eachrow(cum_sfh)]
+#     # cum_sfh_quantiles = [SVector(quantile(row, q)) for row in eachrow(cum_sfh)]
+#     # cum_sfh_quantiles = tups_to_mat([quantile(row, q) for row in eachrow(cum_sfh)])
+#     # return cum_sfh_quantiles
+#     return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
+
+# end
