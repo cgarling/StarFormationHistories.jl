@@ -1,17 +1,15 @@
 # Implementation of SFH fitting with distance, no metallicity constraints
 
-struct MCMCModelDistance{A <: AbstractVector{<:AbstractMatrix{<:Number}},
-                         B <: AbstractVector{<:AbstractMatrix{<:Number}},
+struct MCMCModelDistance{A <: AbstractMatrix{<:Number},
+                         B <: AbstractVector{<:Number},
                          C <: AbstractVector{<:Number},
-                         D <: AbstractVector{<:Number},
-                         E <: Distribution{Univariate, Continuous},
-                         F}
+                         D <: Distribution{Univariate, Continuous},
+                         E}
     models::A
-    composites::B # Vector of matrices, one per thread
-    xcolors::C
-    ymags::D
-    distance_prior::E
-    edges::F
+    xcolors::B
+    ymags::C
+    distance_prior::D
+    edges::E
 end
 # edges is a 2-tuple; first element is x-bins, second element is y-bins where
 # y-bins are the absolute magnitude bins used to construct the models from isochrones.
@@ -27,7 +25,9 @@ function MCMCModelDistance(models::A,
                                          D <: Distribution{Univariate, Continuous}}
     V = promote_type(AA, eltype(B), eltype(C))
     @assert length(xcolors) == length(ymags)
-    return MCMCModelDistance(models, [Matrix{V}(undef, size(first(models))) for i in 1:Threads.nthreads()], xcolors, ymags, distance_prior, edges)
+    # Stack models for more efficient computation
+    models = stack_models(models)
+    return MCMCModelDistance(models, xcolors, ymags, distance_prior, edges)
 end
 
 # This model will return loglikelihood only
@@ -36,20 +36,21 @@ LogDensityProblems.dimension(problem::MCMCModelDistance) = length(problem.models
 
 # Make the type callable for the loglikelihood
 function (problem::MCMCModelDistance)(θ)
-    T = promote_type(eltype(first(problem.composites)), eltype(problem.xcolors), eltype(problem.ymags), eltype(first(problem.models)))
+    T = promote_type(eltype(problem.xcolors), eltype(problem.ymags), eltype(first(problem.models)))
     new_distance = first(θ)
     for coeff in θ # If any coefficients are negative, return -Inf
         if coeff < zero(T)
             return typemin(T)
         end
     end
-    data = bin_cmd(problem.xcolors, problem.ymags, edges=(problem.edges[1], problem.edges[2] .+ distance_modulus(new_distance * 1000))) # Construct new Hess diagram for the data given the new distance (in kpc)
+    # Construct new Hess diagram for the data given the new distance (in kpc)
+    data = bin_cmd(problem.xcolors, problem.ymags,
+                   edges=(problem.edges[1], problem.edges[2] .+ distance_modulus(new_distance * 1000)))
 
-    # idx = Threads.threadid()
-    # This should be valid for vectors with non 1-based indexing
-    idx = first(axes(problem.composites))[Threads.threadid()] 
-    composite!( problem.composites[idx], view(θ,2:lastindex(θ)), problem.models )
-    return loglikelihood(problem.composites[idx], data.weights) + convert(T, logpdf(problem.distance_prior,new_distance))
+    models = problem.models
+    C = Vector{T}(undef, first(size(models))) # Vector to contain composite model
+    composite!(C, view(θ,2:lastindex(θ)), models)
+    return loglikelihood(C, vec(data.weights)) + convert(T, logpdf(problem.distance_prior, new_distance))
 end
 LogDensityProblems.logdensity(problem::MCMCModelDistance, θ) = problem(θ)
 
