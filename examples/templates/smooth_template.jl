@@ -21,7 +21,7 @@ savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
 
 # Load example isochrone
 # Path is relative to location of script, so use @__DIR__
-isochrone, mag_names = readdlm(joinpath(@__DIR__, "../../data/isochrone.txt"), ' ',
+isochrone, mag_names = readdlm(joinpath(@__DIR__, "..", "..", "data/isochrone.txt"), ' ',
                                Float64, '\n'; header=true)
 # Unpack
 m_ini = isochrone[:,1]
