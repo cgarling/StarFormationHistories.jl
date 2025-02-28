@@ -528,7 +528,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         @safetestset "Template Kernels" include("templates/kernel_test.jl")
         @safetestset "Template Construction" include("templates/template_test.jl")
 
-        @testset verbose=true "Solving" begin
+        @testset verbose=true "Solving + Sampling" begin
             @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
             @safetestset "Age-Metallicity Relations" include("fitting/amr_test.jl")
             @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
@@ -626,38 +626,6 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                                 mdf_result2 = SFH.mdf_amr(reverse([1.0,2.0,3.0,4.0]),[1.0,2.0,1.0,2.0],reverse([-2.0,-2.0,-1.0,-1.0]))
                                 @test all(mdf_result1 .== mdf_result2)
                             end
-                        end
-                    end
-                end
-            end
-        end
-
-        @testset verbose=true "Sampling" begin
-            @testset "Basic Linear Combinations" begin
-                @testset "HMC" begin
-                    for i in eachindex(float_types, float_type_labels)
-                        label = float_type_labels[i]
-                        @testset "$label" begin
-                            T = float_types[i]
-                            rng = StableRNG(seedval)
-                            coeffs = rand(rng, T, 10) # SFH coefficients we want to sample
-                            models = [rand(rng, T, 100, 100) .* 100 for i in 1:length(coeffs)] # Vector of model Hess diagrams
-                            data = rand.(Poisson.( sum(models .* coeffs) ) ) # Poisson-sample the model `sum(models .* coeffs)`
-                            nsteps = 20
-                            result = SFH.hmc_sample(models, data, nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
-                            @test size(result.posterior_matrix) == (length(coeffs), nsteps)
-                            # Test flattened input
-                            result = SFH.hmc_sample(SFH.stack_models(models), vec(data), nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
-                            @test size(result.posterior_matrix) == (length(coeffs), nsteps)
-                            # DynamicHMC returns Float64 even for 32 bit input
-                            # @test eltype(result.posterior_matrix) == T
-                            # Test multiple chains
-                            nchains = 2
-                            result = SFH.hmc_sample(models, data, nsteps, nchains; rng=rng, reporter=DynamicHMC.NoProgressReport())
-                            @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(coeffs), nchains*nsteps)
-                            # Test flattened input
-                            result = SFH.hmc_sample(SFH.stack_models(models), vec(data), nsteps, nchains; rng=rng, reporter=DynamicHMC.NoProgressReport())
-                            @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(coeffs), nchains*nsteps)
                         end
                     end
                 end
