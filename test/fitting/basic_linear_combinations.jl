@@ -111,5 +111,8 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         ftf_result2 = SFH.fit_templates_fast(smodels, sdata; x0=x0)
         @test ftf_result2[1] ≈ x rtol=tset_rtol
         @test ftf_result[1] ≈ ftf_result2[1] rtol=1e-5 # Test for agreement between signatures
+        # Test that mcmc_sample runs
+        mc_result = SFH.mcmc_sample(models, data, [copy(x0) for i in 1:100], 10) # ; use_progress_meter=false)
+        @test size(mc_result) == (10, length(x0), 100)
     end
 end
