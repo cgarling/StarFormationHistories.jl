@@ -1,4 +1,5 @@
 using Distributions: Poisson
+import DynamicHMC
 using StableRNGs: StableRNG
 import MCMCChains
 import StarFormationHistories as SFH
@@ -36,7 +37,7 @@ const float_type_labels = ("Float32", "Float64") # String labels for the above f
     end
     # Try a harder example with multiple random models
     N_models = 10
-    hist_size = (100,100)
+    hist_size = (100, 100)
     rng = StableRNG(seedval)
     let x=rand(rng,T,N_models), x0=rand(rng,T,N_models), models=[rand(rng,T,hist_size...) for i in 1:N_models], data=sum(x .* models)
         # Test LBFGS.jl
@@ -124,11 +125,11 @@ const float_type_labels = ("Float32", "Float64") # String labels for the above f
                 rng = StableRNG(seedval)
                 kmc_conv = SFH.convert_kissmcmc([[T[1,2,3] for i in 1:5] for i in 1:10])
                 @test kmc_conv isa Array{T, 3}
-                x = rand(rng, T, N_models).* 100
+                x = rand(rng, T, N_models) .* 100
                 x0 = ones(T, N_models)
                 # x0 = rand(rng, T, nwalkers, length(coeffs)) # Initial walker positions, matrix
                 models = [rand(rng, T, hist_size...) for i in 1:N_models]
-                data=rand.(rng, Poisson.(sum(x .* models)))
+                data = rand.(rng, Poisson.(sum(x .* models)))
                 smodels = SFH.stack_models(models)
                 sdata = vec(data)
                 nwalkers = 100
@@ -148,6 +149,38 @@ const float_type_labels = ("Float32", "Float64") # String labels for the above f
                 @test mc_result isa MCMCChains.Chains
                 @test size(mc_result) == (nsteps, length(x0), nwalkers)
                 @test eltype(Array(mc_result)) == T
+            end
+        end
+    end
+
+    @testset "hmc_sample" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                rng = StableRNG(seedval)
+                N_models = 10
+                x = rand(rng, T, N_models) # SFH coefficients we want to sample
+                models = [rand(rng, T, hist_size...) .* 100 for i in 1:N_models] # Vector of model Hess diagrams
+                data = rand.(Poisson.( sum(models .* x) ) ) # Poisson-sample the model `sum(models .* coeffs)`
+                smodels = SFH.stack_models(models)
+                sdata = vec(data)
+                nsteps = 20
+                result = SFH.hmc_sample(models, data, nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
+                @test size(result.posterior_matrix) == (length(x), nsteps)
+                # Test flattened input
+                result = SFH.hmc_sample(smodels, sdata, nsteps; rng=rng, reporter=DynamicHMC.NoProgressReport())
+                @test size(result.posterior_matrix) == (length(x), nsteps)
+                # DynamicHMC returns Float64 even for 32 bit input
+                # @test eltype(result.posterior_matrix) == T
+                # Test multiple chains
+                nchains = 2
+                result = SFH.hmc_sample(models, data, nsteps, nchains; rng=rng, reporter=DynamicHMC.NoProgressReport())
+                @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(x), nchains*nsteps)
+                # # Test flattened input
+                result = SFH.hmc_sample(SFH.stack_models(models), vec(data), nsteps, nchains;
+                                        rng=rng, reporter=DynamicHMC.NoProgressReport())
+                @test size(DynamicHMC.pool_posterior_matrices(result)) == (length(x), nchains*nsteps)
             end
         end
     end

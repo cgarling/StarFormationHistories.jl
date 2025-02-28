@@ -21,6 +21,7 @@ import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
 using Random: AbstractRNG, default_rng
 using Roots: find_zero # For mass_limits in simulate.jl
+using TaskLocalValues: TaskLocalValue # For threadsafe buffers
 import Trapz: trapz
 using SpecialFunctions: erf
 # LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)

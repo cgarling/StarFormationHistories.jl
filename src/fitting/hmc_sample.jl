@@ -6,16 +6,16 @@ end
 
 # This model will return loglikelihood and gradient
 LogDensityProblems.capabilities(::Type{<:HMCModel}) = LogDensityProblems.LogDensityOrder{1}()
-LogDensityProblems.dimension(problem::HMCModel) = size(problem.models,2)
+LogDensityProblems.dimension(problem::HMCModel) = size(problem.models, 2)
 
 function (problem::HMCModel)(θ)
     composite = problem.composite
     models = problem.models
     data = problem.data
     # Transform the provided x
-    x = [ exp(i) for i in θ ]
+    x = exp.(θ) # [ exp(i) for i in θ ]
     # Update the composite model matrix
-    composite!( composite, x, models )
+    composite!(composite, x, models)
     logL = loglikelihood(composite, data) + sum(θ)
     return logL
 end
@@ -26,7 +26,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HMCModel, logx)
     models = problem.models
     data = problem.data
     # Transform the provided x
-    x = [ exp(i) for i in logx ]
+    x = exp.(logx) # [ exp(i) for i in logx ]
     # Temp vector for gradient
     G = similar(x)
     # fg! constructs composite and computes -logL and -∇logL performantly
@@ -102,14 +102,16 @@ t_result = hmc_sample( models, data, 1000, Threads.nthreads(); reporter=DynamicH
 mc_matrix = exp.( DynamicHMC.pool_posterior_matrices(t_result) )
 ```
 """
-function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer; rng::AbstractRNG=default_rng(), kws...) where S <: Number
-    @assert size(models,1) == length(data)
-    composite = Vector{S}(undef,length(data))
-    instance = HMCModel( models, composite, data )
+function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer;
+                    rng::AbstractRNG=default_rng(), kws...) where S <: Number
+    @assert size(models, 1) == length(data)
+    composite = Vector{S}(undef, length(data))
+    instance = HMCModel(models, composite, data)
     # return instance
     return DynamicHMC.mcmc_with_warmup(rng, instance, nsteps; kws...)
 end
-hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer; kws...) where T <: AbstractMatrix{<:Number} = hmc_sample( stack_models(models), vec(data), nsteps; kws...)
+hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer;
+           kws...) where T <: AbstractMatrix{<:Number} = hmc_sample(stack_models(models), vec(data), nsteps; kws...)
 
 function extract_initialization(state)
     # This unpack is legal in Julia 1.7 but not 1.6; might be worth alteration
@@ -118,22 +120,24 @@ function extract_initialization(state)
 end
 
 # Version with multiple chains and multithreading
-function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer, nchains::Integer; rng::AbstractRNG=default_rng(), initialization=(), kws...) where S <: Number
-    @assert nchains >= 1
-    instances = [ HMCModel( models, Vector{S}(undef,length(data)), data ) for i in 1:Threads.nthreads() ]
+function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer, nchains::Integer;
+                    rng::AbstractRNG=default_rng(), initialization=(), kws...) where S <: Number
+    @assert nchains ≥ 1 "`nchains` argument to `hmc_sample` must be ≥ 1."
+    # Construct threadsafe buffer to hold HMCModel instances
+    instances = TaskLocalValue{HMCModel}(() -> HMCModel(models, Vector{S}(undef, length(data)), data))
     # Do the warmup
-    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[1], 0;
+    warmup = DynamicHMC.mcmc_keep_warmup(rng, instances[], 0;
                                          warmup_stages=DynamicHMC.default_warmup_stages(),
                                          initialization=initialization, kws...)
     final_init = extract_initialization(warmup)
     # Do the MCMC
-    result_arr = []
+    result_chnl = Channel(nchains) # Use a channel to collect results
     Threads.@threads for i in 1:nchains
-        tid = Threads.threadid()
-        result = DynamicHMC.mcmc_with_warmup(rng, instances[tid], nsteps; warmup_stages=(),
+        result = DynamicHMC.mcmc_with_warmup(rng, instances[], nsteps; warmup_stages=(),
                                              initialization=final_init, kws...)
-        push!(result_arr, result) # Order doesn't matter so push when completed
+        put!(result_chnl, result)
     end
-    return result_arr
+    return [take!(result_chnl) for i in 1:nchains] # Take results from channel and plop into vector
 end
-hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer; kws...) where {S <: Number, T <: AbstractMatrix{S}} = hmc_sample( stack_models(models), vec(data), nsteps, nchains; kws...)
+hmc_sample(models::AbstractVector{T}, data::AbstractMatrix{<:Number}, nsteps::Integer, nchains::Integer;
+           kws...) where {S <: Number, T <: AbstractMatrix{S}} = hmc_sample(stack_models(models), vec(data), nsteps, nchains; kws...)
