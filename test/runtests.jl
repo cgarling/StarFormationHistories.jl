@@ -634,37 +634,6 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
         @testset verbose=true "Sampling" begin
             @testset "Basic Linear Combinations" begin
-                @testset "MCMC" begin
-                    for i in eachindex(float_types, float_type_labels)
-                        label = float_type_labels[i]
-                        @testset "$label" begin
-                            T = float_types[i]
-                            rng = StableRNG(seedval)
-                            kmc_conv = SFH.convert_kissmcmc([[T[1,2,3] for i in 1:5] for i in 1:10])
-                            @test kmc_conv isa Array{T, 3}
-                            coeffs = rand(rng, T, 10) # SFH coefficients we want to sample
-                            models = [rand(rng, T, 100, 100) .* 100 for i in 1:length(coeffs)] # Vector of model Hess diagrams
-                            data = rand.(Poisson.( sum(models .* coeffs) ) ) # Poisson-sample the model `sum(models .* coeffs)`
-                            nwalkers = 100
-                            nsteps = 20
-                            x0 = rand(rng, T, nwalkers, length(coeffs)) # Initial walker positions, matrix
-                            result = SFH.mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps; use_progress_meter=false) # Test with Vector{Vector} x0
-                            @test result isa MCMCChains.Chains
-                            @test size(result) == (nsteps, length(coeffs), nwalkers)
-                            @test eltype(result.value) == T
-                            result = SFH.mcmc_sample(models, data, x0, nwalkers, nsteps; use_progress_meter=false) # Test with Matrix x0
-                            @test result isa MCMCChains.Chains
-                            @test size(result) == (nsteps, length(coeffs), nwalkers)
-                            @test eltype(result.value) == T
-                            # Test with flattened input, matrix x0
-                            result = SFH.mcmc_sample(SFH.stack_models(models),
-                                                     vec(data), x0, nwalkers, nsteps; use_progress_meter=false)
-                            @test result isa MCMCChains.Chains
-                            @test size(result) == (nsteps, length(coeffs), nwalkers)
-                            @test eltype(result.value) == T
-                        end
-                    end
-                end
                 @testset "HMC" begin
                     for i in eachindex(float_types, float_type_labels)
                         label = float_type_labels[i]

@@ -1,13 +1,16 @@
 using Distributions: Poisson
 using StableRNGs: StableRNG
+import MCMCChains
 import StarFormationHistories as SFH
 using Test
 
 const seedval = 58392 # Seed to use when instantiating new StableRNG objects
+const float_types = (Float32, Float64) # Float types to test most functions with
+const float_type_labels = ("Float32", "Float64") # String labels for the above float_types
 
 @testset "Basic Linear Combinations" begin
     # Try an easy example with an exact result and only one model
-    T = Float64# LBFGSB.jl wants Float64s so it can pass doubles to the Fortran subroutine
+    T = Float64 # LBFGSB.jl wants Float64s so it can pass doubles to the Fortran subroutine
     tset_rtol = 1e-7
     let x0=T[1], models=[T[0 0 0; 0 0 0; 1 1 1]], data=Int64[0 0 0; 0 0 0; 3 3 3]
         # Test LBFGS.jl
@@ -111,8 +114,41 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         ftf_result2 = SFH.fit_templates_fast(smodels, sdata; x0=x0)
         @test ftf_result2[1] ≈ x rtol=tset_rtol
         @test ftf_result[1] ≈ ftf_result2[1] rtol=1e-5 # Test for agreement between signatures
-        # Test that mcmc_sample runs
-        mc_result = SFH.mcmc_sample(models, data, [copy(x0) for i in 1:100], 10) # ; use_progress_meter=false)
-        @test size(mc_result) == (10, length(x0), 100)
+    end
+
+    @testset "mcmc_sample" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                rng = StableRNG(seedval)
+                kmc_conv = SFH.convert_kissmcmc([[T[1,2,3] for i in 1:5] for i in 1:10])
+                @test kmc_conv isa Array{T, 3}
+                x = rand(rng, T, N_models).* 100
+                x0 = ones(T, N_models)
+                # x0 = rand(rng, T, nwalkers, length(coeffs)) # Initial walker positions, matrix
+                models = [rand(rng, T, hist_size...) for i in 1:N_models]
+                data=rand.(rng, Poisson.(sum(x .* models)))
+                smodels = SFH.stack_models(models)
+                sdata = vec(data)
+                nwalkers = 100
+                nsteps = 20
+                # Test mcmc_sample with x0::Vector{Vector{T}} 
+                mc_result = SFH.mcmc_sample(models, data, [copy(x0) for i in 1:nwalkers], nsteps; use_progress_meter=false)
+                @test mc_result isa MCMCChains.Chains
+                @test size(mc_result) == (nsteps, length(x0), nwalkers)
+                @test eltype(Array(mc_result)) == T
+                # Test with Matrix x0
+                mc_result = SFH.mcmc_sample(models, data, reduce(hcat, copy(x0) for i in 1:nwalkers), nsteps; use_progress_meter=false)
+                @test mc_result isa MCMCChains.Chains
+                @test size(mc_result) == (nsteps, length(x0), nwalkers)
+                @test eltype(Array(mc_result)) == T
+                # Test with flattened input, matrix x0
+                mc_result = SFH.mcmc_sample(smodels, sdata, reduce(hcat, copy(x0) for i in 1:nwalkers), nsteps; use_progress_meter=false)
+                @test mc_result isa MCMCChains.Chains
+                @test size(mc_result) == (nsteps, length(x0), nwalkers)
+                @test eltype(Array(mc_result)) == T
+            end
+        end
     end
 end
