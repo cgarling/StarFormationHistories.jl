@@ -532,104 +532,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
             @safetestset "Age-Metallicity Relations" include("fitting/amr_test.jl")
             @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
-            @testset "Fixed AMR" begin
-                let unique_logAge=8.0:0.1:10.0, unique_MH=-2.5:0.1:0.0
-                    # let logAge=repeat(8.0:0.1:10.0;inner=26), metallicities=repeat(-2.5:0.1:0.0;outer=21)
-                    logAge = repeat(unique_logAge; inner=length(unique_MH))
-                    MH = repeat(unique_MH; outer=length(unique_logAge))
-                    T_max = 12.0 # 12.0 Gyr
-                    α, β, σ = 0.05, (-1.0 + -0.05*T_max), 0.2
-                    # Form relative weights; calculate_coeffs_mdf is open to API change
-                    relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
-                    @testset "calculate_coeffs_mdf" begin
-                        for (i, la) in enumerate(unique_logAge)
-                            @test sum(relweights[logAge .== la]) ≈ 1
-                        end
-                    end
-                    
-                    # construct_x0_mdf is open to API change
-                    @testset "construct_x0_mdf" begin
-                        # The input logAge does not need to be in any particular order
-                        # in order to use this method. Test this by shuffling `logAge`.
-                        let logAge = Random.shuffle(logAge) 
-                            x0 = SFH.construct_x0_mdf(logAge, 13.7)
-                            @test length(x0) == length(unique_logAge)
-                            idxs = sortperm(unique(logAge))
-                            sorted_ul = vcat(unique(logAge)[idxs], log10(13.7e9))
-                            dt = diff(exp10.(sorted_ul))
-                            sfr = [ begin
-                                 idx = findfirst( ==(sorted_ul[i]), unique(logAge) )
-                                 x0[i] / dt[idx]
-                              end for i in eachindex(unique(logAge)) ]
-                            @test all(sfr .≈ first(sfr)) # Test the SFR in each time bin is approximately equal
-                        end
-                        # Test normalize_value
-                        @test sum(SFH.construct_x0_mdf(logAge, 13.7)) ≈ 1
-                        @test sum(SFH.construct_x0_mdf(logAge, 13.7; normalize_value=1e5)) ≈ 1e5
-                    end
-
-                    # Now generate models, data, and try to solve
-                    hist_size = (100,100)
-                    rng = StableRNG(seedval)
-                    N_models = length(logAge)
-                    T = Float64
-                    # Set up SFRs, initial guess, model templates, and data Hess diagram
-                    # SFRs are uniformly random; x are the per-model weights based on those SFRs;
-                    # x0 is initial guess; models are random matrices; data is sum(x .* models)
-                    @testset "fixed_amr + fixed_linear_amr" begin
-                        let SFRs=rand(rng,T,length(unique_logAge)), x=SFH.calculate_coeffs_mdf(SFRs, logAge, MH, T_max, α, β, σ), x0=SFH.construct_x0_mdf(logAge, convert(T,13.7); normalize_value=1), models=[rand(rng,T,hist_size...) .* 100 for i in 1:N_models], data=sum(x .* models)
-                            # Calculate relative weights for input to fixed_amr
-                            relweights = SFH.calculate_coeffs_mdf( ones(length(unique_logAge)), logAge, MH, T_max, α, β, σ)
-                            result = SFH.fixed_amr(models, data, logAge, MH, relweights; x0=x0)
-                            @test result.mle.μ ≈ SFRs rtol=1e-5
-                            # Test that improperly normalized relweights results in warning
-                            # Test currently fails on julia 1.7, I think due to a difference
-                            # in the way that the warnings are logged so, remove
-                            VERSION >= v"1.8" && @test_logs (:warn,) SFH.fixed_amr(models, data, logAge, MH, 2 .* relweights; x0=x0)
-                            # Now try fixed_linear_amr that will internally calculate the relweights
-                            result2 = SFH.fixed_linear_amr(models, data, logAge, MH, T_max, α, β, σ; x0=x0)
-                            @test result2.mle.μ ≈ SFRs rtol=1e-5
-                            # Test how removing low-weight models from fixed_amr might impact fit
-                            relweightsmin = 0.1 # Include only models whose relative weights are > 10% of the maximum in the logAge bin
-                            keep_idx = Int[]
-                            for (i, la) in enumerate(unique_logAge)
-                                good = findall(logAge .== la) # Select models with correct logAge
-                                tmp_relweights = relweights[good]
-                                max_relweight = maximum(tmp_relweights) # Find maximum relative weight for this set of models
-                                high_weights = findall(tmp_relweights .>= (relweightsmin * max_relweight))
-                                keep_idx = vcat(keep_idx, good[high_weights])
-                            end
-                            # This takes ~0.5s compared to ~2s for the full result = SFH.fixed_amr ... above
-                            # This should throw an error; see above note on Julia < 1.7
-                            if VERSION >= v"1.8"
-                                result3 = @test_logs (:warn,) SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
-                            else
-                                result3 = SFH.fixed_amr(models[keep_idx], data, logAge[keep_idx], MH[keep_idx], relweights[keep_idx]; x0=x0)
-                            end
-                            # Not accurate to the same level as tested above with `result`
-                            @test ~isapprox(result3.mle.μ, SFRs; rtol=1e-5)
-                            # Is accurate to a lower level of precision
-                            @test isapprox(result3.mle.μ, SFRs; rtol=1e-2)
-                            # And on average, agreement is pretty good
-                            @test median( (result3.mle.μ .- SFRs) ./ SFRs) < 1e-3
-                            # Test that truncate_relweights does correct thing
-                            @test SFH.truncate_relweights(relweightsmin,relweights,logAge) == keep_idx
-                            # Test that setting relweightsmin keyword to fixed_amr gives same result as result3 above
-                            result4 = SFH.fixed_amr(models, data, logAge, MH, relweights; relweightsmin=relweightsmin, x0=x0)
-                            @test isapprox(result3.mle.μ, result4.mle.μ)
-
-                            @testset "mdf_amr" begin
-                                mdf_result1 = SFH.mdf_amr([1.0,2.0,3.0,4.0],[1.0,2.0,1.0,2.0],[-2.0,-2.0,-1.0,-1.0])
-                                @test mdf_result1[1] ≈ [-2.0, -1.0]
-                                @test mdf_result1[2] ≈ [0.3, 0.7]
-                                # Test mdf_x is always returned in sorted order
-                                mdf_result2 = SFH.mdf_amr(reverse([1.0,2.0,3.0,4.0]),[1.0,2.0,1.0,2.0],reverse([-2.0,-2.0,-1.0,-1.0]))
-                                @test all(mdf_result1 .== mdf_result2)
-                            end
-                        end
-                    end
-                end
-            end
+            @safetestset "Fixed AMR" include("fitting/fixed_amr.jl")
         end
     end
 
@@ -638,6 +541,15 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         # Artifical star tests use extensions, requires Julia >= 1.9
         if VERSION >= v"1.9"
             @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
+        end
+
+        @testset "mdf_amr" begin
+            mdf_result1 = SFH.mdf_amr([1.0,2.0,3.0,4.0],[1.0,2.0,1.0,2.0],[-2.0,-2.0,-1.0,-1.0])
+            @test mdf_result1[1] ≈ [-2.0, -1.0]
+            @test mdf_result1[2] ≈ [0.3, 0.7]
+            # Test mdf_x is always returned in sorted order
+            mdf_result2 = SFH.mdf_amr(reverse([1.0,2.0,3.0,4.0]),[1.0,2.0,1.0,2.0],reverse([-2.0,-2.0,-1.0,-1.0]))
+            @test all(mdf_result1 .== mdf_result2)
         end
 
         for i in eachindex(float_types, float_type_labels)
