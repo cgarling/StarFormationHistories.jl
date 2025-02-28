@@ -48,7 +48,7 @@ function (problem::MCMCModelDistance)(θ)
                    edges=(problem.edges[1], problem.edges[2] .+ distance_modulus(new_distance * 1000)))
 
     models = problem.models
-    C = Vector{T}(undef, first(size(models))) # Vector to contain composite model
+    C = Vector{T}(undef, size(models, 1)) # Vector to contain composite model
     composite!(C, view(θ,2:lastindex(θ)), models)
     return loglikelihood(C, vec(data.weights)) + convert(T, logpdf(problem.distance_prior, new_distance))
 end

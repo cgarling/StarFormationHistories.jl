@@ -1,37 +1,25 @@
-struct MCMCModel{T <: AbstractMatrix{<:Number},
-                 S <: AbstractVector{<:AbstractVector{<:Number}},
-                 V <: AbstractVector{<:Number}}
-    models::T
-    composites::S # Vector of matrices, one per thread
-    data::V
-end
-
-# Function to construct the above type when provided with just models and data
-function MCMCModel(models::T, data::S) where {A <: Number,
-                                              B <: Number,
-                                              T <: AbstractMatrix{A},
-                                              S <: AbstractVector{B}}
-    V = promote_type(A,B)
-    return MCMCModel(models, [Vector{V}(undef, length(data)) for i in 1:Threads.nthreads()], data)
+struct MCMCModel{A <: AbstractMatrix{<:Number},
+                 B <: AbstractVector{<:Number}}
+    models::A
+    data::B
 end
 
 # This model will return loglikelihood only
 LogDensityProblems.capabilities(::Type{<:MCMCModel}) = LogDensityProblems.LogDensityOrder{0}()
-LogDensityProblems.dimension(problem::MCMCModel) = size(problem.models,2)
+LogDensityProblems.dimension(problem::MCMCModel) = size(problem.models, 2)
 
 # Make the type callable for the loglikelihood
 function (problem::MCMCModel)(θ)
-    T = promote_type(eltype(first(problem.composites)), eltype(problem.data))
+    models, data = problem.models, problem.data
+    T = promote_type(eltype(models), eltype(data))
     for coeff in θ # If any coefficients are negative, return -Inf
         if coeff < zero(T)
             return typemin(T)
         end
     end
-    # idx = Threads.threadid()
-    # This should be valid for vectors with non 1-based indexing
-    idx = first(axes(problem.composites))[Threads.threadid()] 
-    composite!( problem.composites[idx], θ, problem.models )
-    return loglikelihood(problem.composites[idx], problem.data)
+    C = Vector{T}(undef, size(models, 1)) # Vector to contain composite model
+    composite!(C, θ, models)
+    return loglikelihood(C, data)
 end
 LogDensityProblems.logdensity(problem::MCMCModel, θ) = problem(θ)
 
@@ -108,11 +96,15 @@ result = mcmc_sample(models, data, x0, nwalkers, nsteps) # Sample
 Chains MCMC chain (400×10×1000 Array{Float64, 3}) ...
 ```
 """
-function mcmc_sample(models::AbstractMatrix{T}, data::AbstractVector{S}, x0::AbstractVector{<:AbstractVector{<:Number}}, nwalkers::Integer, nsteps::Integer; nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0, use_progress_meter::Bool=true) where {T <: Number, S <: Number}
-    instance = MCMCModel( models,
-                          [Vector{promote_type(T,S)}(undef, length(data)) for i in 1:Threads.nthreads()],
-                          data )
-    samples, _ = KissMCMC.emcee(instance, x0; niter=nwalkers*nsteps, nburnin=nburnin*nwalkers, nthin=nthin, a_scale=a_scale, use_progress_meter=use_progress_meter)
+function mcmc_sample(models::AbstractMatrix{T}, data::AbstractVector{S},
+                     x0::AbstractVector{<:AbstractVector{<:Number}},
+                     nwalkers::Integer, nsteps::Integer;
+                     nburnin::Integer=0, nthin::Integer=1, a_scale::Number=2.0,
+                     use_progress_meter::Bool=true) where {T <: Number, S <: Number}
+    instance = MCMCModel(models, data)
+    samples, _ = KissMCMC.emcee(instance, x0;
+                                niter=nwalkers*nsteps, nburnin=nburnin*nwalkers, nthin=nthin,
+                                a_scale=a_scale, use_progress_meter=use_progress_meter)
     return MCMCChains.Chains(convert_kissmcmc(samples))
 end
 # KissMCMC Output:
@@ -121,7 +113,8 @@ end
 # - logdensities: the value of the log-density for each sample, same shape as `samples`
 
 # Method for x0 as a Matrix rather than vector of vectors
-function mcmc_sample(models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number}, x0::AbstractMatrix{<:Number}, nwalkers::Integer, nsteps::Integer; kws...)
+function mcmc_sample(models::AbstractMatrix{<:Number}, data::AbstractVector{<:Number},
+                     x0::AbstractMatrix{<:Number}, nwalkers::Integer, nsteps::Integer; kws...)
     if size(x0) == (nwalkers, size(models,2))
         mcmc_sample(models, data, [copy(i) for i in eachrow(x0)], nwalkers, nsteps; kws...)
     elseif size(x0) == (size(models,2), nwalkers)
@@ -130,4 +123,7 @@ function mcmc_sample(models::AbstractMatrix{<:Number}, data::AbstractVector{<:Nu
         throw(ArgumentError("You provided a misshapen `x0` argument of type `AbstractMatrix{<:Number}` to `mcmc_sample`. When providing a matrix for `x0`, it must be of size `(nwalkers, Nmodels)` or `(Nmodels, nwalkers)`, where `Nmodels` is the number of model templates you are providing (`Nmodels = size(models,2)` if you are passing `models` as a single flattened matrix, or `Nmodels = length(models)` if you are passing `models` as a vector of matrices)."))
     end
 end
-mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}}, data::AbstractMatrix{<:Number}, args...; kws...) = mcmc_sample(stack_models(models), vec(data), args...; kws...)
+function mcmc_sample(models::AbstractVector{<:AbstractMatrix{<:Number}},
+                     data::AbstractMatrix{<:Number}, args...; kws...)
+    return mcmc_sample(stack_models(models), vec(data), args...; kws...)
+end
