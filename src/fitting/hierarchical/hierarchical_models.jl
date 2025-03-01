@@ -16,12 +16,11 @@ julia> nparams(LinearAMR(1.0, 1.0), GaussianDispersion(0.2))
 """
 nparams(models...) = mapreduce(nparams, +, models)
 
+include("construct_x0_mdf.jl")  # utility function to set initial guess x0
 include("transformations.jl")   # Variable transformations
 include("dispersion_models.jl") # AbstractDispersionModel and subtypes
 include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
 include("fixed_amr.jl")         # Fit under a fixed AMR -- deprecate?
-include("linear_amr/linear_amr.jl")
-include("log_amr/log_amr.jl")
 include("amr.jl")               # Age-metallicity relations
 include("mzr.jl")               # Mass-metallicity relations
 include("generic_fitting.jl")   # Fitting and sampling functions for both AMR and MZR
