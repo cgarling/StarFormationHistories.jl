@@ -63,7 +63,7 @@ jobs:
       - uses: julia-actions/cache@v2	  
       - uses: julia-actions/julia-buildpkg@v1
       - run: julia --color=yes -e 'using Pkg; Pkg.add("Aqua")'
-      - run: julia --project=@. --color=yes -e 'using Aqua, StarFormationHistories; Aqua.test_all(StarFormationHistories; ambiguities=false, piracies=(treat_as_own=[mean],))'
+      - run: julia --project=@. --color=yes -e 'using Aqua, StarFormationHistories; Aqua.test_all(StarFormationHistories; ambiguities=true, piracies=(treat_as_own=[mean],))'
 
   docs:
     name: Documentation
