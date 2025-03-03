@@ -1,7 +1,7 @@
 name = "StarFormationHistories"
 uuid = "774d3ad4-2d55-48fa-ab42-467705ebff24"
 authors = ["cgarling <chris.t.garling@gmail.com>"]
-version = "0.2.0"
+version = "1.0.0"
 
 [deps]
 Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"
