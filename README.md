@@ -19,7 +19,7 @@ Pkg.add("StarFormationHistories");
 ```
 
 ## Paper and Citation
-The initial paper describing the methodologies used in this package is available on ArXiv [here](http://arxiv.org/abs/2407.19534) with permanent DOI identifier [here](https://doi.org/10.3847/1538-4365/adbb64). We ask that published work using this package cite this paper.
+The initial paper describing the methodologies used in this package is available on ArXiv [here](http://arxiv.org/abs/2407.19534) with permanent DOI identifier [here](https://doi.org/10.3847/1538-4365/adbb64). The ApJS published version is available [here](doi.org/10.3847/1538-4365/adbb64). We ask that published work using this package cite this paper.
 
 The software has [its own DOI](https://doi.org/10.5281/zenodo.14963317) issued through Zenodo which can be used to refer to the software separately from the academic work. Zenodo issues version-specific DOIs that are useful for referring to exact versions used for particular work.
 
