@@ -58,7 +58,7 @@ function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
         mini_vec = mini_vec[idx]
         mags = mags[idx]
     end
-    deduplicate_knots!(mini_vec) # Interpolations.jl function. 
+    mini_vec = deduplicate_knots!(mini_vec; move_knots=true) # Interpolations.jl function. 
     return mini_vec, mags
 end
 
