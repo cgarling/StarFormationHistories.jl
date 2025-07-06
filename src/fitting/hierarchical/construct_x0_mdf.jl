@@ -56,10 +56,10 @@ true
 ```
 """
 function construct_x0_mdf(logAge::AbstractVector{T}, T_max::Number; normalize_value::Number=one(T)) where T <: Number
-    minlog, maxlog = extrema(logAge)
+    @argcheck log10(T_max) + 9 > maximum(logAge)
+    min_logAge = minimum(logAge)
     max_logAge = log10(T_max) + 9 # T_max in units of Gyr
-    @assert max_logAge > maxlog   # max_logAge has to be greater than the maximum of logAge vector
-    sfr = normalize_value / (exp10(max_logAge) - exp10(minlog)) # Average SFR / yr
+    sfr = normalize_value / (exp10(max_logAge) - exp10(min_logAge)) # Average SFR / yr
     unique_logAge = unique(logAge)
     idxs = sortperm(unique_logAge)
     sorted_ul = vcat(unique_logAge[idxs], max_logAge)
@@ -72,20 +72,19 @@ end
 
 function construct_x0_mdf(logAge::AbstractVector{<:Number}, cum_sfh::AbstractVector{T},
                           T_max::Number; normalize_value::Number=one(T)) where T <: Number
-    cmin, cmax = extrema(cum_sfh)
-    @assert cmin ≥ zero(T)
-    !isapprox(cmax, one(T)) && @warn "Maximum of `cum_sfh` argument is $cmax which is not approximately equal to 1."
-    maximum(cum_sfh) 
-    minlog, maxlog = extrema(logAge)
+    @argcheck minimum(cum_sfh) ≥ zero(T)
+    if !isapprox(maximum(cum_sfh), one(T))
+        @warn "Maximum of `cum_sfh` argument is $(maximum(cum_sfh)) which is not approximately equal to 1."
+    end
+    @argcheck log10(T_max) + 9 > maximum(logAge)
     max_logAge = log10(T_max) + 9 # T_max in units of Gyr
-    @assert max_logAge > maxlog   # max_logAge has to be greater than the maximum of logAge vector
     unique_logAge = unique(logAge)
-    @assert length(unique_logAge) == length(cum_sfh)
+    @argcheck length(unique_logAge) == length(cum_sfh) "`length(unique(logAge))` not equal to `length(cum_sfh)`."
     
     idxs = sortperm(unique_logAge)
     sorted_cum_sfh = vcat(cum_sfh[idxs], zero(T))
     # Test that cum_sfh is properly monotonic
-    @assert(all(sorted_cum_sfh[i] ≤ sorted_cum_sfh[i-1] for i in eachindex(sorted_cum_sfh)[2:end]),
+    @argcheck(all(sorted_cum_sfh[i] ≤ sorted_cum_sfh[i-1] for i in eachindex(sorted_cum_sfh)[2:end]),
             "Provided `cum_sfh` must be monotonically increasing as `logAge` decreases.")
     sorted_ul = vcat(unique_logAge[idxs], max_logAge)
     return [ begin
@@ -99,12 +98,12 @@ end
 # This interpolates the provided pair onto the provided logAge in first argument.
 function construct_x0_mdf(logAge::AbstractVector{T}, cum_sfh_vec,
                           T_max::Number; normalize_value::Number=one(T)) where T <: Number
-    @assert(length(cum_sfh_vec) == 2,
+    @argcheck(length(cum_sfh_vec) == 2,
             "`cum_sfh` must either be a vector of numbers or vector containing two vectors that \
              define a cumulative SFH with a different log(age) discretization than the provided \
              `logAge` argument.")
     # Extract cum_sfh info and concatenate with T_max where cum_sfh=0 by definition
-    @assert(maximum(last(cum_sfh_vec)) ≤ one(T),
+    @argcheck(maximum(last(cum_sfh_vec)) ≤ one(T),
             "Maximum of cumulative SFH must be less than or equal to one when passing a custom \
              cumulative SFH to `construct_x0_mdf`.")
     idxs = sortperm(first(cum_sfh_vec))

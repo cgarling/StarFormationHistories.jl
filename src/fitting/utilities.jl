@@ -30,11 +30,11 @@ julia> sum(x0)
 """
 function construct_x0(logAge::AbstractVector{T}, T_max::Number;
                       normalize_value::Number=one(T)) where T <: Number
-    min_log, max_log = extrema(logAge)
+    @argcheck log10(T_max) + 9 > maximum(logAge)
+    min_logAge = minimum(logAge)
     max_logAge = log10(T_max) + 9 # T_max in units of Gyr
-    @assert max_logAge > max_log # max_logAge must be greater than maximum(logAge)
     unique_logAge = vcat(sort!(unique(logAge)), max_logAge)
-    sfr = normalize_value / (exp10(max_logAge) - exp10(min_log)) # Average SFR / yr
+    sfr = normalize_value / (exp10(max_logAge) - exp10(min_logAge)) # Average SFR / yr
     num_ages = [count(logAge .== la) for la in unique_logAge] # number of entries per unique
     dt = [exp10(unique_logAge[i+1]) - exp10(unique_logAge[i]) for i in 1:length(unique_logAge)-1]
     result = similar(logAge)
@@ -74,9 +74,9 @@ Calculates cumulative star formation history, star formation rates, and mean met
  - `mean_MH::Vector` gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique_logAge`. 
 """
 function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector, T_max::Number; normalize_value=1, sorted::Bool=false)
-    @assert axes(coeffs) == axes(logAge) == axes(MH)
+    @argcheck axes(coeffs) == axes(logAge) == axes(MH)
+    @argcheck log10(T_max) + 9 > maximum(logAge)
     max_logAge = log10(T_max) + 9 # T_max in units of Gyr
-    @assert max_logAge > maximum(logAge)
     coeffs = coeffs .* normalize_value # Transform the coefficients to proper stellar masses
     mstar_total = sum(coeffs) # Calculate the total stellar mass of the model
     # Calculate the stellar mass per time bin by summing over the different MH at each logAge

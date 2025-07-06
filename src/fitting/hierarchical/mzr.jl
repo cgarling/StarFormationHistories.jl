@@ -52,9 +52,9 @@ function calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispers
                           logAge::AbstractVector{<:Number},
                           metallicities::AbstractVector{<:Number}) where {T, U}
     unique_logAge = unique(logAge)
-    @assert(length(mstars) == length(unique_logAge),
-            "Length of `mstars` must be the same as `unique_logAge`.")
-    @assert length(logAge) == length(metallicities)
+    @argcheck(length(mstars) == length(unique_logAge),
+            "Length of `mstars` must be the same as `unique(logAge)`.")
+    @argcheck length(logAge) == length(metallicities)
     S = promote_type(eltype(mstars), eltype(logAge), eltype(metallicities), T, U)
 
     # To calculate cumulative stellar mass, we need unique_logAge sorted in reverse order
@@ -90,7 +90,7 @@ function fg!(F, G, MHmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel
              logAge::AbstractVector{<:Number},
              metallicities::AbstractVector{<:Number}) where {T, U}
 
-    @assert axes(data) == axes(composite)
+    @argcheck axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
                      T, U)
@@ -123,7 +123,7 @@ function fg!(F, G, MHmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel
 
     if !isnothing(G) # Optim.optimize wants gradient -- update G in place
         Base.require_one_based_indexing(G)
-        @assert axes(G) == axes(variables)
+        @argcheck axes(G) == axes(variables)
         # Calculate the ∇loglikelihood with respect to model coefficients
         fullG = Vector{eltype(G)}(undef, length(coeffs))
         ∇loglikelihood!(fullG, composite, models, data)

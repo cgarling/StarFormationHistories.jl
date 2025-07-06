@@ -178,7 +178,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     end
     
     # Write gradient from G2 into G for free parameters
-    @assert axes(G) == axes(xvec)
+    @argcheck axes(G) == axes(xvec)
     for i in firstindex(G):Nbins; G[i] = G2[i]; end
     free_count = 1
     for i in 1:length(free)
@@ -249,9 +249,9 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
 
     unique_logAge = unique(logAge)
     Nbins = length(x0) # Number of unique logAge bins
-    @assert length(x0) == length(unique_logAge)
-    @assert size(models, 1) == length(data)
-    @assert size(models, 2) == length(logAge) == length(metallicities)
+    @argcheck length(x0) == length(unique_logAge) "length(x0) != length(unique(logAge))"
+    @argcheck size(models, 1) == length(data)
+    @argcheck size(models, 2) == length(logAge) == length(metallicities)
     # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
     x0 = map(log, x0) # Does not modify x0 in place
     # Perform logarithmic transformation on MZR and dispersion parameters
@@ -646,7 +646,7 @@ end
 #                      rng::AbstractRNG=default_rng()) where {S <: Number}
 
 #     Nthreads = Threads.nthreads()
-#     @assert Nsteps ≥ Nthreads "`tsample_sfh` requires you request at least as many samples as available threads (`Nsteps > Threads.nthreads`)."
+#     @argcheck Nsteps ≥ Nthreads "`tsample_sfh` requires you request at least as many samples as available threads (`Nsteps > Threads.nthreads`)."
 #     # Will use MLE for best-fit values, MAP for invH
 #     MAP, MLE = bfgs_result.map, bfgs_result.mle
 #     # Best-fit free parameter values from optimization in transformed fitting variables
@@ -739,7 +739,7 @@ end
 #                      rng::AbstractRNG=default_rng()) where {S <: Number}
 
 #     Nthreads = Threads.nthreads()
-#     @assert Nsteps ≥ Nthreads "`tsample_sfh` requires you request at least as many samples as available threads (`Nsteps > Threads.nthreads`)."
+#     @argcheck Nsteps ≥ Nthreads "`tsample_sfh` requires you request at least as many samples as available threads (`Nsteps > Threads.nthreads`)."
 #     # Will use MLE for best-fit values, MAP for invH
 #     MAP, MLE = bfgs_result.map, bfgs_result.mle
 #     # Best-fit free parameter values from optimization in transformed fitting variables
