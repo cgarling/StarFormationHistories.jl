@@ -9,6 +9,7 @@ import MCMCChains
 import DynamicHMC
 # import Optim
 using Test, SafeTestsets
+using Logging: with_logger, ConsoleLogger, Error
 
 # Run doctests first
 import Documenter: DocMeta, doctest
@@ -540,7 +541,10 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
     @testset "utilities" begin
         # Artifical star tests use extensions, requires Julia >= 1.9
         if VERSION >= v"1.9"
-            @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
+            # We are intentionally causing some warnings, they are not significant
+            with_logger(ConsoleLogger(Error)) do
+                @safetestset "process_ASTs" include("utilities/process_ASTs_test.jl")
+            end
         end
 
         @testset "mdf_amr" begin
