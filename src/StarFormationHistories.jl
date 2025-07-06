@@ -875,11 +875,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    # colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
-    # single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
-    #                                   midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
-    #                                   weights=weights, edges=edges)
-
+    
     # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
     bias_iso_mags = [new_iso_mags[i] .+ bias_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
     colors = bias_iso_mags[first(color_indices)] .- bias_iso_mags[last(color_indices)]
