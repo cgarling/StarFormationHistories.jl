@@ -104,7 +104,7 @@ mc_matrix = exp.( DynamicHMC.pool_posterior_matrices(t_result) )
 """
 function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer;
                     rng::AbstractRNG=default_rng(), kws...) where S <: Number
-    @assert size(models, 1) == length(data)
+    @argcheck size(models, 1) == length(data)
     composite = Vector{S}(undef, length(data))
     instance = HMCModel(models, composite, data)
     # return instance
@@ -122,7 +122,7 @@ end
 # Version with multiple chains and multithreading
 function hmc_sample(models::AbstractMatrix{S}, data::AbstractVector{<:Number}, nsteps::Integer, nchains::Integer;
                     rng::AbstractRNG=default_rng(), initialization=(), kws...) where S <: Number
-    @assert nchains ≥ 1 "`nchains` argument to `hmc_sample` must be ≥ 1."
+    @argcheck nchains ≥ 1 "`nchains` argument to `hmc_sample` must be ≥ 1."
     # Construct threadsafe buffer to hold HMCModel instances
     instances = TaskLocalValue{HMCModel}(() -> HMCModel(models, Vector{S}(undef, length(data)), data))
     # Do the warmup

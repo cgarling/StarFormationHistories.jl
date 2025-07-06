@@ -23,8 +23,8 @@ function MCMCModelDistance(models::A,
                                          B <: AbstractVector{<:Number},
                                          C <: AbstractVector{<:Number},
                                          D <: Distribution{Univariate, Continuous}}
-    V = promote_type(AA, eltype(B), eltype(C))
-    @assert length(xcolors) == length(ymags)
+    @argcheck length(xcolors) == length(ymags)
+    # V = promote_type(AA, eltype(B), eltype(C))
     # Stack models for more efficient computation
     models = stack_models(models)
     return MCMCModelDistance(models, xcolors, ymags, distance_prior, edges)
