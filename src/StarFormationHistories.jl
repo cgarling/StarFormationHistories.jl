@@ -782,7 +782,8 @@ end
                            y_index,
                            color_indices,
                            imf,
-                           completeness_funcs=[one for i in mags];
+                           completeness_funcs=[one for i in mags],
+                           bias_funcs=[zero for i in mags];
                            dmod::Number=0,
                            normalize_value::Number=1,
                            binary_model::AbstractBinaryModel=NoBinaries(),
@@ -803,7 +804,8 @@ Main function for generating template Hess diagrams from a simple stellar popula
  - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you would set `y_index` as `2`. 
  - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then `color_indices` should be `[1,2]` or `(1,2)` or similar.
  - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model. All the models from [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl) are valid for `imf`.
- - `completeness_functions` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) to compute the single-filter completeness fractions as a function of *apparent* magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
+ - `completeness_funcs` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) that return the single-filter completeness fractions as a function of *apparent* magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
+ - `bias_funcs` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) that return the expected photometric bias as a function of *apparent* magnitude. The photometric bias is defined as the difference between measured and intrinsic magnitude (i.e., `output - input` for artificial star tests). Each callable in this argument must correspond to the matching filter provided in `mags`.
 
 # Keyword Arguments
  - `dmod::Number=0` is the distance modulus in magnitudes to apply to the input `mags`. Leave at `0` if you are providing apparent magnitudes in `mags`.
@@ -823,7 +825,8 @@ This method returns the Hess diagram as a `StatsBase.Histogram`; you should refe
 function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mags::AbstractVector{<:AbstractVector{<:Number}},
                             mag_err_funcs, y_index, color_indices, imf,
-                            completeness_funcs=[one for i in mags];
+                            completeness_funcs=[one for i in mags],
+                            bias_funcs=[zero for i in mags];
                             dmod::Number=0, normalize_value::Number=1,
                             binary_model::AbstractBinaryModel=NoBinaries(),
                             mean_mass::Number=mean(imf),
@@ -845,7 +848,6 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, Δmag, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
-    colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
     mag_err = [mag_err_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
     if y_index in color_indices # x-axis color is dependent on y-axis magnitude
         # This case will use GaussianPSFCovariant, which expects the color_err
@@ -873,9 +875,18 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
+    # colors = new_iso_mags[first(color_indices)] .- new_iso_mags[last(color_indices)]
+    # single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
+    #                                   midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
+    #                                   weights=weights, edges=edges)
+
+    # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
+    bias_iso_mags = [new_iso_mags[i] .+ bias_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
+    colors = bias_iso_mags[first(color_indices)] .- bias_iso_mags[last(color_indices)]
+    single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(bias_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
+
     @argcheck binary_system_fraction(binary_model) <= 1
     bfrac = binary_system_fraction(binary_model)
     if bfrac == 0
