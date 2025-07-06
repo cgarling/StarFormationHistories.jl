@@ -136,7 +136,7 @@ The above note was taken from the [CMD webform](https://stev.oapd.inaf.it/cgi-bi
 This function is an approximation and may not be suitable for precision calculations.
 """
 function MH_from_Z(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
-    # @assert all(var > 0 for var in (Z, solZ, Y_p)) "Metal mass fraction `Z`, solar metal mass fraction `solZ`, and primordial helium mass fraction `Y_p` must be greater than 0."
+    # @argcheck all(var > 0 for var in (Z, solZ, Y_p)) "Metal mass fraction `Z`, solar metal mass fraction `solZ`, and primordial helium mass fraction `Y_p` must be greater than 0."
     X = X_from_Z(Z, Y_p, γ)
     # return log10(Z / X) - log10(solZ / X_from_Z(solZ, Y_p, γ))
     # By default log10 will throw an error for negative argument; such negative arguments
@@ -150,7 +150,7 @@ end
 Partial derivative of [`MH_from_Z`](@ref StarFormationHistories.MH_from_Z) with respect to the input metal mass fraction `Z`. Used for [`LogarithmicAMR`](@ref StarFormationHistories.LogarithmicAMR).
 """
 function dMH_dZ(Z, solZ=0.01524; Y_p = 0.2485, γ = 1.78)
-    # @assert Z > 0 "Metal mass fraction `Z` must be greater than 0."
+    # @argcheck Z > 0 "Metal mass fraction `Z` must be greater than 0."
     return (Y_p - 1) / (logten * Z * (Y_p + Z + γ * Z - 1))
 end
 """
@@ -312,7 +312,7 @@ true
 """
 # function tups_to_mat(tups::Vararg{Tuple, N}) where N # Don't specialize on N...
 function tups_to_mat(tups::Tuple...)
-    @assert allequal(length, tups) "All tuples passed as arguments to `tups_to_mat` must have same length."
+    @argcheck allequal(length, tups) "All tuples passed as arguments to `tups_to_mat` must have same length."
     N = length(tups)
     S = reduce(promote_type, promote_type(typeof.(tup)...) for tup in tups)
     M = length(first(tups))

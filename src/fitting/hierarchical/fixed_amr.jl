@@ -49,11 +49,11 @@ function fixed_amr(models::AbstractMatrix{S},
 
     composite = Vector{S}(undef,length(data)) # Scratch matrix for storing complex Hess model
     unique_logAge = unique(logAge)
-    @assert length(x0) == length(unique_logAge)
-    @assert size(models,1) == length(data)
-    @assert size(models,2) == length(logAge) == length(metallicities) == length(relweights)
-    @assert all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
-    @assert relweightsmin >= 0 # By definition relweightsmin must be greater than or equal to 0
+    @argcheck length(x0) == length(unique_logAge)
+    @argcheck size(models,1) == length(data)
+    @argcheck size(models,2) == length(logAge) == length(metallicities) == length(relweights)
+    @argcheck all(x -> x ≥ 0, relweights) # All relative weights must be \ge 0
+    @argcheck relweightsmin >= 0 # By definition relweightsmin must be greater than or equal to 0
     
     # Identify which of the provided models are significant enough
     # to be included in the fitting on the basis of the provided `relweightsmin`.
@@ -104,7 +104,7 @@ function fixed_amr(models::AbstractMatrix{S},
         logL = loglikelihood(composite, data) # Need to do this before ∇loglikelihood! because it will overwrite composite
         logL += sum(xvec) # This is the Jacobian correction
         if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
-            @assert axes(G) == axes(x)
+            @argcheck axes(G) == axes(x)
             # Calculate the ∇loglikelihood with respect to model coefficients
             ∇loglikelihood!(fullG, composite, models, data)
             # Now need to do the transformation to the per-logage `x` variables
@@ -129,7 +129,7 @@ function fixed_amr(models::AbstractMatrix{S},
         composite!( composite, coeffs, models )
         logL = loglikelihood(composite, data) # Need to do this before ∇loglikelihood! because it will overwrite composite
         if (F != nothing) & (G != nothing) # Optim.optimize wants objective and gradient
-            @assert axes(G) == axes(x)
+            @argcheck axes(G) == axes(x)
             # Calculate the ∇loglikelihood with respect to model coefficients
             ∇loglikelihood!(fullG, composite, models, data)
             # Now need to do the transformation to the per-logage `x` variables
@@ -220,7 +220,7 @@ which correspond to `relweights[2,3,4] = [ 0.2284109622221623, 0.498895408884822
 function truncate_relweights(relweightsmin::Number,
                              relweights::AbstractVector{<:Number},
                              logAge::AbstractVector{<:Number})
-    @assert length(relweights) == length(logAge)
+    @argcheck length(relweights) == length(logAge)
     relweightsmin == 0 && return collect(eachindex(relweights, logAge)) # short circuit for relweightsmin = 0
     keep_idx = Vector{Int}[] # Vector of vectors of integer indices
     for la in unique(logAge)

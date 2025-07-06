@@ -20,7 +20,7 @@ true
 @inline function composite!(composite::AbstractMatrix{<:Number},
                             coeffs::AbstractVector{<:Number},
                             models::AbstractVector{T}) where T <: AbstractMatrix{<:Number}
-    @assert axes(coeffs) == axes(models)
+    @argcheck axes(coeffs) == axes(models)
     fill!(composite, zero(eltype(composite))) # Zero-out array
     for k in axes(coeffs,1) # @turbo doesn't help with this loop 
         @inbounds ck = coeffs[k]
@@ -55,8 +55,8 @@ While the other call signature for this function more closely mirrors the natura
 @inline function composite!(composite::AbstractVector{<:Number},
                             coeffs::AbstractVector{<:Number},
                             models::AbstractMatrix{<:Number})
-    @assert axes(composite,1) == axes(models,1)
-    @assert axes(coeffs,1) == axes(models,2)
+    @argcheck axes(composite,1) == axes(models,1)
+    @argcheck axes(coeffs,1) == axes(models,2)
     mul!(composite, models, coeffs)
     return # mul! will return composite which is not desired
     # mul! is preferrable for small matrices
@@ -82,8 +82,8 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
  - ~9.6 μs for `composite=Matrix{Float32}(undef,99,99)` and `data=Matrix{Int64}(undef,99,99)`.
 """
 @inline function loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
+    @argcheck axes(composite) == axes(data)
     T = promote_type(eltype(composite), eltype(data))
-    @assert axes(composite) == axes(data)
     result = zero(T) 
     @turbo thread=false for idx in eachindex(composite, data) # LoopVectorization.@turbo gives 2x speedup here
         # Setting eps() as minimum of composite greatly improves stability of convergence
@@ -109,7 +109,7 @@ Returns the logarithm of the Poisson likelihood ratio, but constructs the comple
 function loglikelihood(coeffs::AbstractVector{<:Number},
                        models::AbstractVector{T},
                        data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    @assert axes(coeffs) == axes(models)
+    @argcheck axes(coeffs) == axes(models)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
     composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
@@ -118,8 +118,8 @@ end
 function loglikelihood(coeffs::AbstractVector{<:Number},
                        models::AbstractMatrix{<:Number},
                        data::AbstractVector{<:Number})
-    @assert axes(coeffs,1) == axes(models,2)
-    @assert axes(data,1) == axes(models,1)
+    @argcheck axes(coeffs,1) == axes(models,2)
+    @argcheck axes(data,1) == axes(models,1)
     S = promote_type(eltype(coeffs), eltype(models), eltype(data))
     composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
@@ -146,8 +146,8 @@ where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
 @inline function ∇loglikelihood(model::AbstractArray{<:Number},
                                 composite::AbstractArray{<:Number},
                                 data::AbstractArray{<:Number})
+    @argcheck axes(model) == axes(composite) == axes(data)
     T = promote_type(eltype(model), eltype(composite), eltype(data))
-    @assert axes(model) == axes(composite) == axes(data)
     result = zero(T)
     # ~4x speedup from LoopVectorization.@turbo here
     @turbo thread=false for idx in eachindex(model, composite, data) 
@@ -173,13 +173,13 @@ Computes the gradient of the logarithm of the Poisson likelihood ratio with resp
 function ∇loglikelihood(models::AbstractVector{T},
                         composite::AbstractMatrix{<:Number},
                         data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    @assert axes(composite) == axes(data)
+    @argcheck axes(composite) == axes(data)
     return [ ∇loglikelihood(i, composite, data) for i in models ]
 end
 function ∇loglikelihood(models::AbstractMatrix{<:Number},
                         composite::AbstractVector{<:Number},
                         data::AbstractVector{<:Number})
-    @assert axes(composite,1) == axes(data,1) == axes(models,1)
+    @argcheck axes(composite,1) == axes(data,1) == axes(models,1)
     return [ ∇loglikelihood(i, composite, data) for i in eachcol(models) ]
 end
 """
@@ -195,7 +195,7 @@ Forms the composite matrix from coefficients `coeffs` and model templates `model
 function ∇loglikelihood(coeffs::AbstractVector{<:Number},
                         models::AbstractVector{T},
                         data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
-    @assert axes(coeffs) == axes(models)
+    @argcheck axes(coeffs) == axes(models)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
     composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
@@ -204,8 +204,8 @@ end
 function ∇loglikelihood(coeffs::AbstractVector{<:Number},
                         models::AbstractMatrix{<:Number},
                         data::AbstractVector{<:Number})
-    @assert axes(coeffs,1) == axes(models,2)
-    @assert axes(models,1) == axes(data,1)
+    @argcheck axes(coeffs,1) == axes(models,2)
+    @argcheck axes(models,1) == axes(data,1)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
     composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
@@ -233,8 +233,8 @@ function ∇loglikelihood!(G::AbstractVector,
     C = eltype(composite)
     D = eltype(data)
     GT = eltype(G)
-    @assert axes(composite) == axes(data) 
-    @assert axes(G,1) == axes(models,1)
+    @argcheck axes(composite) == axes(data) 
+    @argcheck axes(G,1) == axes(models,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
     # so that we don't have to repeatedly calculate it in the next loop below
     @turbo for idx in eachindex(composite, data)
@@ -246,7 +246,7 @@ function ∇loglikelihood!(G::AbstractVector,
     end
     for k in eachindex(G, models)
         @inbounds model = models[k]
-        @assert axes(model) == axes(data) == axes(composite)
+        @argcheck axes(model) == axes(data) == axes(composite)
         result = zero(GT)
         @turbo thread=false for idx in eachindex(model, data, composite)
             @inbounds mi = model[idx]
@@ -271,8 +271,8 @@ function ∇loglikelihood!(G::AbstractVector,
                          data::AbstractVector{<:Number})
     C = eltype(composite)
     D = eltype(data)
-    @assert axes(G,1) == axes(models,2)
-    @assert axes(models,1) == axes(data,1) == axes(composite,1)
+    @argcheck axes(G,1) == axes(models,2)
+    @argcheck axes(models,1) == axes(data,1) == axes(composite,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
     @turbo for idx in eachindex(composite, data)
         # Setting eps() as minimum of composite greatly improves stability of convergence

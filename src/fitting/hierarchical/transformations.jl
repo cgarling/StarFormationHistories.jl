@@ -62,7 +62,7 @@ function exptransform_samples!(samples::AbstractVecOrMat{<:Number},
     Base.require_one_based_indexing(samples, μ, transformations, free)
     # length of transformations and free are equal to the number of
     # metallicity model parameters plus dispersion model parameters
-    @assert length(transformations) == length(free)
+    @argcheck length(transformations) == length(free)
     # size(samples) = (nvariables, nsamples)
     Nsamples = size(samples, 2)
     Nbins = size(samples, 1) - length(free) # Number of stellar mass coefficients / SFRs

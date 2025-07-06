@@ -24,7 +24,7 @@ function mdf_amr(coeffs::AbstractVector{<:Number}, # Stellar mass coefficients
                  logAge::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number})
 
-    @assert length(coeffs) == length(logAge) == length(metallicities)
+    @argcheck length(coeffs) == length(logAge) == length(metallicities)
     # Now, loop through and sum all the coeffs for each unique metallicity
     # This will form an (unnormalized) mass-weighted MDF.
     unique_MH = unique(metallicities)
@@ -56,7 +56,7 @@ function mdf_amr(coeffs::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number},
                  models::AbstractMatrix{T}) where T <: Number # For stacked models
 
-    @assert length(coeffs) == length(logAge) == length(metallicities) == size(models, 2)
+    @argcheck length(coeffs) == length(logAge) == length(metallicities) == size(models, 2)
     # Loop through all unique metallicities and sum the number of stars predicted
     # given the stellar mass / SFR coefficients `coeffs` and the CMD models in `models`.
     unique_MH = unique(metallicities)

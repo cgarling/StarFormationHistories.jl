@@ -2,13 +2,13 @@
 
 # Input validation methods
 @inline function _check_matrix_input_sizes(coeffs, models, data, composite)
-    # @assert size(composite) == size(data)
-    @assert length(coeffs) == length(models)
-    @assert all(size(model) == size(data) == size(composite) for model in models)
+    # @argcheck size(composite) == size(data)
+    @argcheck length(coeffs) == length(models)
+    @argcheck all(size(model) == size(data) == size(composite) for model in models)
 end
 @inline function _check_flat_input_sizes(coeffs, models, data, composite)
-    @assert axes(coeffs,1) == axes(models,2)
-    @assert axes(models,1) == axes(data,1) == axes(composite,1)
+    @argcheck axes(coeffs,1) == axes(models,2)
+    @argcheck axes(models,1) == axes(data,1) == axes(composite,1)
 end
 
 """

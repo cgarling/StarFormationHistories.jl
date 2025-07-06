@@ -52,7 +52,7 @@ ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` met
 Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on `mini_vec` to ensure there are no repeat entries. Arguments must satisfy `length(mini_vec) == length(mags)`. 
 """
 function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
-    @assert axes(mini_vec) == axes(mags)
+    @argcheck axes(mini_vec) == axes(mags)
     idx = sortperm(mini_vec)
     if idx != eachindex(mini_vec)
         mini_vec = mini_vec[idx]
@@ -92,7 +92,7 @@ julia> mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]]
 function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
                      mag_names::AbstractVector{String}, mag_lim::Number,
                      mag_lim_name::String) where T <: AbstractVector{<:Number}
-    @assert axes(mini_vec) == axes(mags) 
+    @argcheck axes(mini_vec) == axes(mags) 
     mmin, mmax = extrema(mini_vec)
     # Update mmin respecing `mag_lim`, if provided.
     if !isfinite(mag_lim)
@@ -164,7 +164,7 @@ struct RandomBinaryPairs{T <: Real} <: AbstractBinaryModel
     # Outer-only constructor to guarantee support
     # See https://docs.julialang.org/en/v1/manual/constructors/#Outer-only-constructors
     function RandomBinaryPairs(fraction::T) where T <: Real
-        @assert (fraction >= zero(T)) && (fraction <= one(T))
+        @argcheck (fraction >= zero(T)) && (fraction <= one(T))
         new{T}(fraction)
     end
 end
@@ -199,7 +199,8 @@ struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: 
     # See https://docs.julialang.org/en/v1/manual/constructors/#Outer-only-constructors
     function BinaryMassRatio(fraction::T, qdist::S=Uniform(0.1, 1.0)) where {T <: Real, S <: Distribution{Univariate, Continuous}}
         V = eltype(qdist)
-        @assert (fraction >= zero(T)) && (fraction <= one(T)) && (minimum(qdist) >= zero(V)) && (maximum(qdist) <= one(V))
+        @argcheck (fraction >= zero(T)) && (fraction <= one(T))
+        @argcheck (minimum(qdist) >= zero(V)) && (maximum(qdist) <= one(V))
         new{T,S}(fraction, qdist)
     end
 end

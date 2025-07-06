@@ -1,6 +1,7 @@
 module DataFramesExt
 
 import StarFormationHistories: process_ASTs
+using ArgCheck: @argcheck
 using Printf: @sprintf
 using DataFrames: DataFrame
 using StatsBase: median, mean
@@ -8,7 +9,7 @@ using StatsBase: median, mean
 function process_ASTs(ASTs::DataFrame, inmag::Symbol, outmag::Symbol,
                       bins::AbstractVector{<:Real}, selectfunc;
                       statistic=median)
-    @assert length(bins) > 1
+    @argcheck length(bins) > 1
     !issorted(bins) && sort!(bins)
 
     completeness = Vector{Float64}(undef, length(bins)-1)

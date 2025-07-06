@@ -52,9 +52,9 @@ function calculate_coeffs(amr_model::AbstractAMR{T}, disp_model::AbstractDispers
                           logAge::AbstractVector{<:Number},
                           metallicities::AbstractVector{<:Number}) where {T, U}
     unique_logAge = unique(logAge)
-    @assert(length(variables) == length(unique_logAge),
+    @argcheck(length(variables) == length(unique_logAge),
             "Length of `variables` must be the same as `unique_logAge`.")
-    @assert length(logAge) == length(metallicities)
+    @argcheck length(logAge) == length(metallicities)
     S = promote_type(eltype(variables), eltype(logAge), eltype(metallicities), T, U)
 
     coeffs = Vector{S}(undef, length(logAge))
@@ -84,7 +84,7 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
              logAge::AbstractVector{<:Number},
              metallicities::AbstractVector{<:Number}) where {T, U}
 
-    @assert axes(data) == axes(composite)
+    @argcheck axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities),
                      T, U)
@@ -117,7 +117,7 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
 
     if !isnothing(G) # Optim.optimize wants gradient -- update G in place
         Base.require_one_based_indexing(G)
-        @assert axes(G) == axes(variables)
+        @argcheck axes(G) == axes(variables)
         unique_logAge = unique(logAge)
         # Calculate the ∇loglikelihood with respect to model coefficients
         fullG = Vector{eltype(G)}(undef, length(coeffs))
@@ -228,7 +228,7 @@ true
 """
 function LinearAMR(constraint1, constraint2, T_max::Real=137//10,
                    free::NTuple{2, Bool}=(true, true))
-    @assert length(constraint1) == length(constraint2) == 2
+    @argcheck length(constraint1) == length(constraint2) == 2
     times = (last(constraint1), last(constraint2))
     MH_constraints = (first(constraint1), first(constraint2))
     δt = times[2] - times[1]
@@ -317,7 +317,7 @@ true
 function LogarithmicAMR(constraint1, constraint2, T_max::Real=137//10,
                         MH_func = MH_from_Z, dMH_dZ = dMH_dZ, Z_func = Z_from_MH,
                         free::NTuple{2, Bool}=(true, true))
-    @assert length(constraint1) == length(constraint2) == 2
+    @argcheck length(constraint1) == length(constraint2) == 2
     times = (last(constraint1), last(constraint2))
     Z_constraints = (Z_func(first(constraint1)), Z_func(first(constraint2)))
     δt = times[2] - times[1]

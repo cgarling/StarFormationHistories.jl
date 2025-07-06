@@ -31,8 +31,8 @@ dispatch_binarymodel(bmodel::Type{NoBinaries}, bfrac::Number) = NoBinaries()
                                            x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
                                            kws...) where {S <: Number}
 
-    @assert length(mag_names) == 2 # Need 2 mags to form 1 color
-    @assert y_mag_name ∈ mag_names
+    @argcheck length(mag_names) == 2 # Need 2 mags to form 1 color
+    @argcheck y_mag_name ∈ mag_names
     # Create simulated star catalog
     starcat = generate_stars_mass_composite(mini_vec, mags, mag_names, limit, massfrac, imf; 
                                             dist_mod=dist_mod, rng=rng, mag_lim=mag_lim,
