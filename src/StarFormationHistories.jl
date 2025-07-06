@@ -1,6 +1,7 @@
 module StarFormationHistories
 
 using Compat: allequal
+using ArgCheck: @argcheck
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
     quantile, Multivariate, MvNormal, sampler, Uniform # cdf
 import Distributions: _rand! # Extending
@@ -109,7 +110,7 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
                       mags::AbstractVector{<:Number},
                       Δmag,
                       ret_spacing::Bool=false)
-    @assert axes(m_ini) == axes(mags) == axes(colors)
+    @argcheck axes(m_ini) == axes(mags) == axes(colors)
     new_mini = Vector{Float64}(undef, 1)
     new_mini[1] = first(m_ini)
     # Sort the input m_ini and mags. This could be optional.
@@ -279,7 +280,7 @@ struct GaussianPSFCovariant{T <: Real} <: RealSpaceKernel
     GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real) =
         GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, A, 0)
     function GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
-        @assert (cov_mult == 1) || (cov_mult == -1) || (cov_mult == 0)
+        @argcheck (cov_mult == 1) || (cov_mult == -1) || (cov_mult == 0)
         T = promote(x0, y0, σx, σy, cov_mult, A, B)
         new{eltype(T)}(T...)
     end
@@ -343,7 +344,7 @@ can_turbo(::typeof(evaluate), ::Val{5}) = true
 @inline addstar!(image::Histogram, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}) =
     addstar!(image.weights, obj, cutout_size)
 function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}=size(obj))
-    @assert length(image) > 1
+    @argcheck length(image) > 1
     x,y = round.(Int, centroid(obj)) # get the center of the object to be inserted, in pixel space
     x_offset = max(1, cutout_size[1] ÷ 2)
     y_offset = max(1, cutout_size[2] ÷ 2)
@@ -361,8 +362,8 @@ function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tup
 end
 
 function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,T}=size(obj)) where T <: Number
+    @argcheck length(image.weights) > 1
     data = image.weights
-    @assert length(data) > 1
     Base.require_one_based_indexing(data) # Make sure data is 1-indexed
     edges = image.edges # Get histogram edges
     # Need uniform step; easiest to enforce via ranges
@@ -544,7 +545,7 @@ function bin_cmd(colors::AbstractVector{<:Number},
                      ones(promote_type(eltype(colors), eltype(mags)), length(colors)),
                  edges=nothing, xlim=extrema(colors), ylim=extrema(mags), nbins=nothing,
                  xwidth=nothing, ywidth=nothing )
-    @assert length(colors) == length(mags) == length(weights)
+    @argcheck length(colors) == length(mags) == length(weights)
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     return fit(Histogram, (colors, mags), Weights(weights), edges; closed=:left)
 end
@@ -573,8 +574,8 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
                                        size(colors)), edges=nothing,
                         xlim=extrema(colors), ylim=extrema(mags), nbins=nothing,
                         xwidth=nothing, ywidth=nothing)
-    @assert cov_mult in (-1, 0, 1) # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-    @assert axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
+    @argcheck cov_mult in (-1, 0, 1) # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
+    @argcheck axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Construct matrix to hold the 2D histogram
@@ -627,7 +628,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
                      normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
     Base.require_one_based_indexing(m_ini)
     Base.require_one_based_indexing(mags)
-    @assert all(length(i) == length(m_ini) for i in mags)
+    @argcheck all(length(i) == length(m_ini) for i in mags)
 
     imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
     # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
@@ -759,8 +760,8 @@ end
     # weights[i] = cdf(imf, m_ini[2]) - cdf(imf, m_ini[1])
 function calculate_weights(mini::AbstractVector, completeness::AbstractVector,
                            imf, normalize_value::Number, mean_mass::Number, mini_spacing::AbstractVector=diff(mini))
-    @assert length(mini) == length(completeness)
-    @assert length(mini_spacing) == (length(mini) - 1)
+    @argcheck length(mini) == length(completeness)
+    @argcheck length(mini_spacing) == (length(mini) - 1)
     weights = Vector{Float64}(undef, length(mini) - 1)
     for i in eachindex(weights)
         weights[i] = mini_spacing[i] *
@@ -828,13 +829,13 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
-    @assert length(color_indices) == 2
-    @assert length(mags) == length(mag_err_funcs) == length(completeness_funcs)
+    @argcheck length(color_indices) == 2
+    @argcheck length(mags) == length(mag_err_funcs) == length(completeness_funcs)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
     for idx in union(y_index, color_indices)
-        @assert all(map(x -> y_index in first(axes(x)), (mags, mag_err_funcs, completeness_funcs)))
+        @argcheck all(map(x -> y_index in first(axes(x)), (mags, mag_err_funcs, completeness_funcs)))
     end
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
@@ -875,8 +876,8 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(new_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
+    @argcheck binary_system_fraction(binary_model) <= 1
     bfrac = binary_system_fraction(binary_model)
-    @assert bfrac <= 1
     if bfrac == 0
         return single_star_hist
     else
