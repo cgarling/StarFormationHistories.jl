@@ -217,9 +217,10 @@ Reported values for some HST data were `a=1.05, b=10.0, c=32.0, d=0.01`.
 """
 exp_photerr(m, a, b, c, d) = a^(b * (m - c)) + d
 
+
+#### Artificial Star Test Utilities
 """
-    process_ASTs(ASTs::Union{DataFrames.DataFrame,
-                             TypedTables.Table},
+    process_ASTs(ASTs,
                  inmag::Symbol,
                  outmag::Symbol,
                  bins::AbstractVector{<:Real},
@@ -229,7 +230,7 @@ exp_photerr(m, a, b, c, d) = a^(b * (m - c)) + d
 Processes a table of artificial stars to calculate photometric completeness, bias, and error across the provided `bins`. This method has no default implementation and is implemented in package extensions that rely on either `DataFrames.jl` or `TypedTables.jl` being loaded into your Julia session to load the relevant method. This method therefore requires Julia 1.9 or greater to use.
 
 # Arguments
- - `ASTs` is the table of artificial stars to be analyzed.
+ - `ASTs` is the table of artificial stars to be analyzed. This function should support most table types that follow the Tables.jl interface, but we specifically test to ensure `DataFrames.DataFrame` and `TypedTables.Table` will work.
  - `inmag` is the column name in symbol format (e.g., :F606Wi) that corresponds to the intrinsic (input) magnitudes of the artificial stars.
  - `outmag` is the column name in symbol format (e.g., :F606Wo) that corresponds to the measured (output) magnitude of the artificial stars.
  - `bins` give the bin edges to be used when computing the binned statistics.
@@ -261,7 +262,56 @@ process_ASTs(Table(input=F606Wi, output=F606Wo, good=flag),
 
 See also the tests in `test/utilities/process_ASTs_test.jl`.
 """
-function process_ASTs end
+function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
+                      bins::AbstractVector{<:Real}, selectfunc;
+                      statistic=median)
+    @argcheck length(bins) > 1
+    !issorted(bins) && sort!(bins)
+
+    completeness = Vector{Float64}(undef, length(bins)-1)
+    bias = similar(completeness)
+    error = similar(completeness)
+    bin_centers = similar(completeness)
+
+    input_mags = getproperty(ASTs, inmag)
+
+    Threads.@threads for i in eachindex(completeness)
+        # Get the stars in the current bin
+        inbin = findall((input_mags .>= bins[i]) .&
+            (input_mags .< bins[i+1]))
+        tmp_asts = ASTs[inbin,:]
+        if size(tmp_asts,1) == 0
+            @warn(@sprintf("No input magnitudes found in bin ranging from %.6f => %.6f \
+                            in `ASTs.inmag`, please revise `bins` argument.", bins[i],
+                           bins[i+1]))
+            completeness[i] = NaN
+            bias[i] = NaN
+            error[i] = NaN
+            bin_centers[i] = bins[i] + (bins[i+1] - bins[i])/2
+            continue
+        end
+        # Let selectfunc determine which ASTs are properly detected
+        # good = [selectfunc(_rowconvert(row)) for row in eachrow(tmp_asts)]
+        good = [selectfunc(row) for row in Tables.rows(tmp_asts)]
+        completeness[i] = count(good) / size(tmp_asts,1)
+        if count(good) > 0
+            inmags = getproperty(tmp_asts, inmag)[good]
+            outmags = getproperty(tmp_asts, outmag)[good]
+            diff = outmags .- inmags # This makes bias relative to input
+            bias[i] = statistic(diff)
+            error[i] = statistic(abs.(diff))
+            bin_centers[i] = mean(inmags)
+        else
+            @warn(@sprintf("Completeness measured to be 0 in bin ranging from \
+                            %.6f => %.6f. The error and bias values for this bin \
+                            will be returned as NaN.", bins[i], bins[i+1]))
+            bias[i] = NaN
+            error[i] = NaN
+            bin_centers[i] = bins[i] + (bins[i+1] - bins[i])/2
+        end
+    end
+    return bin_centers, completeness, bias, error
+end
 
 # Numerical utilities
 """
