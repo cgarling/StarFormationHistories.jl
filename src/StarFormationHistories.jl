@@ -833,7 +833,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
     @argcheck length(color_indices) == 2
-    @argcheck length(mags) == length(mag_err_funcs) == length(completeness_funcs)
+    @argcheck length(mags) == length(mag_err_funcs) == length(completeness_funcs) == length(bias_funcs)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
@@ -875,7 +875,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
         cov_mult = 0
     end
-    
+
     # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
     bias_iso_mags = [new_iso_mags[i] .+ bias_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
     colors = bias_iso_mags[first(color_indices)] .- bias_iso_mags[last(color_indices)]
