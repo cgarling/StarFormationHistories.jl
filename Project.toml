@@ -27,17 +27,10 @@ Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 TaskLocalValues = "ed4db957-447d-4319-bfb6-7fa9ae7ecf34"
 Trapz = "592b5752-818d-11e9-1e9a-2b8ca4a44cd1"
 VectorizationBase = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
-
-[weakdeps]
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-TypedTables = "9d95f2ec-7b3d-5a63-8d20-e2491e220bb9"
-
-[extensions]
-DataFramesExt = "DataFrames"
-TypedTablesExt = "TypedTables"
 
 [compat]
 ArgCheck = "2"
@@ -70,6 +63,7 @@ SpecialFunctions = "1.2, 2"
 StableRNGs = "1"
 StaticArrays = "1"
 StatsBase = "0.32, 0.33, 0.34"
+Tables = "1"
 TaskLocalValues = "0.1"
 Test = "<0.0.1, 1"
 Trapz = "2"
