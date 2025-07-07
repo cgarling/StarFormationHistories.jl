@@ -244,7 +244,7 @@ This method returns a `result` of type `NTuple{4,Vector{Float64}}`. Each vector 
  - `result[1]` contains the mean input magnitude of the stars in each bin.
  - `result[2]` contains the completeness value measured for each bin, defined as the fraction of input stars in each bin for which `selectfunc` returned `true`.
  - `result[3]` contains the photometric bias measured for each bin, defined as `statistic(out .- in)`, where `out` are the measured (output) magnitudes and `in` are the intrinsic (input) magnitudes.
- - `result[4]` contains the photometric error measured for each bin, defined as `statistic(abs.(out .- in))`, with `out` and `in` defined as above.
+ - `result[4]` contains the photometric error measured for each bin, with the effect of photometric bias removed. This is defined as `statistic(abs.(out .- in .- bias))`, with `out` and `in` defined as above, and `bias` defined as in `result[3]` above. This choice is made to simplify the modeling of the probability distribution for the observed magnitude given an intrinsic magnitude, which we may write as `P(O|I)`. For Gaussian errors, this may be written as `P(O|I) = Normal(I + bias, σ)` where `bias` is the photometric bias as returned by `result[3]`. This definition requires the error σ to be measured with the effect of photometric bias removed, as we implement here.
 
 # Examples
 Let
@@ -299,7 +299,8 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
             outmags = getproperty(tmp_asts, outmag)[good]
             diff = outmags .- inmags # This makes bias relative to input
             bias[i] = statistic(diff)
-            error[i] = statistic(abs.(diff))
+            # Error should be defined as scatter around ⟨output⟩ - input = (output - bias) - input
+            error[i] = statistic(abs.(diff .- bias[i]))
             bin_centers[i] = mean(inmags)
         else
             @warn(@sprintf("Completeness measured to be 0 in bin ranging from \
