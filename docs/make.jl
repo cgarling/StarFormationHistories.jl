@@ -1,4 +1,5 @@
 using Documenter
+import Changelog
 using StarFormationHistories
 
 # Run examples
@@ -17,6 +18,20 @@ include("../examples/templates/kernels_example.jl")
 @info "Finished examples"
 # Can't move yet as makedocs will clear the build folder.
 # Moving and showing in docs/src/fitting/fitting_intro.md.
+
+Changelog.generate(
+    Changelog.Documenter(),
+    joinpath(@__DIR__, "..", "CHANGELOG.md"),
+    joinpath(@__DIR__, "src", "release-notes.md");
+    repo = "cgarling/StarFormationHistories.jl",
+    branch = "main")
+
+linkcheck_ignore = [
+    # We'll ignore the links to tags in CHANGELOG.md, since when you tag
+    # a release, the release link does not exist yet, and this will cause the linkcheck
+    # CI job to fail on the PR that tags a new release.
+    r"https://github.com/JuliaDocs/Documenter.jl/releases/tag/v\d+.\d+.\d+",
+]
 
 ###########################################################
 
@@ -56,9 +71,11 @@ makedocs(
              "simulate.md",
              "binaries.md",
              "helpers.md",
+             "release-notes.md",
              "doc_index.md"],
     doctest = false,
     linkcheck = true,
+    linkcheck_ignore = linkcheck_ignore,
     warnonly = [:missing_docs, :linkcheck]
 )
 

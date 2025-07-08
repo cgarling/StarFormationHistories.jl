@@ -33,3 +33,6 @@ examples/templates/*.svg
 
 # Some test files that don't need to be committed
 test/manual/madcash-2
+
+# Don't check in the release-notes.md file, this is auto-generated
+docs/src/release-notes.md
