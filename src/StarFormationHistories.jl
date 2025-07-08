@@ -624,7 +624,7 @@ end
 
 # New idea: Take provided m_ini as primary masses and construct custom secondary mass vector for better sampling
 function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}},
-                     mag_err_funcs, y_index, color_indices, imf, completeness_funcs,
+                     mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs,
                      edges::Tuple{<:AbstractRange, <:AbstractRange};
                      normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
     Base.require_one_based_indexing(m_ini)
@@ -670,8 +670,10 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
             completeness_funcs[y_index].( [binary_mags, y_index] )
     end
-    colors = binary_mags[first(color_indices)] .- binary_mags[last(color_indices)]
-    hist = fit(Histogram, (colors, binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
+    # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
+    bias_binary_mags = [binary_mags[i] .+ bias_funcs[i].(binary_mags[i]) for i in eachindex(binary_mags)]
+    colors = bias_binary_mags[first(color_indices)] .- bias_binary_mags[last(color_indices)]
+    hist = fit(Histogram, (colors, bias_binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
     hist_weights = vec(hist.weights)
     # mag_err = [mag_err_funcs[i].(binary_mags[i][good]) for i in eachindex(binary_mags)]
     # Filter for only useful bins
@@ -702,7 +704,7 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
                           weights=hist_weights[good], edges=edges)
 end
 
-function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
     error("`binary_hess(model::BinaryMassRatio, ...)` not implemented.")
 end
 
@@ -891,7 +893,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     else
         ds = 4 # Factor by which to downsample the single-star vectors
         binary_hist = binary_hess(binary_model, new_mini[begin:ds:end], [i[begin:ds:end] for i in new_iso_mags],
-                                  mag_err_funcs, y_index, color_indices, imf, completeness_funcs, edges;
+                                  mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs, edges;
                                   normalize_value=normalize_value, mean_mass=mean_mass)
         # println("Binary Weights after completeness: ", sum(binary_hist.weights))
         bmf = binary_mass_fraction(binary_model, imf)
