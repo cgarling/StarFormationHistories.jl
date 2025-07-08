@@ -291,7 +291,6 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
             continue
         end
         # Let selectfunc determine which ASTs are properly detected
-        # good = [selectfunc(_rowconvert(row)) for row in eachrow(tmp_asts)]
         good = [selectfunc(row) for row in Tables.rows(tmp_asts)]
         completeness[i] = count(good) / size(tmp_asts,1)
         if count(good) > 0
