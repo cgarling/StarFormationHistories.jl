@@ -22,7 +22,7 @@ savefig = ("DOCSBUILD" in keys(ENV)) && (ENV["DOCSBUILD"] == "true")
 
 # Load example isochrone
 # Path is relative to location of script, so use @__DIR__
-isochrone, mag_names = readdlm(joinpath(@__DIR__, "../../data/isochrone.txt"), ' ',
+isochrone, mag_names = readdlm(joinpath(@__DIR__, "..", "..", "data", "isochrone.txt"), ' ',
                                Float64, '\n'; header=true)
 # Unpack
 m_ini = isochrone[:,1]
@@ -58,7 +58,7 @@ template = SFH.partial_cmd_smooth(m_ini,
                                   2,
                                   [1,2],
                                   imf,
-                                  [F090W_complete, F150W_complete]; 
+                                  [F090W_complete, F150W_complete];
                                   dmod=distmod,
                                   normalize_value=template_norm,
                                   edges=edges, binary_model=binary_model)
