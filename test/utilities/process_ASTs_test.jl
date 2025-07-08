@@ -37,7 +37,7 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         outmags[idxs] .= curr_out
         curr_diff = curr_out .- curr_in
         a_bias[i] = median(curr_diff)
-        a_error[i] = median(abs.(curr_diff))
+        a_error[i] = median(abs.(curr_diff .- a_bias[i]))
     end
     # Loop over all supported table types
     for ttype in (Table, DataFrame)
