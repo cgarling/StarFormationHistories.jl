@@ -500,9 +500,13 @@ end
 ###############################################
 #### Functions for modelling observational effects
 """
-    new_mags [, good_idxs] = model_cmd(mags::AbstractVector{<:AbstractVector{<:Number}}, errfuncs, completefuncs; rng::Random.AbstractRNG=Random.default_rng(), ret_idxs::Bool=false)
+    new_mags [, good_idxs] = model_cmd(mags::AbstractVector{<:AbstractVector{<:Number}}, 
+                                       errfuncs, 
+                                       completefuncs; 
+                                       rng::Random.AbstractRNG = Random.default_rng(), 
+                                       ret_idxs::Bool = false)
 
-Simple method for modelling photometric error and incompleteness to "mock observe" a pure catalog of stellar photometry, such as those produced by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref). This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter. 
+Simple method for modeling photometric error and incompleteness to "mock observe" a pure catalog of stellar photometry, such as those produced by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref). This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter. 
 
 # Arguments
  - `mags::AbstractVector{<:AbstractVector{<:Number}}`: a vector of vectors giving the magnitudes of each star to be modelled. The first index is the per-star index and the second index is the per-filter index (so `mags[10][2]` would give the magnitude of the tenth star in the second filter). This is the same format as the magnitudes returned by [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref); to use output from the composite versions, you must first `reduce(vcat,mags)` before passing to this function.
@@ -510,7 +514,7 @@ Simple method for modelling photometric error and incompleteness to "mock observ
  - `completefuncs`: an iterable (typically a vector or tuple) of callables (typically functions or interpolators) with length equal to the number of filters contained in the elements of `mags`. This iterable must contain callables that, when called with the associated magnitudes from `mags`, will return the probability that a star with that magnitude in that band will be found in your color-magnitude diagram (this should include the original detection probability and any post-detection quality, morphology, or other cuts). The organization is such that the detection probability for star `i` in band `j` is `c_ij = completefuncs[j](mags[i][j])`.
 
 # Keyword Arguments
- - `rng::AbstractRNG=Random.default_rng()`: The object to use for random number generation.
+ - `rng::AbstractRNG = Random.default_rng()`: The object to use for random number generation.
  - `ret_idxs::Bool`: whether to return the indices of the input `mags` for the stars that were successfully "observed" and are represented in the output `new_mags`.
 
 # Returns
@@ -518,7 +522,7 @@ Simple method for modelling photometric error and incompleteness to "mock observ
  - `good_idxs`: if `ret_idxs` is `true`, the vector of indices into the input `mags` for the stars that were successfully "observed" and are represented in the output `new_mags`.
 
 # Notes
- - This is a simple implementation that seeks to show a simple example of how one can post-process catalogs of "pure" stars from methods like [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref) to include observational effects. This method assumes Gaussian photometric errors, which may not, in general, be accurate. It also assumes that the total detection probability can be modelled as the product of the single-filter detection probabilities as computed by `completefuncs` (i.e., that the completeness functions are separable across filters). This can be a reasonable assumption when you have separate photometric catalogs derived for each filter and you only collate them afterwards, but it is generally not a good assumption for detection algorithms that operate on simultaneously on multi-band photometry -- the completeness functions for these types of algorithms are generally not separable.
+ - This is a simple implementation that seeks to show a simple example of how one can post-process catalogs of "pure" stars from methods like [`generate_stars_mass`](@ref) and [`generate_stars_mag`](@ref) to include observational effects. This method assumes Gaussian photometric errors, which may not, in general, be accurate. It also assumes that the total detection probability can be modeled as the product of the single-filter detection probabilities as computed by `completefuncs` (i.e., that the completeness functions are separable across filters). This can be a reasonable assumption when you have separate photometric catalogs derived for each filter and you only collate them afterwards, but it is generally not a good assumption for detection algorithms that operate simultaneously on multi-band photometry -- the completeness functions for these types of algorithms are generally not separable.
 """
 function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs;
                    rng::AbstractRNG=default_rng(), ret_idxs::Bool=false) where T <: AbstractVector{<:Number}
@@ -536,46 +540,37 @@ function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs;
     # Pick out the entries where the random number is less than the product of the single-band completeness values 
     good = findall(map(<=, randsamp, completeness)) # findall( randsamp .<= completeness )
     ret_mags = mags[good] # Get the good mags to be returned.
-    # Calculate and add photometric errors
-    for i in eachindex(ret_mags)
-        for j in eachindex(errfuncs)
-            ret_mags[i][j] += (randn(rng) * errfuncs[j](ret_mags[i][j]))
-        end
-    end
+    # Calculate and add photometric errors, see below
+    ret_mags = _model_cmd_errloop(rng, ret_mags, errfuncs)
     if ret_idxs
         return ret_mags, good
     else
         return ret_mags
     end
 end
-# This is slower than the above implementation but I don't care to optimize it at the moment.
-function model_cmd(mags::AbstractVector{SVector{N,T}}, errfuncs, completefuncs;
-                   rng::AbstractRNG=default_rng(), ret_idxs::Bool=false) where {N, T <: Number}
-    nstars = length(mags)
-    nfilters = length(first(mags))
-    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
-    randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
-    completeness = ones(axes(mags,1))
-    # Estimate the overall completeness as the product of the single-band completeness values.
-    for i in eachindex(mags)
-        for j in eachindex(completefuncs)
-            completeness[i] *= completefuncs[j](mags[i][j])
+"""
+    _model_cmd_errloop(rng, ret_mags::AbstractVector{T}, errfuncs) where {T <: AbstractVector{<:Number}}
+    _model_cmd_errloop(rng, ret_mags::AbstractVector{SVector{N, T}}, errfuncs) where {N, T <: Number}
+
+Given a vector of vectors `ret_mags` that contains the magnitudes of stars that pass the completeness criterion,
+sample photometric errors from `errfuncs` and return a vector of vectors of the same size with photometric errors
+applied. This requires a different implementation for `StaticArrays.SVector` and regular `Vector`s, which is why
+we remove this process from `model_cmd`.
+"""
+function _model_cmd_errloop(rng, ret_mags::AbstractVector{T}, errfuncs) where {T <: AbstractVector{<:Number}}
+    for i in eachindex(ret_mags)
+        for j in eachindex(errfuncs)
+            ret_mags[i][j] += (randn(rng) * errfuncs[j](ret_mags[i][j]))
         end
     end
-    # Pick out the entries where the random number is less than the product of the single-band completeness values 
-    good = findall(map(<=, randsamp, completeness)) # findall( randsamp .<= completeness )
-    good_mags = mags[good] # Get the good mags to be returned.
-    ret_mags = similar(good_mags) 
-    # Calculate and add photometric errors
-    for i in eachindex(good_mags)
-        err_scale = sacollect(SVector{N,T}, errfuncs[j](good_mags[i][j]) for j in eachindex(errfuncs))
-        ret_mags[i] = good_mags[i] .+ (randn(rng,SVector{N,T}) .* err_scale)
+    return ret_mags
+end
+function _model_cmd_errloop(rng, ret_mags::AbstractVector{SVector{N, T}}, errfuncs) where {N, T <: Number}
+    for i in eachindex(ret_mags)
+        err_scale = sacollect(SVector{N, T}, errfuncs[j](ret_mags[i][j]) for j in eachindex(errfuncs))
+        ret_mags[i] = ret_mags[i] .+ (randn(rng, SVector{N, T}) .* err_scale)
     end
-    if ret_idxs
-        return ret_mags, good
-    else
-        return ret_mags
-    end
+    return ret_mags
 end
 # In Julia 1.9 we should just be able to do stack(v). 
 # eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)
