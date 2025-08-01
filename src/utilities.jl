@@ -314,6 +314,30 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
 end
 
 # Numerical utilities
+
+"""
+    integrate_sfr(la_l, la_h, sfr)
+Returns the total integrated stellar mass given log(age [yr]) bins and the corresponding star formation rates in solar masses per year. `la_l` and `la_h` must be the lower and upper limits of log(age [yr]) bins and `sfr` are the corresponding star formation rates in solar masses per yr `sfr`. Assumes constant SFR in each time bin.
+
+```jldoctest
+julia> using StarFormationHistories: integrate_sfr
+
+julia> la_l = 6.6:0.1:10.0; # Lower log(age [yr]) bins
+
+julia> la_h = vcat(la_l[2:end], 10.13); # Upper log(age [yr]) bins
+
+julia> integrate_sfr(la_l, la_h, fill(1e-4, length(la_l))) ≈ (exp10(10.13) - exp10(6.6)) * 1e-4
+true
+```
+"""
+function integrate_sfr(la_l, la_h, sfr) # Assume constant SFR in time bin
+    @argcheck axes(la_l) == axes(la_h) == axes(sfr)
+    idxs = sortperm(la_l; rev=true) # sort from oldest to youngest, start at 0
+    age_l = exp10.(la_l[idxs])
+    age_h = exp10.(la_h[idxs])
+    sfr = sfr[idxs]
+    return sum(sfr[i] * (age_h[i] - age_l[i]) for i in eachindex(sfr))
+end
 """
     vecs_to_svecs(vecs::Vararg{T, N}) where {T <: AbstractVector, N}
     vecs_to_svecs(x::AbstractVector{<:AbstractVector})

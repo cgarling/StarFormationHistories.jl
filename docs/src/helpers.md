@@ -39,3 +39,9 @@ StarFormationHistories.Martin2016_complete
 StarFormationHistories.exp_photerr
 StarFormationHistories.process_ASTs
 ```
+
+## Miscellaneous
+
+```@docs
+StarFormationHistories.integrate_sfr
+```

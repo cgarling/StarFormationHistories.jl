@@ -37,7 +37,7 @@ import MCMCChains
 # Code inclusion
 include("utilities.jl")
 include("simulate.jl")
-include("fitting/fitting.jl") # This will include other relevant files
+include(joinpath("fitting", "fitting.jl")) # This will include other relevant files
 
 ##################################
 # Isochrone utilities
