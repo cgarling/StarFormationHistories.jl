@@ -447,7 +447,7 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
 end
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", kws...)
+    (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, kws...)
 
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mag`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total absolute magnitude of the sampled population is given by `absmag`. The proportion of the luminosity allotted to each of the individual isochrones is given by the entries of the `frac` vector. This basically just proportions the luminosity according to `frac` and calls [`generate_stars_mag`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
@@ -457,30 +457,31 @@ Generates a random sample of stars with a complex star formation history using m
     - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
  - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned. These are assumed to be the same for all isochrones.
- - `absmag::Number` gives the total absolute magnitude of the complex population to be sampled. 
+ - `absmag::Number` gives the total absolute magnitude of the complex population to be sampled.
+ - `absmag_name::String` is the name of the filter for which the desired absolute magnitude is `absmag`; must be contained in `mag_names`.
  - `fracs::AbstractVector{<:Number}` is a vector giving the relative fraction of luminosity or mass (determined by the `frac_type` keyword argument) allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
- - `frac_type::String` either "lum", in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or "mass", in which case it is assumed that `fracs` contains mass fractions ("mass" is not yet implemented). 
+ - `frac_type::Symbol` either `:lum`, in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or `:mass`, in which case it is assumed that `fracs` contains mass fractions (`:mass` is not yet implemented). 
 All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information. 
 
 # Returns
  - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details. 
  - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
 """
-function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::String="lum", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number}
+function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number}
     !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
     fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
     # Interpret whether user requests `fracs` represent luminosity or mass fractions.
-    if frac_type == "lum"
+    if frac_type == :lum
         limit = mag2flux(absmag)   # Convert the provided `limit` from magnitudes into flux.
         fracs = flux2mag.( fracs .* limit )
-    elseif frac_type == "mass"
-        throw(ArgumentError("`frac_type == mass` not yet implemented."))
+    elseif frac_type == :mass
+        throw(ArgumentError("`frac_type == :mass` not yet implemented."))
     else
-        throw(ArgumentError("Supported `frac_type` arguments for generate_stars_mag_composite are \"lum\" or \"mass\"."))
+        throw(ArgumentError("Supported `frac_type` arguments for generate_stars_mag_composite are `:lum` or `:mass`."))
     end
     # Allocate output vectors.
     massvec = [ Vector{SVector{length(binary_model),eltype(imf)}}(undef,0) for i in 1:ncomposite ]
