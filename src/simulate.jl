@@ -415,7 +415,7 @@ Generates a random sample of stars with a complex star formation history using m
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
  - `mag_names::AbstractVector{String}` contains strings describing the filters you are providing in `mags`; an example might be `["B","V"]`. These are used when `mag_lim` is finite to determine what filter you want to use to limit the faintest stars you want returned. These are assumed to be the same for all isochrones.
  - `limit::Number` gives the total birth stellar mass of the population you want to sample. 
- - `massfrac::AbstractVector{<:Number}` is vector giving the relative fraction of mass allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
+ - `massfrac::AbstractVector{<:Number}` is a vector giving the relative fraction of mass allotted to each individual stellar population; length must be equal to the length of `mini_vec` and `mags`. 
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
