@@ -249,11 +249,11 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test all(am_result[i].logAge == 6.6 for i in eachindex(result[1][1]))
                     @test all(am_result[i].logAge == 6.7 for i in eachindex(result[1][2]) .+ length(result[1][1]))
                     @test all(am_result[i].MH == 1.0 for i in eachindex(am_result))
-                    @test_throws "length" SFH.add_metadata((result[1][1:1], result[2]), (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
+                    @test_throws ArgumentError SFH.add_metadata((result[1][1:1], result[2]), (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
 
-                    @test_throws "mag_symbols" SFH.add_metadata(result, (:F606W,))
-                    @test_throws "keyword" SFH.add_metadata(result, (:F606W,:F814W); logAge=[6.6])
-                    @test_throws "length" SFH.add_metadata((result[1][1], result[1][2]), 
+                    @test_throws ArgumentError SFH.add_metadata(result, (:F606W,))
+                    @test_throws ArgumentError SFH.add_metadata(result, (:F606W,:F814W); logAge=[6.6])
+                    @test_throws ArgumentError SFH.add_metadata((result[1][1], result[1][2]), 
                                  (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
 
                     ####################################
