@@ -498,6 +498,57 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     return massvec, mag_vec
 end
 
+"""
+    result::Vector{NamedTuple} = add_metadata(starcat, mag_symbols; kws...)
+Processes output star catalogs from the composite `generate_stars...` methods that create complex stellar populations into `Vector{NamedTuple}` with added metadata which can then be used to construct tables (e.g., `TypedTables.Table` or `DataFrames.DataFrame`).
+
+# Arguments
+ - `starcat`: output from [`generate_stars_mass_composite`](@ref) or [`generate_stars_mag_composite`](@ref).
+ - `mag_symbols`: the list of magnitude names to use when unpacking the magnitudes in `starcat`.
+
+# Keyword Arguments
+All keyword arguments must have length equal to `length(starcat[1])` and `length(starcat[2])`; that is, equal to the number of SSPs used when constructing the mock catalog. This metadata will then be added to the output result. For example, if the `log10(age [yr])` of the SSPs used are in a vector `ages` and the metallicities in a vector `MH`, you can call
+
+```julia
+julia> starcat = generate_stars_mass_composite(...)
+
+julia> filters = (:F475W, :F814W) # Names of filters to associate with the magnitudes in `starcat[2]`
+
+julia> add_metadata(starcat, filters, logAge = ages, MH = MH)
+5866911-element Vector{@NamedTuple{mini::SVector{1, Float64}, F475W::Float64, F814W::Float64, logAge::Float64, MH::Float64}}:
+ (mini = [0.25293134503128467], F475W = 33.53553000158083, F814W = 31.415817763596586, logAge = 6.6, MH = -2.4)
+[...]
+```
+"""
+function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
+    mag_eltype = eltype(first(starcat[2]))
+    mag_length = length(mag_eltype)
+    @argcheck N == mag_length "Length of `mag_symbols` must match length of magnitude vectors (i.e., `length(mag_symbols) == length(starcat[2][1])`."
+    nSSP = length(starcat[1]) # Number of SSP models
+    for (k, v) in kws
+        @assert length(v) == nSSP
+    end
+    # mini = reduce(vcat, starcat[1])
+    # mags = reduce(vcat, starcat[2])
+    mini, mags = starcat
+    nstars = length.(starcat[1]) # number of stars per SSP
+
+    symbols = (:mini, mag_symbols..., keys(kws)...)
+    vals = zip(values(kws)...) # zip(v for (k, v) in kws)
+    # 8ms for 55k stars, 2 magnitude filters, dynamic NamedTuple construction bit slow
+    # return [NamedTuple{symbols}((mini[i][j], mags[i][j]..., v...)) for (i, v)=enumerate(vals) for j=eachindex(mini[i])]
+    # T = Tuple{eltype(mini[1]), eltype(mags[1][1]), eltype(mags[1][1]), typeof.(first(vals))...}
+    T = Tuple{eltype(mini[1]), eltype(eltype(mags[1])), eltype(eltype(mags[1])), typeof.(first(vals))...}
+    return _rows(NamedTuple{symbols,T}, mini, mags, vals)
+end
+# Support general mag_symbols
+function add_metadata(starcat, mag_symbols; kws...)
+    return add_metadata(starcat, tuple((Symbol(i) for i in mag_symbols)...); kws...)
+end
+# _row(NT_type, mini, mags, v, i, j) = NT_type((mini[i][j], mags[i][j]..., v...))
+_rows(NT_type, mini, mags, vals) = [NT_type((mini[i][j], mags[i][j]..., v...)) for (i, v) in enumerate(vals) for j in eachindex(mini[i])]
+
+
 ###############################################
 #### Functions for modelling observational effects
 """

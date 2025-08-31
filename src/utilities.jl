@@ -112,7 +112,7 @@ MV_from_L(lum) = flux2mag(lum, 483//100)
 #### Metallicity utilities
 """
     Y_from_Z(Z, Y_p=0.2485, γ=1.78)
-Calculates the helium mass fraction (Y) for a star given its metal mass fraction (Z) using the approximation `Y = Y_p + γ * Z`, with `Y_p` being the primordial helium abundance `Y_p=0.2485` as assumed for [PARSEC](http://stev.oapd.inaf.it/cmd/) isochrones and `γ=1.78` matching the input scaling for PARSEC as well. 
+Calculates the helium mass fraction (Y) for a star given its metal mass fraction (Z) using the approximation `Y = Y_p + γ * Z`, with `Y_p` being the primordial helium abundance `Y_p=0.2485` as assumed for [PARSEC](https://stev.oapd.inaf.it/cmd/) isochrones and `γ=1.78` matching the input scaling for PARSEC as well. 
 """
 Y_from_Z(Z, Y_p = 0.2485, γ = 1.78) = Y_p + γ * Z
 """
