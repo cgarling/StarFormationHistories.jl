@@ -241,9 +241,24 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     # Test errors
                     @test_throws ArgumentError SFH.generate_stars_mass_composite([m_ini, composite_masses...], composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
 
+                    # Test add_metadata, values arbitrary
+                    am_result = SFH.add_metadata(result, (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
+                    @test am_result isa Vector{<:NamedTuple}
+                    @test all([a.F606W for a in am_result] .== [a[1] for a in reduce(vcat, result[2])])
+                    @test all([a.F814W for a in am_result] .== [a[2] for a in reduce(vcat, result[2])])
+                    @test all(am_result[i].logAge == 6.6 for i in eachindex(result[1][1]))
+                    @test all(am_result[i].logAge == 6.7 for i in eachindex(result[1][2]) .+ length(result[1][1]))
+                    @test all(am_result[i].MH == 1.0 for i in eachindex(am_result))
+                    @test_throws "length" SFH.add_metadata((result[1][1:1], result[2]), (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
+
+                    @test_throws "mag_symbols" SFH.add_metadata(result, (:F606W,))
+                    @test_throws "keyword" SFH.add_metadata(result, (:F606W,:F814W); logAge=[6.6])
+                    @test_throws "length" SFH.add_metadata((result[1][1], result[1][2]), 
+                                 (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
+
                     ####################################
                     # Test generate_stars_mag_composite
-                    result = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
+                    result = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
                     @test length(result) == 2    # Masses and magnitudes
                     @test length(result[1]) == length(result[2]) == length(composite_masses)
                     for i in eachindex(composite_masses, composite_mags) # Isochrone i 
@@ -260,9 +275,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test 1 ≤ flux_total / SFH.mag2flux(absmaglim) ≤ 1.05
 
                     # Test errors
-                    @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name
-                    @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type="asdf", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad frac_type
-                    @test_throws ArgumentError SFH.generate_stars_mag_composite([m_ini, composite_masses...], composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type="lum", dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
+                    @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name
+                    @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type=:asdf, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad frac_type
+                    @test_throws ArgumentError SFH.generate_stars_mag_composite([m_ini, composite_masses...], composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
 
                     ################
                     # Test model_cmd

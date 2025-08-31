@@ -521,12 +521,12 @@ julia> add_metadata(starcat, filters, logAge = ages, MH = MH)
 ```
 """
 function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
-    mag_eltype = eltype(first(starcat[2]))
-    mag_length = length(mag_eltype)
-    @argcheck N == mag_length "Length of `mag_symbols` must match length of magnitude vectors (i.e., `length(mag_symbols) == length(starcat[2][1])`."
+    @argcheck length(starcat[1]) == length(starcat[2]) "Length of `starcat[1]` not equal to length of `starcat[2]`."
+    @argcheck mapreduce(x -> isa(first(first(x)), AbstractVector), &, starcat) "Dimensions of input `starcat` incorrect. `add_metadata` only works on `starcat` constructed with multiple SSPs."
+    @argcheck N == length(first(first(starcat[2]))) "Length of `mag_symbols` must match length of magnitude vectors (i.e., `length(mag_symbols) == length(starcat[2][1][1])`."
     nSSP = length(starcat[1]) # Number of SSP models
     for (k, v) in kws
-        @assert length(v) == nSSP
+        @argcheck (length(v) == nSSP) "Length of keyword argument $k is incorrect; must be equal to `length(starcat[1])` and `length(starcat[2])`."
     end
     # mini = reduce(vcat, starcat[1])
     # mags = reduce(vcat, starcat[2])
