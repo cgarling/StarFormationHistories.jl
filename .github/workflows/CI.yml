@@ -77,7 +77,7 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         id: cpython3
         with:
           python-version: '3.x'
