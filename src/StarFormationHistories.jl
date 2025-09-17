@@ -3,7 +3,7 @@ module StarFormationHistories
 using Compat: allequal
 using ArgCheck: @argcheck
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    quantile, Multivariate, MvNormal, sampler, Uniform # cdf
+    cdf, quantile, Multivariate, MvNormal, sampler, Uniform
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat

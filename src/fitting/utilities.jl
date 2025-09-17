@@ -225,5 +225,4 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q;
     # cum_sfh_quantiles = tups_to_mat([quantile(row, q) for row in eachrow(cum_sfh)])
     # return cum_sfh_quantiles
     return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
-
 end

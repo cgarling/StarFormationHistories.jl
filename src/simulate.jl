@@ -631,6 +631,47 @@ function _model_cmd_loop(rng, ret_mags::AbstractVector{SVector{N, T}}, errfuncs,
     end
     return ret_mags
 end
+
+"""
+    surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+Returns the fraction of stars that were born that are still undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes).
+
+# Arguments
+ - `massvec::AbstractVector{<:AbstractVector}`: a vector of vectors containing the initial masses (in solar masses) of the stars in each stellar population. *This must contain stellar masses for stars that have not yet died -- remnants must have been removed.* The length of `massvec` should be equal to the number of stellar populations.
+ - `coeffs::AbstractVector`: a vector of coefficients giving the relative contribution of each stellar population to the total. The length of `coeffs` must be equal to the length of `massvec`.
+ - `imf`: a `Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` implementing a stellar initial mass function with a defined `cdf` methods. Implementations of commonly used IMFs are available in InitialMassFunctions.jl.
+"""
+function surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+    @argcheck length(massvec) == length(coeffs) "Length of `massvec` and `coeffs` must be equal."
+    tot = sum(coeffs)
+    surviving = zero(eltype(coeffs))
+    for i in eachindex(massvec, coeffs)
+        ext = extrema(massvec[i])
+        frac = cdf(imf, ext[2]) - cdf(imf, ext[1])
+        surviving += coeffs[i] * frac
+    end
+    return surviving / tot
+end
+"""
+    recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+Returns the fraction of stars that were born that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref). By definition this is equal to `1 - surviving_fraction(args...)`.
+"""
+recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_fraction(massvec, coeffs, imf)
+"""
+    surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+Returns the fraction of the birth stellar mass that is still in stars that are undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref).
+"""
+function surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+    @argcheck length(massvec) == length(coeffs) "Length of `massvec` and `coeffs` must be equal."
+    # Basically just compute mean mass of surviving stars and divide by mean birth mass of stars
+    # to get mass fraction surviving. Multiply by coeffs[i] and sum over i and compare to sum(coeffs).
+    return sum(trapz(massvec[i], massvec[i] .* pdf.(Ref(imf), massvec[i])) * coeffs[i] for i in eachindex(massvec, coeffs)) / sum(coeffs) / mean(imf)
+end
+"""
+    recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+Returns the fraction of the birth stellar mass that was in stars that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref). By definition this is equal to `1 - surviving_mass_fraction(args...)`.
+"""
+recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_mass_fraction(massvec, coeffs, imf)
 # In Julia 1.9 we should just be able to do stack(v). 
 # eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)
 # eltorows(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), :, dim)

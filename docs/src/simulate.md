@@ -32,6 +32,15 @@ The output produced from the above methods are clean in the sense that they do n
 model_cmd
 ```
 
+## Surviving and Recycling Fractions
+
+```@docs
+StarFormationHistories.surviving_fraction
+StarFormationHistories.recycling_fraction
+StarFormationHistories.surviving_mass_fraction
+StarFormationHistories.recycling_mass_fraction
+```
+
 ## Developer Internals
 ```@docs
 StarFormationHistories.ingest_mags

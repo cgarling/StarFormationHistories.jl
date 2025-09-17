@@ -304,6 +304,21 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test_throws ArgumentError SFH.model_cmd( model_mags, [one, errfuncs...], completefuncs; rng=rng) 
                     # Vector{Vector} mags argument
                     @test_throws ArgumentError SFH.model_cmd( model_mags2, [one, errfuncs...], completefuncs; rng=rng)
+
+                    ################
+                    # Test surviving_fraction and friends
+                    s = SFH.surviving_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                    @test s isa T
+                    @test s ≈ 0.9337494000577464 rtol=rtols[i]
+                    r = SFH.recycling_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                    @test r isa T
+                    @test r ≈ 1 - s rtol=rtols[i]
+                    s = SFH.surviving_mass_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                    @test s isa T
+                    @test s ≈ 0.5937806939236231 rtol=rtols[i]
+                    r = SFH.recycling_mass_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                    @test r isa T
+                    @test r ≈ 1 - s rtol=rtols[i]
                 end
             end
         end
