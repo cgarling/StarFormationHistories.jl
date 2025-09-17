@@ -188,18 +188,26 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q;
     cum_sfh_mat = Matrix{Float64}(undef, Nsamples, Nbins)
     sfrs_mat = similar(cum_sfh_mat)
     mean_mh_mat = similar(cum_sfh_mat)
+    good = fill(true, Nsamples) # Vector to track good samples; bad samples are set to false
     Threads.@threads for i in 1:Nsamples
         r = view(samples, :, i)
         new_MH_model = update_params(MH_model, @view(r[Nbins+1:end-npar_disp_model]))
         new_disp_model = update_params(disp_model, @view(r[end-npar_disp_model+1:end]))
         tmp_coeffs = calculate_coeffs(new_MH_model, new_disp_model, @view(r[begin:Nbins]),
                                       logAge, MH)
+        if any(!isfinite, tmp_coeffs)
+            good[i] = false
+            continue
+        end
         # We are doing a lot of extra work in calculate_cum_sfr
         # that we could do once here, but it would require a bespoke implementation
         _, mdf_1, mdf_2, mdf_3 = calculate_cum_sfr(tmp_coeffs, logAge, MH, T_max; kws...)
         cum_sfh_mat[i,:] .= mdf_1
         sfrs_mat[i,:] .= mdf_2
         mean_mh_mat[i,:] .= mdf_3
+    end
+    if count(good) != Nsamples
+        @info "$(count(good)) / $Nsamples samples were valid."
     end
 
     # Allocate matrices to accumulate quantiles
@@ -208,9 +216,9 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q;
     mean_mh_q = similar(cum_sfh_q)
     # Calculate quantiles on samples
     Threads.@threads for i in 1:Nbins
-        cum_sfh_q[i,:] .= quantile(view(cum_sfh_mat, :, i), q)
-        sfrs_q[i,:] .= quantile(view(sfrs_mat, :, i), q)
-        mean_mh_q[i,:] .= quantile(view(mean_mh_mat, :, i), q)
+        cum_sfh_q[i,:] .= quantile(view(cum_sfh_mat, good, i), q)
+        sfrs_q[i,:] .= quantile(view(sfrs_mat, good, i), q)
+        mean_mh_q[i,:] .= quantile(view(mean_mh_mat, good, i), q)
     end
     # cum_sfh_quantiles = [quantile(row, q) for row in eachrow(cum_sfh)]
     # cum_sfh_quantiles = [SVector(quantile(row, q)) for row in eachrow(cum_sfh)]
