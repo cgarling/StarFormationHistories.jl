@@ -654,12 +654,12 @@ function surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::A
 end
 """
     recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of stars that were born that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref). By definition this is equal to `1 - surviving_fraction(args...)`.
+Returns the fraction of stars that were born that have ended fusion (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction). By definition this is equal to `1 - surviving_fraction(args...)`.
 """
 recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_fraction(massvec, coeffs, imf)
 """
     surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of the birth stellar mass that is still in stars that are undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref).
+Returns the fraction of the birth stellar mass in stars that are still undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction).
 """
 function surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
     @argcheck length(massvec) == length(coeffs) "Length of `massvec` and `coeffs` must be equal."
@@ -669,7 +669,7 @@ function surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coef
 end
 """
     recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of the birth stellar mass that was in stars that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref). By definition this is equal to `1 - surviving_mass_fraction(args...)`.
+Returns the fraction of the birth stellar mass that was in stars that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction). By definition this is equal to `1 - surviving_mass_fraction(args...)`.
 """
 recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_mass_fraction(massvec, coeffs, imf)
 # In Julia 1.9 we should just be able to do stack(v). 
