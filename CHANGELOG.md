@@ -1,5 +1,16 @@
 # [Changelog](@id changelog)
 
+## Version [v1.2.0] 2025-09-17
+Added methods calculating the fraction of stars that have survived / perished from an SSP.
+
+ - `surviving_fraction`
+ - `recycling_fraction`
+
+Added methods calculating the fraction of initial SSP mass that remains / has been returned to the ISM.
+
+ - `surviving_mass_fraction`
+ - `recycling_mass_fraction`
+
 ## Version [v1.1.0] -- 2025-07-08
 Added treatment of photometric bias to template generation (`partial_cmd_smooth` and `binary_hess`) and CMD modeling (`model_cmd`); see [#66].
 
