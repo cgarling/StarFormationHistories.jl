@@ -1,4 +1,4 @@
-# [Kernels] (@id kernels)
+# [Kernels](@id kernels)
 One of the most important parts of our method is modelling the 2-D probability distribution of observing a star with particular intrinsic magnitudes in the Hess diagram space. We refer to these 2-D probability distributions as "kernels" throughout, as our process is conceptually similar to constructing a kernel density estimate. This document describes how these kernels are constructed and what assumptions are made to do so.
 
 Our implementation is underpinned by the assumption that all kernels can be described the family of 2-D Gaussian probability distributions. To derive these 2-D distributions, we begin with 1-D distributions for each photometric filter used in the analysis.
