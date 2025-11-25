@@ -582,7 +582,7 @@ function model_cmd(mags::AbstractVector{T}, errfuncs, completefuncs, biasfuncs=[
                    rng::AbstractRNG=default_rng(), ret_idxs::Bool=false) where T <: AbstractVector{<:Number}
     nstars = length(mags)
     nfilters = length(first(mags))
-    !(axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `axes(first(mags),1) == axes(errfuncs,1) == axes(completefuncs,1)`."))
+    !(length(first(mags)) == length(errfuncs) == length(completefuncs)) && throw(ArgumentError("Arguments to `StarFormationHistories.model_cmd` must satisfy `length(first(mags)) == length(errfuncs) == length(completefuncs)`."))
     randsamp = rand(rng, nstars) # Draw nstars random uniform variates for completeness testing.
     completeness = ones(axes(mags,1))
     # Estimate the overall completeness as the product of the single-band completeness values.
