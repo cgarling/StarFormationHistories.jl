@@ -267,8 +267,9 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
                       statistic=median)
     @argcheck length(bins) > 1
     !issorted(bins) && sort!(bins)
+    dtype = promote_type(typeof.(values(first(ASTs)))...)
 
-    completeness = Vector{Float64}(undef, length(bins)-1)
+    completeness = Vector{dtype}(undef, length(bins)-1)
     bias = similar(completeness)
     error = similar(completeness)
     bin_centers = similar(completeness)
