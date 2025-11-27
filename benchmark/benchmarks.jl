@@ -11,4 +11,5 @@ SUITE["core"]["composite!_Float32"] = @benchmarkable SFH.composite!(C, A, B) set
 SUITE["core"]["composite!_Float64"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(prod(hist_size)); A = rand(n_models); B = rand(prod(hist_size), n_models))
 
 # ∇loglikelihood!
+SUITE["core"]["∇loglikelihood_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, composite, models, data) setup=(G=zeros(Float32, n_models); composite=rand(Float32, prod(hist_size)); models=rand(Float32, prod(hist_size), n_models); data = rand(Float32, prod(hist_size)))
 SUITE["core"]["∇loglikelihood_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, composite, models, data) setup=(G=zeros(n_models); composite=rand(prod(hist_size)); models=rand(prod(hist_size), n_models); data = rand(prod(hist_size)))
