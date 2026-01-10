@@ -1,7 +1,7 @@
 name = "StarFormationHistories"
 uuid = "774d3ad4-2d55-48fa-ab42-467705ebff24"
-authors = ["cgarling <chris.t.garling@gmail.com>"]
 version = "1.2.0"
+authors = ["cgarling <chris.t.garling@gmail.com>"]
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -39,7 +39,7 @@ DataFrames = "1"
 DelimitedFiles = "<0.0.1, 1"
 Distributions = "0.25"
 Documenter = "1"
-DynamicHMC = "3.4.2" # Changed stack_posterior_matrices order https://github.com/tpapp/DynamicHMC.jl/pull/175
+DynamicHMC = "3.4.2"
 InitialMassFunctions = "0.1.5"
 Interpolations = "0.13.4, 0.14, 0.15, 0.16"
 IrrationalConstants = "0.2"
@@ -51,8 +51,8 @@ LogDensityProblems = "1, 2"
 Logging = "<0.0.1, 1"
 LoopVectorization = "0.12"
 MCMCChains = "6, 7"
-Optim = "1.7" # Inverse Hessian estimate from BFGS
-PDMats = "0.11.15" # Removed StridedArray restriction
+Optim = "1.7, 2"
+PDMats = "0.11.15"
 Printf = "<0.0.1, 1"
 ProgressMeter = "1"
 QuadGK = "2"
