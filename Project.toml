@@ -1,7 +1,7 @@
 name = "StarFormationHistories"
 uuid = "774d3ad4-2d55-48fa-ab42-467705ebff24"
-authors = ["cgarling <chris.t.garling@gmail.com>"]
 version = "1.2.0"
+authors = ["cgarling <chris.t.garling@gmail.com>"]
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -17,6 +17,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
 LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 MCMCChains = "c7f686f2-ff18-58e9-bc7b-31028e88f75d"
+NLSolversBase = "d41bc354-129a-5804-8e4c-c37616107c6c"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 PDMats = "90014a1f-27ba-587c-ab20-58faa44d9150"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -51,7 +52,8 @@ LogDensityProblems = "1, 2"
 Logging = "<0.0.1, 1"
 LoopVectorization = "0.12"
 MCMCChains = "6, 7"
-Optim = "1.7" # Inverse Hessian estimate from BFGS
+NLSolversBase = "7, 8"
+Optim = "1.7, 2" # Inverse Hessian estimate from BFGS
 PDMats = "0.11.15" # Removed StridedArray restriction
 Printf = "<0.0.1, 1"
 ProgressMeter = "1"

@@ -154,8 +154,8 @@ function fixed_amr(models::AbstractMatrix{S},
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     
     # Calculate results
-    result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(NLSolversBase.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(NLSolversBase.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     
     # Transform the resulting variables
     μ_map = exp.(copy( Optim.minimizer(result_map) ))
