@@ -16,6 +16,7 @@ import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
 import LoopVectorization: can_turbo # Extending for our functions
 import Optim
+import NLSolversBase
 using PDMats: PDMat
 using Printf: @sprintf
 import ProgressMeter

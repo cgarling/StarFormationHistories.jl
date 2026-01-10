@@ -293,8 +293,8 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         end
         return -lg[1]
     end
-    result_map = Optim.optimize(Optim.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
-    result_mle = Optim.optimize(Optim.only_fg!(fg_mle!), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(NLSolversBase.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(NLSolversBase.only_fg!(fg_mle!), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     
     # Random sampling from the inverse Hessian approximation to the Gaussian covariance
     # matrix will use Distributions.MvNormal, which requires a

@@ -199,9 +199,9 @@ function fit_templates(models::AbstractMatrix{S}, data::AbstractVector{<:Number}
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
     # Calculate result
-    result_map = Optim.optimize(Optim.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
+    result_map = Optim.optimize(NLSolversBase.only_fg!( fg_map! ), x0, bfgs_struct, bfgs_options)
     # Calculate final result without prior
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(NLSolversBase.only_fg!( fg_mle! ), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     # NamedTuple of LogTransformFTResult. "map" contains results for the maximum a posteriori estimate.
     # "mle" contains the same entries but for the maximum likelihood estimate.
     return  ( map = LogTransformFTResult(exp.(Optim.minimizer(result_map)),
@@ -264,7 +264,7 @@ This call signature supports the flattened formats for `models` and `data`. See 
     # We don't need to save the trace of the optimization here
     bfgs_options = Optim.Options(; allow_f_increases=true, kws...)
     # Calculate result
-    result_mle = Optim.optimize(Optim.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
+    result_mle = Optim.optimize(NLSolversBase.only_fg!( fg_mle! ), x0, bfgs_struct, bfgs_options)
     return Optim.minimizer(result_mle).^2, result_mle # Optim.minimum(result_mle)
 end
 
@@ -273,7 +273,7 @@ end
 # N1 = rand.( Poisson.( (250.0 .* M1))) .+ rand.(Poisson.((500.0 .* M2)))
 # Optim.optimize(x->-loglikelihood(x,[M1,M2],N1),[1.0,1.0],Optim.LBFGS())
 # C1 = similar(M1)
-# Optim.optimize(Optim.only_fg!( (F,G,x)->fg!(F,G,x,[M1,M2],N1,C1) ),[1.0,1.0],Optim.LBFGS())
+# Optim.optimize(NLSolversBase.only_fg!( (F,G,x)->fg!(F,G,x,[M1,M2],N1,C1) ),[1.0,1.0],Optim.LBFGS())
 # G=[1.0, 1.0]; coe=[5.0,5.0]; MM=[M1,M2]
 # fg!(true,G,coe,MM,N1,C1)
 # @benchmark fg!($true,$G,$coe,$MM,$N1,$C1)
