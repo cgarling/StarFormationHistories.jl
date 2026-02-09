@@ -528,25 +528,65 @@ function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
     for (k, v) in kws
         @argcheck (length(v) == nSSP) "Length of keyword argument $k is incorrect; must be equal to `length(starcat[1])` and `length(starcat[2])`."
     end
-    # mini = reduce(vcat, starcat[1])
-    # mags = reduce(vcat, starcat[2])
-    mini, mags = starcat
-    nstars = length.(starcat[1]) # number of stars per SSP
 
-    symbols = (:mini, mag_symbols..., keys(kws)...)
-    vals = zip(values(kws)...) # zip(v for (k, v) in kws)
-    # 8ms for 55k stars, 2 magnitude filters, dynamic NamedTuple construction bit slow
-    # return [NamedTuple{symbols}((mini[i][j], mags[i][j]..., v...)) for (i, v)=enumerate(vals) for j=eachindex(mini[i])]
-    # T = Tuple{eltype(mini[1]), eltype(mags[1][1]), eltype(mags[1][1]), typeof.(first(vals))...}
-    T = Tuple{eltype(mini[1]), eltype(eltype(mags[1])), eltype(eltype(mags[1])), typeof.(first(vals))...}
-    return _rows(NamedTuple{symbols,T}, mini, mags, vals)
+    mini, mags = starcat
+    
+    # Pre-compute the NamedTuple type for performance
+    mini_type = eltype(mini[1])
+    mag_scalar_type = eltype(eltype(mags[findfirst(!isempty, mags)]))
+    kw_values = [values(kws)...]  # Convert to vector for easier indexing
+    kw_types = isempty(kw_values) ? () : Tuple{(eltype(val) for val in kw_values)...} # eltype.(kw_values)
+
+    # Build tuple type: (mini, mag1, mag2, ..., magN, kw1, kw2, ...)
+    mag_types = ntuple(_ -> mag_scalar_type, N)
+    symbols = (:mini, mag_symbols...)
+    T = Tuple{mini_type, mag_types...}
+    S = NamedTuple{symbols, T}
+    result = _rows(S, mini, mags)
+    if !isempty(kw_values)
+        kw_T = NamedTuple{keys(kws), kw_types}
+        kw_rows = _kwrows(kw_T, mini, mags, kw_values)
+        result = merge.(result, kw_rows)
+    end
+    return result
 end
 # Support general mag_symbols
 function add_metadata(starcat, mag_symbols; kws...)
     return add_metadata(starcat, tuple((Symbol(i) for i in mag_symbols)...); kws...)
 end
-# _row(NT_type, mini, mags, v, i, j) = NT_type((mini[i][j], mags[i][j]..., v...))
-_rows(NT_type, mini, mags, vals) = [NT_type((mini[i][j], mags[i][j]..., v...)) for (i, v) in enumerate(vals) for j in eachindex(mini[i])]
+# Helper function to create rows with pre-computed type
+function _rows(::Type{NT}, mini, mags) where NT
+    # nSSP = length(mini)
+    total = sum(length, mini)
+    result = Vector{NT}(undef, total)
+    idx = 1
+    @inbounds for i in eachindex(mini)
+        ni = length(mini[i])
+        for j in 1:ni
+            vals = (mini[i][j], mags[i][j]...)
+            result[idx] = NT(vals)
+            idx += 1
+        end
+    end
+    return result
+end
+function _kwrows(::Type{NT}, mini, mags, kw_values) where NT
+    total = sum(length, mini)
+    result = Vector{NT}(undef, total)
+    idx = 1
+    @inbounds for i in eachindex(mini)
+        ni = length(mini[i])
+        kw_tup = NT((kw[i] for kw in kw_values))
+        for _ in 1:ni
+            # result[idx] = NT((kw[i] for kw in kw_values))
+            result[idx] = kw_tup
+            idx += 1
+        end
+    end
+    return result
+end
+# _kwrows(::Type{NT}, mini, mags, kw_values) where NT = [NT((kw[i] for kw in kw_values)) for i in eachindex(mini, mags) for j in eachindex(mini[i])]
+# _rows(::Type{NT}, mini, mags, kw_values) where NT = [NT((mini[i][j], mags[i][j]..., (kw[i] for kw in kw_values)...)) for i in eachindex(mini, mags) for j in eachindex(mini[i])]
 
 
 ###############################################
