@@ -5,7 +5,7 @@ const float_types = (Float32, Float64) # Float types to test most functions with
 const float_type_labels = ("Float32", "Float64") # String labels for the above float_types
 const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above float types
 
-@testset "Fitting Functions" begin
+@testset "Core Fitting Functions" begin
     @testset "composite!" begin
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]

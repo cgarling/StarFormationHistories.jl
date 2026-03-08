@@ -61,8 +61,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             label = float_type_labels[i]
             @testset "$label" begin
                 T = float_types[i]
-                m_ini = T[0.05,0.1,0.2,0.3]
-                mags = [T[4],T[3],T[2],T[1]]
+                m_ini = T[0.05, 0.1, 0.2, 0.3]
+                mags = [T[4], T[3], T[2], T[1]]
                 result = SFH.mass_limits(m_ini, mags, ["F090W"], T(5//2), "F090W")
                 @test result == (T(15//100), T(30//100))
                 # Test if mag_lim is infinite
@@ -96,7 +96,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
         end
     end
     @testset "sample_system" begin
-        rng=StableRNG(seedval)
+        rng = StableRNG(seedval)
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]
             @testset "$label" begin
@@ -125,14 +125,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 # Use some masses in the 0.1 -> 0.8 solar mass range
                 m_ini = range(T(1//10), T(4//5); step=T(1//10))
                 # Mags interpolated from an old-metal poor isochrone for order-of-magnitude scaling
-                f606w_mags = T[ 12.73830341586291, 10.017833567325411, 9.041398536300997, 8.331313172834694, 7.3892413746605765, 6.227971374447669, 4.93799980882831, -3.026]
-                f814w_mags = T[ 11.137576129331675, 8.951605387408511, 8.064408199510426, 7.424658866406447, 6.6025729402403, 5.584714238650148, 4.448999828801471, -4.107]
+                f606w_mags = T[12.73830341586291, 10.017833567325411, 9.041398536300997, 8.331313172834694, 7.3892413746605765, 6.227971374447669, 4.93799980882831, -3.026]
+                f814w_mags = T[11.137576129331675, 8.951605387408511, 8.064408199510426, 7.424658866406447, 6.6025729402403, 5.584714238650148, 4.448999828801471, -4.107]
                 mags = [f606w_mags, f814w_mags]
                 mag_names = ["F606W", "F814W"]
                 # Figure out the percentage of total mass represented
                 # by stars between miniumum(m_ini) and maximum(m_ini).
                 # See the notes in the `generate_stars_mass` for more details.
-                mass_frac = (quadgk(x->x*pdf(imf,x), minimum(m_ini), maximum(m_ini))[1] / quadgk(x->x*pdf(imf,x), minimum(imf), maximum(imf))[1]) # maximum(imf))[1] )
+                mass_frac = (quadgk(x -> x * pdf(imf, x), minimum(m_ini), maximum(m_ini))[1] / quadgk(x -> x * pdf(imf,x), minimum(imf), maximum(imf))[1]) # maximum(imf))[1] )
 
                 ###################################
                 ####### Testing generate_stars_mass

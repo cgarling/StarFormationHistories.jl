@@ -12,7 +12,7 @@ doctest(SFH)
 
     #####################################################################
     @testset verbose=true "SFH Fitting" begin
-        @safetestset "Fitting Functions" include("fitting/fitting_functions.jl")
+        @safetestset "Core Fitting Functions" include("fitting/fitting_core.jl")
 
         # Benchmarking
         # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
