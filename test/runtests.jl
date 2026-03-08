@@ -8,11 +8,19 @@ DocMeta.setdocmeta!(SFH, :DocTestSetup, :(using StarFormationHistories); recursi
 doctest(SFH)
 
 @testset verbose=true "StarFormationHistories.jl" begin
-    @safetestset "CMD Simulation" include("cmd_simulation.jl")
+    @safetestset "CMD Simulation" include("cmd_simulation_test.jl")
 
-    #####################################################################
     @testset verbose=true "SFH Fitting" begin
-        @safetestset "Core Fitting Functions" include("fitting/fitting_core.jl")
+        @safetestset "Core Fitting Functions" include("fitting/fitting_core_test.jl")
+        @safetestset "Template Kernels" include("templates/kernel_test.jl")
+        @safetestset "Template Construction" include("templates/template_test.jl")
+
+        @testset verbose=true "Solving + Sampling" begin
+            @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
+            @safetestset "Age-Metallicity Relations" include("fitting/amr_test.jl")
+            @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
+            @safetestset "Fixed AMR" include("fitting/fixed_amr_test.jl")
+        end
 
         # Benchmarking
         # let x=[1.0], M=[Float64[0 0 0; 0 0 0; 1 1 1]], N=Int64[0 0 0; 0 0 0; 3 3 3], C=zeros(3,3), G=[1.0]
@@ -21,18 +29,7 @@ doctest(SFH)
         #     @btime SFH.fg($M[1], $M[1], $N)
         #     @btime SFH.fg!($true, $G, $x, $M, $N, $C)
         # end
-
-        @safetestset "Template Kernels" include("templates/kernel_test.jl")
-        @safetestset "Template Construction" include("templates/template_test.jl")
-
-        @testset verbose=true "Solving + Sampling" begin
-            @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")
-            @safetestset "Age-Metallicity Relations" include("fitting/amr_test.jl")
-            @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
-            @safetestset "Fixed AMR" include("fitting/fixed_amr.jl")
-        end
     end
-
 
     @testset "utilities" begin
         # Artifical star tests use extensions, requires Julia >= 1.9
