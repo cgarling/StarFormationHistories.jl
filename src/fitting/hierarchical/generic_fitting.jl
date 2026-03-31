@@ -423,7 +423,7 @@ A `NamedTuple` with two elements:
  - `tree_statistics` contains convergence statistics that can be viewed with `DynamicHMC.Diagnostics.summarize_tree_statistics`.
 
 # See also
- - [`tsample_sfh`(@ref StarFormationHistories.tsample_sfh) for multi-threaded version.
+ - [`tsample_sfh`](@ref StarFormationHistories.tsample_sfh) for multi-threaded version.
 """
 function sample_sfh(bfgs_result::CompositeBFGSResult, 
                     models::AbstractMatrix{S},
