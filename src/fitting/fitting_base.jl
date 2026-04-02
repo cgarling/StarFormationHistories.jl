@@ -22,7 +22,7 @@ true
                             models::AbstractVector{T}) where T <: AbstractMatrix{<:Number}
     @argcheck axes(coeffs) == axes(models)
     fill!(composite, zero(eltype(composite))) # Zero-out array
-    for k in axes(coeffs,1) # @turbo doesn't help with this loop 
+    for k in axes(coeffs, 1) # @turbo doesn't help with this loop 
         @inbounds ck = coeffs[k]
         @inbounds model = models[k]
         @simd for idx in eachindex(composite, model)
@@ -89,9 +89,7 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
         # Setting eps() as minimum of composite greatly improves stability of convergence
         @inbounds ci = max( composite[idx], eps(T) ) 
         @inbounds ni = data[idx]
-        # result += (ci > zero(T)) & (ni > zero(T)) ? ni - ci - ni * log(ni / ci) : zero(T)
-        # result += ni > zero(T) ? ni - ci - ni * log(ni / ci) : zero(T)
-        result += ifelse( ni > zero(T), ni - ci - ni * log(ni / ci), zero(T) )
+        result += ifelse(ni > zero(T), ni - ci - ni * log(ni / ci), -ci)
     end
     # Penalizing result==0 here improves stability of convergence
     result != zero(T) ? (return result) : (return -typemax(T))
@@ -111,7 +109,7 @@ function loglikelihood(coeffs::AbstractVector{<:Number},
                        data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @argcheck axes(coeffs) == axes(models)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
-    composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
+    composite = Matrix{S}(undef, size(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
     return loglikelihood(composite, data)
 end
@@ -121,7 +119,7 @@ function loglikelihood(coeffs::AbstractVector{<:Number},
     @argcheck axes(coeffs,1) == axes(models,2)
     @argcheck axes(data,1) == axes(models,1)
     S = promote_type(eltype(coeffs), eltype(models), eltype(data))
-    composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
+    composite = Vector{S}(undef, length(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
     return loglikelihood(composite, data)
 end
@@ -153,10 +151,10 @@ where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
     @turbo thread=false for idx in eachindex(model, composite, data) 
         # Setting eps() as minimum of composite greatly improves stability of convergence
         # and prevents divide by zero errors.
-        @inbounds ci = max( composite[idx], eps(T) )
+        @inbounds ci = max(composite[idx], eps(T))
         @inbounds mi = model[idx]
         @inbounds ni = data[idx]
-        result += ifelse( ni > zero(T), -mi * (one(T) - ni/ci), zero(T) )
+        result += -mi * (one(T) - ni/ci)
     end
     return result
 end
@@ -197,7 +195,7 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number},
                         data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @argcheck axes(coeffs) == axes(models)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
-    composite = Matrix{S}(undef,size(data)) # composite = sum( coeffs .* models )
+    composite = Matrix{S}(undef, size(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
     return ∇loglikelihood(models, composite, data) # Call to above function.
 end
@@ -207,7 +205,7 @@ function ∇loglikelihood(coeffs::AbstractVector{<:Number},
     @argcheck axes(coeffs,1) == axes(models,2)
     @argcheck axes(models,1) == axes(data,1)
     S = promote_type(eltype(coeffs), eltype(eltype(models)), eltype(data))
-    composite = Vector{S}(undef,length(data)) # composite = sum( coeffs .* models )
+    composite = Vector{S}(undef, length(data)) # composite = sum( coeffs .* models )
     composite!(composite, coeffs, models) # Fill the composite array
     return ∇loglikelihood(models, composite, data) # Call to above function.
 end
@@ -240,19 +238,18 @@ function ∇loglikelihood!(G::AbstractVector,
     @turbo for idx in eachindex(composite, data)
         # Setting eps() as minimum of composite greatly improves stability of convergence
         # and prevents divide by zero errors.
-        @inbounds ci = max( composite[idx], eps(C) )
+        @inbounds ci = max(composite[idx], eps(C))
         @inbounds ni = data[idx]
-        @inbounds composite[idx] = one(C) - convert(C,ni/ci)
+        @inbounds composite[idx] = one(C) - convert(C, ni/ci)
     end
     for k in eachindex(G, models)
         @inbounds model = models[k]
         @argcheck axes(model) == axes(data) == axes(composite)
         result = zero(GT)
-        @turbo thread=false for idx in eachindex(model, data, composite)
+        @turbo thread=false for idx in eachindex(model, composite)
             @inbounds mi = model[idx]
-            @inbounds ni = data[idx]
             @inbounds nici = composite[idx]
-            result += ifelse( ni > zero(D), convert(GT,-mi * nici), zero(GT) )
+            result += convert(GT, -mi * nici)
         end
         @inbounds G[k] = result
     end
@@ -277,12 +274,9 @@ function ∇loglikelihood!(G::AbstractVector,
     @turbo for idx in eachindex(composite, data)
         # Setting eps() as minimum of composite greatly improves stability of convergence
         # and prevents divide by zero errors.
-        @inbounds ci = max( composite[idx], eps(C) )
+        @inbounds ci = max(composite[idx], eps(C))
         @inbounds ni = data[idx]
-        # @inbounds composite[idx] = one(T) - ni/ci
-        # Moved this ifelse from the matrix-vector product into this loop.
-        # Shouldn't make a difference; tests indicate same results.
-        @inbounds composite[idx] = ifelse( ni > zero(D), one(C) - convert(C,ni/ci), zero(C) )
+        @inbounds composite[idx] = one(C) - convert(C, ni/ci)
     end
     # mul!(G, -models', composite)
     # For some reason, -models allocates, but setting α=-1 does not
