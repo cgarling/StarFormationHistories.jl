@@ -57,6 +57,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 coeffs = T[1,2]
                 @test SFH.loglikelihood(coeffs, models2, data2) ≈ -0.5672093513510137 rtol=rtols[i]
                 @test SFH.loglikelihood(coeffs, models2, data2) isa T
+                # Test zero-data bins: ni=0 should contribute -ci (not 0)
+                # ni=0, ci=1.5: 3 bins × -1.5 = -4.5
+                # ni=2, ci=3: 6 bins × (2-3-2*log(2/3)) ≈ -1.1344187027020260
+                # total ≈ -5.6344187027020260
+                C_zero = T[1.5 1.5 1.5; 3 3 3; 3 3 3]
+                data_zero = Int64[0 0 0; 2 2 2; 2 2 2]
+                @test SFH.loglikelihood( C_zero, data_zero ) ≈ -5.6344187027020260 rtol=rtols[i]
+                @test SFH.loglikelihood( C_zero, data_zero ) isa T
             end
         end
     end
@@ -79,6 +87,14 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 result = SFH.∇loglikelihood( model2, C2, data2 )
                 @test result ≈ -1 rtol=rtols[i]
                 @test result isa T                    
+                # Test zero-data bins: ni=0 contributes -c_{i,j} (not 0)
+                # Model 1 only has non-zero entries in the zero-data row → grad = -3
+                model_zero = T[1 1 1; 0 0 0; 0 0 0]
+                C_zero = T[1.5 1.5 1.5; 3 3 3; 3 3 3]
+                data_zero = Int64[0 0 0; 2 2 2; 2 2 2]
+                result_zero = SFH.∇loglikelihood( model_zero, C_zero, data_zero )
+                @test result_zero ≈ -3 rtol=rtols[i]
+                @test result_zero isa T
                 # Test the method for multiple models, matrix inputs
                 result = SFH.∇loglikelihood( [model, model], C, data )
                 @test result ≈ [-1, -1] rtol=rtols[i]
@@ -134,13 +150,13 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 C3 = sum( coeffs .* models )
                 grad3 = Vector{T}(undef,3)
                 SFH.∇loglikelihood!( grad3, C3, models, data3 )
-                @test grad3 ≈ [0, -1, -1] rtol=rtols[i]
+                @test grad3 ≈ [-3, -1, -1] rtol=rtols[i]
                 # zeros in `data`, flattened inputs
                 data4 = vec(data3)
                 C4 = models2 * coeffs
                 grad4 = Vector{T}(undef,3)
                 SFH.∇loglikelihood!( grad4, C4, models2, data4 )
-                @test grad4 ≈ [0, -1, -1] rtol=rtols[i]
+                @test grad4 ≈ [-3, -1, -1] rtol=rtols[i]
             end
         end
     end
