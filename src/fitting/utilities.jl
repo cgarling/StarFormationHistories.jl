@@ -47,6 +47,80 @@ function construct_x0(logAge::AbstractVector{T}, T_max::Number;
 end
 
 """
+    renormalize_x0(data::AbstractVector{<:Number},
+                   models::AbstractMatrix{<:Number},
+                   x0::AbstractVector{<:Number},
+                   full_coeffs::AbstractVector{<:Number} = x0) -> x0_renormalized
+    renormalize_x0(data::AbstractMatrix{<:Number},
+                   models::AbstractVector{<:AbstractMatrix{<:Number}},
+                   x0::AbstractVector{<:Number}) -> x0_renormalized
+
+Renormalizes the overall scale of the coefficient vector `x0` so that the composite
+Hess diagram model best matches the total counts in `data`, and returns the
+renormalized `x0_renormalized`. The composite model is ``m_i = \\sum_j r_j \\, c_{i,j}``
+(see [`StarFormationHistories.composite!`](@ref)) where ``r_j`` are the coefficients.
+
+The optimal overall scale factor ``\\alpha`` is derived analytically by maximizing the
+Poisson log-likelihood with respect to a uniform rescaling of all coefficients
+``r_j \\to \\alpha \\, r_j``, yielding
+
+```math
+\\alpha^* = \\frac{\\sum_i n_i}{\\sum_i m_i}
+```
+
+where ``n_i`` is bin ``i`` of the observed Hess diagram `data` and ``m_i`` is the
+composite model evaluated at the proposed `x0`. The renormalized coefficients are then
+`x0_renormalized = x0 .* α`. This preserves the relative proportions between all
+elements of `x0` while adjusting the overall normalization to best match `data`.
+
+The optional fourth argument `full_coeffs` is the *expanded* per-model coefficient
+vector derived from `x0`. When `x0` is a per-unique-age coefficient vector (as used by
+[`fit_sfh`](@ref) and [`fixed_amr`](@ref)) rather than a per-model coefficient vector,
+`full_coeffs` should be the result of [`calculate_coeffs`](@ref) applied to `x0`.
+The composite is then computed from `full_coeffs` while `x0` is scaled. In the default
+case `full_coeffs = x0`, which is appropriate when `x0` directly indexes the `models`
+(as in [`fit_templates`](@ref) and similar functions).
+
+The second call signature accepts `models` as a vector of matrices and `data` as a
+matrix and converts them to the flattened format before dispatching to the primary
+method.
+
+# Examples
+```jldoctest
+julia> models = [rand(5,5) for i in 1:3];
+
+julia> true_x0 = [1.0, 2.0, 3.0];
+
+julia> data = sum(true_x0 .* models);  # noise-free data
+
+julia> x0 = true_x0 .* 0.5;  # deliberately wrong normalization
+
+julia> x0_ren = StarFormationHistories.renormalize_x0(data, models, x0);
+
+julia> sum(x0_ren .* models) ≈ data  # total counts match
+true
+```
+"""
+function renormalize_x0(data::AbstractVector{<:Number},
+                        models::AbstractMatrix{<:Number},
+                        x0::AbstractVector{<:Number},
+                        full_coeffs::AbstractVector{<:Number} = x0)
+    S = promote_type(eltype(data), eltype(models), eltype(full_coeffs))
+    composite = Vector{S}(undef, length(data))
+    composite!(composite, full_coeffs, models)
+    composite_sum = sum(composite)
+    iszero(composite_sum) && return copy(x0)  # guard against degenerate case
+    α = sum(data) / composite_sum
+    return x0 .* α
+end
+# Convenience wrapper for the vector-of-matrices call signature
+renormalize_x0(data::AbstractMatrix{<:Number},
+               models::AbstractVector{<:AbstractMatrix{<:Number}},
+               x0::AbstractVector{<:Number},
+               full_coeffs::AbstractVector{<:Number} = x0) =
+    renormalize_x0(vec(data), stack_models(models), x0, full_coeffs)
+
+"""
     (unique_logAge, cum_sfh, sfr, mean_MH) =
         calculate_cum_sfr(coeffs::AbstractVector,
                           logAge::AbstractVector,

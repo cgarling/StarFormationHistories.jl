@@ -82,6 +82,15 @@ function fixed_amr(models::AbstractMatrix{S},
     # construct the full coefficients vector when evaluating the likelihood
     idxlogAge = [findall( ==(i), logAge) for i in unique_logAge]
 
+    # Renormalize x0 to better match total counts in data before optimizing.
+    # The full per-model coefficient vector is relweights[idxs] .* x0[i] for each logAge bin.
+    let _full_x0 = Vector{promote_type(S, eltype(x0))}(undef, size(models, 2))
+        for (i, idxs) in enumerate(idxlogAge)
+            _full_x0[idxs] .= relweights[idxs] .* x0[i]
+        end
+        x0 = renormalize_x0(data, models, x0, _full_x0)
+    end
+
     # Perform logarithmic transformation on the provided x0 for all SFH variables
     x0 = log.(x0)
     # Make scratch array for assessing transformations on fitting variables
