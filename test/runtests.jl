@@ -1,11 +1,8 @@
-import StarFormationHistories as SFH
 using Test, SafeTestsets
 using Logging: with_logger, ConsoleLogger, Error
 
 # Run doctests first
-import Documenter: DocMeta, doctest
-DocMeta.setdocmeta!(SFH, :DocTestSetup, :(using StarFormationHistories); recursive=true)
-doctest(SFH)
+@safetestset "Doctests" include("doctests.jl")
 
 @testset verbose=true "StarFormationHistories.jl" begin
     @safetestset "CMD Simulation" include("cmd_simulation_test.jl")
