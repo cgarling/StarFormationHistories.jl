@@ -82,6 +82,8 @@ This call signature supports the flattened formats for `models` and `data`. See 
 function fit_templates_lbfgsb(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), factr::Number=1e-12, pgtol::Number=1e-5, iprint::Integer=0, kws...) where S <: Number
     composite = Vector{S}(undef,length(data))
     _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
+    # Renormalize x0 to better match total counts in data before optimizing
+    x0 = renormalize_x0(data, models, x0)
     G = similar(x0)
     fg(x) = (R = fg!(true,G,x,models,data,composite); return R,G)
     LBFGSB.lbfgsb(fg, x0; lb=zeros(size(models,2)), ub=fill(Inf,size(models,2)), factr=factr, pgtol=pgtol, iprint=iprint, kws...)
@@ -170,6 +172,8 @@ This call signature supports the flattened formats for `models` and `data`. See 
 function fit_templates(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
     composite = Vector{S}(undef,length(data))
     _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
+    # Renormalize x0 to better match total counts in data before optimizing
+    x0 = renormalize_x0(data, models, x0)
     # log-transform the initial guess vector
     x0 = log.(x0)
     # Make scratch array for assessing transformations
@@ -244,6 +248,8 @@ This call signature supports the flattened formats for `models` and `data`. See 
 @inline function fit_templates_fast(models::AbstractMatrix{S}, data::AbstractVector{<:Number}; x0::AbstractVector{<:Number}=ones(S,size(models,2)), kws...) where S <: Number
     composite = Vector{S}(undef,length(data))
     _check_flat_input_sizes(x0, models, data, composite) # Validate input sizes
+    # Renormalize x0 to better match total counts in data before optimizing
+    x0 = renormalize_x0(data, models, x0)
     # Transform the initial guess vector
     x0 = sqrt.(x0)
     # Make scratch array for assessing transformations

@@ -245,13 +245,43 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                  logAge::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number};
                  x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
+                 allow_f_increases::Bool = true,
+                 store_trace::Bool = true,
+                 extended_trace::Bool = true,
                  kws...) where {T, U, S <: Number}
 
     unique_logAge = unique(logAge)
+    unique_MH = unique(metallicities)
     Nbins = length(x0) # Number of unique logAge bins
     @argcheck length(x0) == length(unique_logAge) "length(x0) != length(unique(logAge))"
     @argcheck size(models, 1) == length(data)
     @argcheck size(models, 2) == length(logAge) == length(metallicities)
+
+    # Renormalize x0 to better match total counts in data before optimizing
+    let _full_x0 = calculate_coeffs(MH_model0, disp_model0, x0, logAge, metallicities)
+        # _full_x0 will be NaN for MZR models if the initial metallicity model parameters
+        # are very far off the Mstar implied by the given x0
+        if any(isnan, _full_x0)
+            # Try to get into correct ballpart by replicating x0 across metallicity bins
+            if MH_model0 isa AbstractMZR
+                 @warn "Initial `x0` provided to `fit_sfh` produced NaN coefficients. Attempting to renormalize `x0` by replicating across metallicity bins. If warnings persist after this attempt, try calculating a more informed initial guess for `x0` using `construct_x0_mdf` or by adjusting the parameters of `MH_model0` (particularly the mass normalization) and `disp_model0`."
+            end
+            _full_x0 = repeat(x0, length(unique_MH))
+            x0 = renormalize_x0(data, models, x0, _full_x0)
+            # Now compute coeffs properly again and iterate to improve normalization
+            for i in 1:5
+                _full_x0 = calculate_coeffs(MH_model0, disp_model0, x0, logAge, metallicities)
+                if any(isnan, _full_x0)
+                    @warn "Renormalization of x0 failed to produce valid coefficients after $i iterations. Returning last valid x0." i
+                    break
+                end
+                x0 = renormalize_x0(data, models, x0, _full_x0)
+            end
+        else
+            x0 = renormalize_x0(data, models, x0, _full_x0)
+        end
+    end
+
     # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
     x0 = map(log, x0) # Does not modify x0 in place
     # Perform logarithmic transformation on MZR and dispersion parameters
@@ -270,7 +300,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                              linesearch=LineSearches.HagerZhang())
     # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
     # covariance matrix, which we can use to make parameter uncertainty estimates
-    bfgs_options = Optim.Options(; allow_f_increases=true, store_trace=true, extended_trace=true, kws...)
+    bfgs_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)
     function fg_map!(F, G, X)
         # Creating structs doesn't copy data so this should be free
         tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, true)
