@@ -47,3 +47,16 @@ The per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_
 ```@docs
 calculate_coeffs
 ```
+
+We can use the results of our fit to estimate uncertainties on the cumulative SFH, SFRs, and mean metallicity as a function of time with [`StarFormationHistories.cum_sfr_quantiles`](@ref) -- this is an extension of the more basic [`StarFormationHistories.calculate_cum_sfr`](@ref).
+
+```@docs
+StarFormationHistories.cum_sfr_quantiles
+```
+
+We can calculate ``\tau`` statistics with `StarFormationHistories.tau` -- for example, ``\tau_{90}`` indicates the time at which the the galaxy formed 90% of its present-day stellar mass. 
+
+```@docs
+StarFormationHistories.tau
+StarFormationHistories.tau_interp
+```

@@ -300,3 +300,154 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q;
     # return cum_sfh_quantiles
     return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
 end
+
+
+"""
+    tau_interp(unique_logAge, max_logAge, cum_sfh)
+Returns an interpolator for the lookback time (in Gyr) at which a given fraction of the total stellar mass of a galaxy formed. This is a helper function for [`tau`](@ref StarFormationHistories.tau).
+"""
+function tau_interp(unique_logAge, max_logAge, cum_sfh)
+    @argcheck length(unique_logAge) == length(cum_sfh) "length(unique_logAge) != length(cum_sfh)"
+    @argcheck maximum(unique_logAge) < max_logAge "`max_logAge` must be greater than the maximum of `unique_logAge`."
+    if !issorted(cum_sfh)
+        cum_sfh = reverse(cum_sfh)
+        unique_logAge = reverse(unique_logAge)
+    end
+
+    !issorted(cum_sfh) && error("`cum_sfh` must be sorted in ascending or descending order.")
+    !issorted(unique_logAge; rev=true) && error("`unique_logAge` must be sorted in the same order as `cum_sfh`.")
+
+    if first(cum_sfh) != 0
+        cum_sfh = vcat(0.0, cum_sfh)
+    end
+
+    if first(unique_logAge) != max_logAge
+        unique_logAge = vcat(max_logAge, unique_logAge)
+    end
+
+    cum_sfh = cum_sfh ./ maximum(cum_sfh) # Ensure cum_sfh is normalized to 1
+    # Convert logAge to lookback time in Gyr and interpolate
+    deduplicate_knots!(cum_sfh; move_knots=true) # Deduplicate cum_sfh values to avoid issues with interpolation
+    itp = interpolate((cum_sfh,), exp10.(unique_logAge) ./ 1e9, Gridded(Linear()))
+    return itp
+end
+
+"""
+    tau(τ, unique_logAge, max_logAge, cum_sfh [, lower, upper])
+
+Returns the lookback time (in Gyr) at which `τ` percent of the total stellar mass of a galaxy formed.
+See [`tau_interp`](@ref StarFormationHistories.tau_interp) for the underlying interpolator function.
+
+# Arguments
+ - `τ`: Fraction of a galaxy's total stellar mass for which you wish to know *when* the galaxy had that much mass (e.g., 0.50 for `τ_50`). 
+ - `unique_logAge` should contain the list of unique `log10(age [yr])` for which the SFH solution was derived.
+ - `max_logAge` should be the maximum `log10(age [yr])` that you wish to consider -- this sets when the stellar mass of the galaxy was 0.
+ - `cum_sfh` is an array of the cumulative stellar mass of the galaxy corresponding to the lookback times in `unique_logAge`; this can be calculated with [`calculate_cum_sfr`](@ref StarFormationHistories.calculate_cum_sfr) or [`cum_sfr_quantiles`](@ref StarFormationHistories.cum_sfr_quantiles).
+
+# Optional Arguments
+ - `lower` is an array of the cumulative stellar mass of the galaxy at some lower confidence level (e.g., 16% for 1-σ); if provided, the function will also return the lower bound on `t`.
+ - `upper` is an array of the cumulative stellar mass of the galaxy at some higher confidence level (e.g., 84% for 1-σ); if provided, the function will also return the upper bound on `t`.
+
+# Returns
+ - `t::Number` the lookback time in Gyr when the galaxy's stellar mass was `τ` times its total birth stellar mass.
+If `lower` and `upper` are provided, a tuple of three numbers is returned: `(t_lower, t_mle, t_upper)`.
+
+# Examples
+First we will verify that `tau` returns the correct lookback time when the requested `τ` value corresponds exactly to a value in `cum_sfh`:
+
+```jldoctest tau
+julia> unique_logAge = [8.0, 8.5, 9.0, 9.5, 10.0];
+
+julia> max_logAge = 10.13;
+
+julia> cum_sfh = [1.0, 0.8, 0.5, 0.2, 0.1];
+
+julia> StarFormationHistories.tau(0.5, unique_logAge, max_logAge, cum_sfh) # Exact result
+1.0
+```
+
+Now we will show an example where `τ` does not correspond exactly to a value in `cum_sfh`, in which case the function will interpolate between the two nearest values in `cum_sfh` to return the lookback time corresponding to the requested `τ`. The interpolation is performed in linear age space.
+
+```jldoctest tau
+julia> cum_sfh = [1.0, 0.8, 0.4, 0.2, 0.1]; # Interpolation between log(age) = 8.5 and 9.0
+
+julia> StarFormationHistories.tau(0.5, unique_logAge, max_logAge, cum_sfh) ≈ 0.8290569415042095
+true
+```
+
+We can also pass multiple `τ` values at once:
+
+```jldoctest tau
+julia> StarFormationHistories.tau([0.5, 0.75], unique_logAge, max_logAge, cum_sfh) ≈ [0.8290569415042095, 0.40169929526473325]
+true
+```
+
+This will also work with reversed `cum_sfh` and `unique_logAge`:
+
+```jldoctest tau
+julia> StarFormationHistories.tau(0.5, reverse(unique_logAge), max_logAge, reverse(cum_sfh)) ≈ 0.8290569415042095
+true
+```
+
+Now we can pass in lower and upper estimates on the cumulative stellar mass to get confidence intervals on `τ`; the result is returned
+as a size `(length(τ), 3)` matrix where the first column is the lower bound on `τ`, the second column is the best estimate of `τ`, and the third column is the upper bound on `τ`:
+
+```jldoctest tau
+julia> upper = [1.0, 0.85, 0.6, 0.3, 0.15];
+
+julia> lower = [1.0, 0.75, 0.3, 0.1, 0.05];
+
+julia> StarFormationHistories.tau(0.5, unique_logAge, max_logAge, cum_sfh, lower, upper) ≈ [0.6961012293408169  0.8290569415042095  1.7207592200561264]
+true
+```
+
+And calling with a vector of `τ` values also works in this case:
+
+```jldoctest tau
+julia> StarFormationHistories.tau([0.5, 0.75], unique_logAge, max_logAge, cum_sfh, lower, upper) ≈ [0.6961012293408169  0.8290569415042095  1.7207592200561264; 0.31622776601683794  0.40169929526473325  0.5897366596101027]
+true
+```
+"""
+function tau(τ, unique_logAge, max_logAge, cum_sfh)
+    itp = tau_interp(unique_logAge, max_logAge, cum_sfh)
+    return itp.(τ) # Broadcast the interpolator over τ
+end
+function tau(τ, unique_logAge, max_logAge, cum_sfh, lower, upper)
+    itp_lower = tau_interp(unique_logAge, max_logAge, lower)
+    itp = tau_interp(unique_logAge, max_logAge, cum_sfh)
+    itp_upper = tau_interp(unique_logAge, max_logAge, upper)
+    t = itp.(τ)
+    t_lower = itp_lower.(τ)
+    t_upper = itp_upper.(τ)
+    # Package into a (length(τ), 3) matrix where the first column is the lower bound, the second column is the best estimate, and the third column is the upper bound
+    return reduce(hcat, (t_lower, t, t_upper))
+end
+
+"""
+    tau(result, τ, logAge, MH, max_logAge; Nsamples=10_000, q=(0.16, 0.5, 0.84), kws...)
+
+Returns the lookback time (in Gyr) at which `τ` percent of the total stellar mass of a galaxy formed with upper and lower uncertainty estimates. Uses the solution `result` to draw samples of the cumulative star formation history and then calculates quantiles across those samples.
+
+# Arguments
+ - `result::Union{CompositeBFGSResult, BFGSResult}` is a BFGS result object as returned by [`fit_sfh`](@ref), for example, whose contents will be used to sample random, independent star formation histories via [`cum_sfr_quantiles`](@ref StarFormationHistories.cum_sfr_quantiles).
+ - `τ`: Fraction of a galaxy's total stellar mass for which you wish to know *when* the galaxy had that much mass (e.g., 0.50 for `τ_50`). Can also be a vector of multiple `τ` values (e.g., `[0.5, 0.75, 0.9]`). 
+ - `logAge::AbstractVector` is a vector giving the log10(age [yr]) of the stellar populations that were used to derive `result`. For the purposes of calculating star formation rates, these are assumed to be left-bin edges.
+ - `MH::AbstractVector` is a vector giving the metallicities of the stellar populations that were used to derive `result`.
+ - `max_logAge` should be the maximum `log10(age [yr])` that you wish to consider -- this sets when the stellar mass of the galaxy was 0.
+
+# Keyword Arguments
+ - `Nsamples::Integer` is the number of random, independent star formation histories to draw from `result` to use when calculating quantiles.
+ - `q` is passed to [`cum_sfr_quantiles`](@ref StarFormationHistories.cum_sfr_quantiles) to calculate quantiles on the cumulative star formation history samples. This must be a length 3 tuple of quantiles (e.g., `(0.16, 0.5, 0.84)`) to get lower, best, and upper estimates on `τ`. It is not recommended that you change this.
+ - `kws...` are passed to [`calculate_cum_sfr`](@ref StarFormationHistories.calculate_cum_sfr), see that method's documentation for more information.
+
+# Returns
+ - `t::Matrix`, a size `(length(τ), 3)` matrix where the first column is the lower bound on `τ`, the second column is the best estimate of `τ`, and the third column is the upper bound on `τ`.
+"""
+function tau(result::Union{BFGSResult, CompositeBFGSResult}, τ, logAge, MH, max_logAge; Nsamples::Int=10_000, q=(0.16, 0.5, 0.84), kws...)
+    @argcheck length(q) == 3 "q must be a tuple of three quantiles (e.g., (0.16, 0.5, 0.84)) to get lower, best, and upper estimates on `τ`."
+    # Use cum_sfr_quantiles to draw samples and calculate quantiles for the cumulative SFH
+    T_max = exp10(max_logAge) / 1e9
+    _result = cum_sfr_quantiles(result, logAge, MH, T_max, Nsamples, q; kws...)
+    cum_sfh_mat = _result[1]
+    return tau(τ, unique(logAge), max_logAge, cum_sfh_mat[:,2], cum_sfh_mat[:,1], cum_sfh_mat[:,3])
+end
