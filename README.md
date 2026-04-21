@@ -2,7 +2,7 @@
 
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://cgarling.github.io/StarFormationHistories.jl/stable/)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://cgarling.github.io/StarFormationHistories.jl/dev/)
-[![Build Status](https://github.com/cgarling/StarFormationHistories.jl/workflows/CI/badge.svg)](https://github.com/cgarling/StarFormationHistories.jl/actions)
+[![Build Status](https://github.com/cgarling/StarFormationHistories.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/cgarling/StarFormationHistories.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/github/cgarling/StarFormationHistories.jl/graph/badge.svg?token=L69R23H29M)](https://codecov.io/github/cgarling/StarFormationHistories.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
