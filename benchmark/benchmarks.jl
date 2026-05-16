@@ -1,15 +1,44 @@
 import StarFormationHistories as SFH
 using BenchmarkTools
+using LinearAlgebra: BLAS
+
+BLAS.set_num_threads(1)
 
 const SUITE = BenchmarkGroup()
 SUITE["core"] = BenchmarkGroup()
 
 const n_models = 2000
 const hist_size = (150, 75)
-# composite!
-SUITE["core"]["composite!_Float32"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(Float32, prod(hist_size)); A = rand(Float32, n_models); B = rand(Float32, prod(hist_size), n_models))
-SUITE["core"]["composite!_Float64"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(prod(hist_size)); A = rand(n_models); B = rand(prod(hist_size), n_models))
 
-# ∇loglikelihood!
-SUITE["core"]["∇loglikelihood_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, composite, models, data) setup=(G=zeros(Float32, n_models); composite=rand(Float32, prod(hist_size)); models=rand(Float32, prod(hist_size), n_models); data = rand(Float32, prod(hist_size)))
-SUITE["core"]["∇loglikelihood_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, composite, models, data) setup=(G=zeros(n_models); composite=rand(prod(hist_size)); models=rand(prod(hist_size), n_models); data = rand(prod(hist_size)))
+# composite! call signatures
+SUITE["core"]["composite!_vector_models_Float32"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(Float32, hist_size); A = rand(Float32, n_models); B = [rand(Float32, hist_size) for _ in 1:n_models])
+SUITE["core"]["composite!_vector_models_Float64"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(Float64, hist_size); A = rand(Float64, n_models); B = [rand(Float64, hist_size) for _ in 1:n_models])
+SUITE["core"]["composite!_flat_models_Float32"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(Float32, prod(hist_size)); A = rand(Float32, n_models); B = rand(Float32, prod(hist_size), n_models))
+SUITE["core"]["composite!_flat_models_Float64"] = @benchmarkable SFH.composite!(C, A, B) setup=(C = zeros(Float64, prod(hist_size)); A = rand(Float64, n_models); B = rand(Float64, prod(hist_size), n_models))
+
+# loglikelihood call signatures
+SUITE["core"]["loglikelihood_composite_data_Float32"] = @benchmarkable SFH.loglikelihood(C, D) setup=(C = rand(Float32, hist_size); D = rand(Float32, hist_size))
+SUITE["core"]["loglikelihood_composite_data_Float64"] = @benchmarkable SFH.loglikelihood(C, D) setup=(C = rand(Float64, hist_size); D = rand(Float64, hist_size))
+SUITE["core"]["loglikelihood_composite_data_Float64_Int64"] = @benchmarkable SFH.loglikelihood(C, D) setup=(C = rand(Float64, hist_size); D = rand(Int64, hist_size))
+SUITE["core"]["loglikelihood_coeffs_vector_models_Float32"] = @benchmarkable SFH.loglikelihood(A, B, D) setup=(A = rand(Float32, n_models); B = [rand(Float32, hist_size) for _ in 1:n_models]; D = rand(Float32, hist_size))
+SUITE["core"]["loglikelihood_coeffs_vector_models_Float64"] = @benchmarkable SFH.loglikelihood(A, B, D) setup=(A = rand(Float64, n_models); B = [rand(Float64, hist_size) for _ in 1:n_models]; D = rand(Float64, hist_size))
+SUITE["core"]["loglikelihood_coeffs_flat_models_Float32"] = @benchmarkable SFH.loglikelihood(A, B, D) setup=(A = rand(Float32, n_models); B = rand(Float32, prod(hist_size), n_models); D = rand(Float32, prod(hist_size)))
+SUITE["core"]["loglikelihood_coeffs_flat_models_Float64"] = @benchmarkable SFH.loglikelihood(A, B, D) setup=(A = rand(Float64, n_models); B = rand(Float64, prod(hist_size), n_models); D = rand(Float64, prod(hist_size)))
+
+# ∇loglikelihood call signatures
+SUITE["core"]["∇loglikelihood_single_model_Float32"] = @benchmarkable SFH.∇loglikelihood(M, C, D) setup=(M = rand(Float32, hist_size); C = rand(Float32, hist_size); D = rand(Float32, hist_size))
+SUITE["core"]["∇loglikelihood_single_model_Float64"] = @benchmarkable SFH.∇loglikelihood(M, C, D) setup=(M = rand(Float64, hist_size); C = rand(Float64, hist_size); D = rand(Float64, hist_size))
+SUITE["core"]["∇loglikelihood_vector_models_Float32"] = @benchmarkable SFH.∇loglikelihood(B, C, D) setup=(B = [rand(Float32, hist_size) for _ in 1:n_models]; C = rand(Float32, hist_size); D = rand(Float32, hist_size))
+SUITE["core"]["∇loglikelihood_vector_models_Float64"] = @benchmarkable SFH.∇loglikelihood(B, C, D) setup=(B = [rand(Float64, hist_size) for _ in 1:n_models]; C = rand(Float64, hist_size); D = rand(Float64, hist_size))
+SUITE["core"]["∇loglikelihood_flat_models_Float32"] = @benchmarkable SFH.∇loglikelihood(B, C, D) setup=(B = rand(Float32, prod(hist_size), n_models); C = rand(Float32, prod(hist_size)); D = rand(Float32, prod(hist_size)))
+SUITE["core"]["∇loglikelihood_flat_models_Float64"] = @benchmarkable SFH.∇loglikelihood(B, C, D) setup=(B = rand(Float64, prod(hist_size), n_models); C = rand(Float64, prod(hist_size)); D = rand(Float64, prod(hist_size)))
+SUITE["core"]["∇loglikelihood_coeffs_vector_models_Float32"] = @benchmarkable SFH.∇loglikelihood(A, B, D) setup=(A = rand(Float32, n_models); B = [rand(Float32, hist_size) for _ in 1:n_models]; D = rand(Float32, hist_size))
+SUITE["core"]["∇loglikelihood_coeffs_vector_models_Float64"] = @benchmarkable SFH.∇loglikelihood(A, B, D) setup=(A = rand(Float64, n_models); B = [rand(Float64, hist_size) for _ in 1:n_models]; D = rand(Float64, hist_size))
+SUITE["core"]["∇loglikelihood_coeffs_flat_models_Float32"] = @benchmarkable SFH.∇loglikelihood(A, B, D) setup=(A = rand(Float32, n_models); B = rand(Float32, prod(hist_size), n_models); D = rand(Float32, prod(hist_size)))
+SUITE["core"]["∇loglikelihood_coeffs_flat_models_Float64"] = @benchmarkable SFH.∇loglikelihood(A, B, D) setup=(A = rand(Float64, n_models); B = rand(Float64, prod(hist_size), n_models); D = rand(Float64, prod(hist_size)))
+
+# ∇loglikelihood! call signatures
+SUITE["core"]["∇loglikelihood!_vector_models_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float32, n_models); C = rand(Float32, hist_size); B = [rand(Float32, hist_size) for _ in 1:n_models]; D = rand(Float32, hist_size))
+SUITE["core"]["∇loglikelihood!_vector_models_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float64, n_models); C = rand(Float64, hist_size); B = [rand(Float64, hist_size) for _ in 1:n_models]; D = rand(Float64, hist_size))
+SUITE["core"]["∇loglikelihood!_flat_models_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float32, n_models); C = rand(Float32, prod(hist_size)); B = rand(Float32, prod(hist_size), n_models); D = rand(Float32, prod(hist_size)))
+SUITE["core"]["∇loglikelihood!_flat_models_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float64, n_models); C = rand(Float64, prod(hist_size)); B = rand(Float64, prod(hist_size), n_models); D = rand(Float64, prod(hist_size)))
