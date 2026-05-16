@@ -9,7 +9,7 @@ r_{j,k} &= R_j \, \frac{ \text{exp} \left( - \left( \frac{ [\text{M}/\text{H}]_k
 \end{aligned}
 ```
 
-where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}/\text{H}]_k`` and the denominator is a normalizing coefficient that ensures ``\sum_k r_{j,k} = R_j``. In this notation, bin ``i`` of the complex model Hess diagram (equation 1 of Dolphin 2002) is
+where the numerator is the MDF at fixed age evaluated at metallicity ``[\text{M}/\text{H}]_k`` and the denominator is a normalizing coefficient that ensures ``\sum_k r_{j,k} = R_j``. In this notation, bin ``i`` of the complex model Hess diagram (equation 1 of [Dolphin2002](@cite)) is
 
 ```math
 m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
@@ -42,7 +42,7 @@ and [`calculate_coeffs`](@ref) can be used to calculate per-template stellar mas
 
 While one could optimize the above model without an analytic gradient, such gradient-free methods are typically slower and less robust. One could also calculate the gradient numerically using finite differences or auto-differentiation, but these are still slower than analytic calculations. We will show that the gradient of this hierarchical model is analytic, allowing us to design an efficient optimization scheme.
 
-Equation 21 in Dolphin 2001 gives the gradient of our objective function with respect to the underlying coefficients
+Equation 21 in [Dolphin2002](@cite) gives the gradient of our objective function with respect to the underlying coefficients
 
 ```math
 \begin{aligned}
@@ -119,3 +119,8 @@ Then all we need is
 ```
 
 which we can substitute into the above expressions to find ``\frac{\partial \, F}{\partial \, \sigma}``.
+## References
+```@bibliography
+Pages = ["fitting/hierarchical/linear_amr.md"]
+Canonical = false
+```
