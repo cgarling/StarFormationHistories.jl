@@ -172,13 +172,42 @@ function ∇loglikelihood(models::AbstractVector{T},
                         composite::AbstractMatrix{<:Number},
                         data::AbstractMatrix{<:Number}) where T <: AbstractMatrix{<:Number}
     @argcheck axes(composite) == axes(data)
-    return [ ∇loglikelihood(i, composite, data) for i in models ]
+    C = eltype(composite)
+    GT = promote_type(eltype(eltype(models)), C, eltype(data))
+    residual = Matrix{C}(undef, size(composite))
+    @turbo thread=false for idx in eachindex(composite, data)
+        @inbounds ci = max(composite[idx], eps(C))
+        @inbounds ni = data[idx]
+        @inbounds residual[idx] = one(C) - convert(C, ni/ci)
+    end
+    G = Vector{GT}(undef, length(models))
+    for k in eachindex(models, G)
+        @inbounds model = models[k]
+        result = zero(GT)
+        @turbo thread=false for idx in eachindex(model, residual)
+            @inbounds mi = model[idx]
+            @inbounds nici = residual[idx]
+            result += convert(GT, -mi * nici)
+        end
+        @inbounds G[k] = result
+    end
+    return G
 end
 function ∇loglikelihood(models::AbstractMatrix{<:Number},
                         composite::AbstractVector{<:Number},
                         data::AbstractVector{<:Number})
     @argcheck axes(composite,1) == axes(data,1) == axes(models,1)
-    return [ ∇loglikelihood(i, composite, data) for i in eachcol(models) ]
+    C = eltype(composite)
+    GT = promote_type(eltype(models), C, eltype(data))
+    residual = Vector{C}(undef, length(composite))
+    @turbo thread=false for idx in eachindex(composite, data)
+        @inbounds ci = max(composite[idx], eps(C))
+        @inbounds ni = data[idx]
+        @inbounds residual[idx] = one(C) - convert(C, ni/ci)
+    end
+    G = Vector{GT}(undef, size(models,2))
+    mul!(G, models', residual, -one(GT), zero(GT))
+    return G
 end
 """
     ∇loglikelihood(coeffs::AbstractVector{<:Number},
