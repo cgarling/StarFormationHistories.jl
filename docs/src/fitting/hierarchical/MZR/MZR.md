@@ -8,7 +8,7 @@ As we are simultaneously fitting both the historical star formation rates (SFRs)
 
 This is complicated by the fact that in general one-zone chemical models, both star-formation driven outflows (which deplete the ISM of both metals and HI) and pristine gas inflows (composed majorly of HI which dilutes the metallicity of the ISM) must be modelled. While hydrodynamic simulations can provide predictions of outflow rates (i.e., through mass-loading factors), the inflow rates are time-variable, depend on the local environment, and generally unconstrained observationally on an object-to-object basis. As such, general one-zone chemical models are unattractive for our purposes.
 
-A more attractive formulation can be found in the idea of an effective yield, which is the fraction of stellar mass that is composed of metals ``\gamma = M_{Z,*} / M_*``. As shown by [Torrey2019](@cite), who measured these yields in the Illustris TNG100 simulation, these yields are primarily a function of total galaxy stellar mass and not of redshift. Therefore, the rate of change of the yield with respect to stellar mass ``\frac{\partial \gamma}{\partial M_*}`` can be connected to the rate at which metals are accumulated in stars as galaxies grow.
+A more attractive formulation can be found in the idea of an effective yield, which is the fraction of stellar mass that is composed of metals ``\gamma = M_{Z,*} / M_*``. As shown by [Torrey2019](@citet), who measured these yields in the Illustris TNG100 simulation, these yields are primarily a function of total galaxy stellar mass and not of redshift. Therefore, the rate of change of the yield with respect to stellar mass ``\frac{\partial \gamma}{\partial M_*}`` can be connected to the rate at which metals are accumulated in stars as galaxies grow.
 
 Further, the existence of the gas-phase mass-metallicity relation (MZR) for star-forming galaxies gives us some empirical guidance for an implementation, as the AMR should be mostly connected to the gas-phase metallicity. While the MZR is mostly unconstrained for the low-mass galaxies that are typically studied in the Local Universe with resolved photometry (``M_* < 10^8 \; \text{M}_\odot``), the MZR is often extrapolated to low masses as a power law in stellar mass.
 
@@ -55,7 +55,7 @@ m_i = \sum_{j,k} \, r_{j,k} \; c_{i,j,k}
 
 where ``m_i`` is the value of the complex model in bin ``i``, ``c_{i,j,k}`` is the value of the SSP template with age ``j`` and metallicity ``k`` in bin ``i``, and ``r_{j,k}`` is the multiplicative coefficient determining how significant the template is to the complex population.
 
-The gradient of the objective with respect to the ``r_{j,k}`` is given by Equation 21 in [Dolphin2002](@cite) as shown in the [section on linear AMRs](@ref linear_amr_section),
+The gradient of the objective with respect to the ``r_{j,k}`` is given by Equation 21 in [Dolphin2002](@citet) as shown in the [section on linear AMRs](@ref linear_amr_section),
 
 ```math
 \begin{aligned}
