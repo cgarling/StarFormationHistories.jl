@@ -2,7 +2,7 @@
 
 ## Maximum Likelihood Optimization
 
-Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio (Dolphin 2002). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
+Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio [Dolphin2002](@cite). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
 
 ```@docs
 StarFormationHistories.construct_x0
@@ -14,7 +14,7 @@ When it comes to performing the optimization, the simplest method we offer is [`
 StarFormationHistories.fit_templates_lbfgsb
 ```
 
-This method simply minimizes the negative logarithm of the Poisson likelihood ratio (Equation 10 in Dolphin 2002),
+This method simply minimizes the negative logarithm of the Poisson likelihood ratio (Equation 10 in [Dolphin2002](@citet)),
 
 ```math
 - \text{ln} \, \mathscr{L} = \sum_i m_i - n_i \times \left( 1 - \text{ln} \, \left( \frac{n_i}{m_i} \right) \right)
@@ -38,7 +38,7 @@ StarFormationHistories.mcmc_sample
 
 ## Posterior Sampling: Change of Variables and HMC
 
-[Dolphin 2013](https://ui.adsabs.harvard.edu/abs/2013ApJ...775...76D/abstract) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of Dolphin 2002) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution when considering many isochrones in the modelling process. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
+[Dolphin2013](@citet) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of [Dolphin2002](@citet)) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution when considering many isochrones in the modelling process. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
 
 While maximum likelihood estimates are invariant under variable transformations, sampling methods like HMC are not, as formally the posterior being sampled from is a *distribution* and therefore must be integrable over the sampling coefficients. We can write the posterior from which we wish to sample as
 
@@ -132,7 +132,7 @@ X_j \sim \mathcal{N}; & \hat r_j > 0 \\
 
 where ``X_j`` are the samples of ``r_j`` obtained from the posterior and ``\hat r_j`` is the maximum likelihood estimate of ``r_j``. 
 
-This indicates we may be able to approximate the posterior in the region surrounding the maximum a posteriori (MAP) value by the inverse of the Hessian matrix (see, e.g., [Dovi et al. 1991](https://doi.org/10.1016/0893-9659(91)90129-J)), allowing us to estimate parameter uncertainties very cheaply. The inverse of the Hessian matrix is exactly equal to the variance-covariance matrix of the parameters for a Gaussian probability distribution; for other probability distributions, the inverse of the Hessian approximates the variance-covariance matrix of the parameters when the second-order expansion defined by the Hessian at the maximum is a reasonable approximation to the real objective function being optimized. A particularly simple form arises when the logarithm of the objective is quadratic in the fitting parameters, as in the Gaussian case, because the second derivatives of the objective are constant and do not depend on the fitting parameters or the MAP estimate.
+This indicates we may be able to approximate the posterior in the region surrounding the maximum a posteriori (MAP) value by the inverse of the Hessian matrix (see, e.g., [Dovi1991](@cite)), allowing us to estimate parameter uncertainties very cheaply. The inverse of the Hessian matrix is exactly equal to the variance-covariance matrix of the parameters for a Gaussian probability distribution; for other probability distributions, the inverse of the Hessian approximates the variance-covariance matrix of the parameters when the second-order expansion defined by the Hessian at the maximum is a reasonable approximation to the real objective function being optimized. A particularly simple form arises when the logarithm of the objective is quadratic in the fitting parameters, as in the Gaussian case, because the second derivatives of the objective are constant and do not depend on the fitting parameters or the MAP estimate.
 
 ## Maximum a Posteriori Optimization
 
@@ -149,4 +149,10 @@ Once you have obtained stellar mass coefficients from the above methods, you can
 
 ```@docs
 StarFormationHistories.calculate_cum_sfr
+```
+
+## References
+```@bibliography
+Pages = ["fitting/unconstrained.md"]
+Canonical = false
 ```

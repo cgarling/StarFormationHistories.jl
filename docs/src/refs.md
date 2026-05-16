@@ -1,0 +1,3 @@
+# [Bibliography](@id bibliography)
+```@bibliography
+```

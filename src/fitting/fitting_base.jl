@@ -5,7 +5,7 @@
                 coeffs::AbstractVector{<:Number},
                 models::AbstractVector{T}) where T <: AbstractMatrix{<:Number}
 
-Updates the `composite` matrix in place with the linear combination of `sum( coeffs .* models )`; this is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
+Updates the `composite` matrix in place with the linear combination of `sum( coeffs .* models )`; this is equation 1 in [Dolphin2002](@citet), ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
 
 # Examples
 ```julia
@@ -36,7 +36,7 @@ end
                coeffs::AbstractVector{<:Number},
                models::AbstractMatrix{<:Number})
 
-Updates the `composite` vector with the matrix-vector product of `models * coeffs`. This is equation 1 in Dolphin 2002, ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
+Updates the `composite` vector with the matrix-vector product of `models * coeffs`. This is equation 1 in [Dolphin2002](@citet), ``m_i = \\sum_j \\, r_j \\, c_{i,j}``.
 
 # Examples
 ```julia
@@ -67,7 +67,7 @@ end
 """
     loglikelihood(composite::AbstractArray{<:Number}, data::AbstractArray{<:Number})
 
-Returns the logarithm of the Poisson likelihood ratio given by equation 10 in Dolphin 2002,
+Returns the logarithm of the Poisson likelihood ratio given by equation 10 in [Dolphin2002](@citet),
 
 ```math
 \\text{ln} \\, \\mathscr{L} = \\sum_i -m_i + n_i \\times \\left( 1 - \\text{ln} \\, \\left( \\frac{n_i}{m_i} \\right) \\right)
@@ -129,7 +129,7 @@ end
                    composite::AbstractArray{<:Number},
                    data::AbstractArray{<:Number})
 
-Returns the partial derivative of the logarithm of the Poisson likelihood ratio ([`StarFormationHistories.loglikelihood`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in Dolphin 2002,
+Returns the partial derivative of the logarithm of the Poisson likelihood ratio ([`StarFormationHistories.loglikelihood`](@ref)) with respect to the coefficient ``r_j`` on the provided `model`. If the complex Hess diagram model is ``m_i = \\sum_j \\, r_j \\, c_{i,j}``, then `model` is ``c_{i,j}``, and this function computes the partial derivative of ``\\text{log} \\, \\mathscr{L}`` with respect to the coefficient ``r_j``. This is given by equation 21 in [Dolphin2002](@citet),
 
 ```math
 \\frac{\\partial \\, \\text{log} \\, \\mathscr{L}}{\\partial \\, r_j} = \\sum_i c_{i,j} \\left( \\frac{n_i}{m_i} - 1 \\right)

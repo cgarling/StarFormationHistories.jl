@@ -1,4 +1,5 @@
 using Documenter
+using DocumenterCitations: CitationBibliography
 import Changelog
 using StarFormationHistories
 
@@ -35,6 +36,8 @@ linkcheck_ignore = [
 
 ###########################################################
 
+bib = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style=:numeric)
+
 # The `format` below makes it so that urls are set to "pretty" if you are pushing them to a hosting service, and basic if you are just using them locally to make browsing easier.
 
 # We check link validity with `linkcheck=true`, but we don't want this to fail the build
@@ -50,7 +53,8 @@ makedocs(
     format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true",
                              size_threshold_warn = 409600, # v1.0.0 default: 102400 (bytes)
                              size_threshold = 819200,      # v1.0.0 default: 204800 (bytes)
-                             example_size_threshold=0),    # Write all @example to file
+                             example_size_threshold=0,     # Write all @example to file
+                             assets=String["assets/citations.css"]),
     authors = "Chris Garling",
     pages = ["index.md",
              "Deriving Star Formation Histories from Hess Diagrams" =>
@@ -72,11 +76,13 @@ makedocs(
              "binaries.md",
              "helpers.md",
              "release-notes.md",
+             "References" => "refs.md",
              "doc_index.md"],
     doctest = false,
     linkcheck = true,
     linkcheck_ignore = linkcheck_ignore,
-    warnonly = [:missing_docs, :linkcheck]
+    warnonly = [:missing_docs, :linkcheck],
+    plugins = [bib],
 )
 
 deploydocs(;

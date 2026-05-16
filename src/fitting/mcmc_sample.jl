@@ -57,7 +57,7 @@ end
                 data::AbstractVector{<:Number},
                 args...; kws...)
 
-Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of Dolphin 2002. Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee.moves.StretchMove](https://emcee.readthedocs.io/en/stable/). This method will automatically parallelize over threads. If you need distributed execution, you may want to look into [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl).
+Samples the posterior of the coefficients `coeffs` such that the full model of the observational `data` is `sum(models .* coeffs)`. Uses the Poisson likelihood ratio as defined by equations 7--10 of [Dolphin2002](@citet). Sampling is done using the affine-invariant MCMC sampler implemented in [KissMCMC.jl](https://github.com/mauro3/KissMCMC.jl), which is analogous to Python's [emcee.moves.StretchMove](https://emcee.readthedocs.io/en/stable/). This method will automatically parallelize over threads. If you need distributed execution, you may want to look into [AdvancedMH.jl](https://github.com/TuringLang/AdvancedMH.jl).
 
 The second call signature supports the flattened formats for `models` and `data`. See the notes for the flattened call signature of [`StarFormationHistories.composite!`](@ref) for more details.
 
