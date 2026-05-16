@@ -2,7 +2,7 @@
 
 ## Maximum Likelihood Optimization
 
-Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio ([Dolphin2002](@cite)). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
+Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio [Dolphin2002](@cite). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
 
 ```@docs
 StarFormationHistories.construct_x0
@@ -14,7 +14,7 @@ When it comes to performing the optimization, the simplest method we offer is [`
 StarFormationHistories.fit_templates_lbfgsb
 ```
 
-This method simply minimizes the negative logarithm of the Poisson likelihood ratio (Equation 10 in [Dolphin2002](@cite)),
+This method simply minimizes the negative logarithm of the Poisson likelihood ratio (Equation 10 in [Dolphin2002](@citet)),
 
 ```math
 - \text{ln} \, \mathscr{L} = \sum_i m_i - n_i \times \left( 1 - \text{ln} \, \left( \frac{n_i}{m_i} \right) \right)
@@ -38,7 +38,7 @@ StarFormationHistories.mcmc_sample
 
 ## Posterior Sampling: Change of Variables and HMC
 
-[Dolphin2013](@cite) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of [Dolphin2002](@cite)) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution when considering many isochrones in the modelling process. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
+[Dolphin2013](@citet) examined methods for obtaining uncertainties on the fitted coefficients (the ``r_j`` in Equation 1 of [Dolphin2002](@citet)) and found that the Hamiltonian Monte Carlo (HMC) approach allowed for relatively efficient sampling of the posterior distribution when considering many isochrones in the modelling process. HMC requires that the variables to be fit are continuous over the real numbers and so requires a change of variables. Rather than sampling the variables ``r_j`` directly, we can sample ``\theta_j = \text{ln} \left( r_j \right)`` such that the sampled variables are continuous over the real numbers ``-\infty < \theta_j < \infty`` while the ``r_j=\text{exp} \left( \theta_j \right)`` coefficients are bounded from ``0 < r_j < \infty``. Using a logarithmic transformation has the additional benefit that the gradient of the Poisson likelihood ratio is still continuous and easy to compute analytically.
 
 While maximum likelihood estimates are invariant under variable transformations, sampling methods like HMC are not, as formally the posterior being sampled from is a *distribution* and therefore must be integrable over the sampling coefficients. We can write the posterior from which we wish to sample as
 
