@@ -2,7 +2,7 @@
 
 ## Maximum Likelihood Optimization
 
-Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio [[Dolphin2002](@cite)]. It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
+Template construction is by far the most complicated step in the fitting procedure. Once your templates have been constructed, fitting them to an observed Hess diagram amounts to maximization of the Poisson likelihood ratio ([Dolphin2002](@cite)). It is possible to construct more complicated hierarchical models including things like metallicity distribution functions; we discuss these in the next section. In this section we discuss methods for fitting where the only constraint is that star formation rates cannot be negative. We provide the [`StarFormationHistories.construct_x0`](@ref) method to help with setting the initial guess for this optimization. 
 
 ```@docs
 StarFormationHistories.construct_x0
