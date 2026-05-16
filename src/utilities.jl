@@ -127,10 +127,10 @@ X_from_Z(Z, Y_p, γ) = 1 - (Y_from_Z(Z, Y_p, γ) + Z)
 Calculates [M/H] = log(Z/X) - log(Z/X)⊙. Given the provided solar metal mass fraction `solZ`, it calculates the hydrogen mass fraction X for both the Sun and the provided `Z` with [`StarFormationHistories.X_from_Z`](@ref). You may also provide the primordial helium abundance `Y_p` and `γ` such that `Y = Y_p + γ * Z`; these are passed through to `X_from_Z`. 
 
 # PARSEC Normalization
-For PARSEC tracks, [M/H]=0 will result in isochrones with Z=0.014711, instead of the Z=0.01524 expected for the present Sun ([Caffau et al. 2011](https://ui.adsabs.harvard.edu/abs/2011SoPh..268..255C/abstract)). This small offset is caused by the intrinsic difference between the helium content in the model for the present Sun, and the initial helium content for which the PARSEC evolutionary tracks are computed. That is:
+For PARSEC tracks, [M/H]=0 will result in isochrones with Z=0.014711, instead of the Z=0.01524 expected for the present Sun ([Caffau2011](@cite)). This small offset is caused by the intrinsic difference between the helium content in the model for the present Sun, and the initial helium content for which the PARSEC evolutionary tracks are computed. That is:
  - The model for the present Sun is forced to reproduce the observed ratio of Z⊙/X⊙=0.0207. This ratio defines the zero-point of the [M/H] scale, [M/H] = log(Z/X)-log(Z⊙/X⊙).
- - The same solar model has an initial surface composition of Zinitial=0.01774, Yinitial=0.28 (see Table 3 in Bressan et al. 2012). Together with the primordial helium content of Yp=0.2485, these numbers define the relation Y = Yp + 1.78Z, which was used to build the set of initial (Z, Y) values for which we compute the tracks.
- - Therefore, the Y(Z) relation used to compute the grids, is respected by the initial Sun, but not by the present Sun (which is affected by diffusion). This creates a 0.015 dex offset between the metallicity scale of the present Sun, and the initial metallicity scale of the computed grids of tracks. See Table 4 in Bressan et al. (2012) for a more complete list of [M/H] values that follow from this approximation.
+ - The same solar model has an initial surface composition of Zinitial=0.01774, Yinitial=0.28 (see Table 3 in [Bressan2012](@citet)). Together with the primordial helium content of Yp=0.2485, these numbers define the relation Y = Yp + 1.78Z, which was used to build the set of initial (Z, Y) values for which we compute the tracks.
+ - Therefore, the Y(Z) relation used to compute the grids, is respected by the initial Sun, but not by the present Sun (which is affected by diffusion). This creates a 0.015 dex offset between the metallicity scale of the present Sun, and the initial metallicity scale of the computed grids of tracks. See Table 4 in [Bressan2012](@citet) for a more complete list of [M/H] values that follow from this approximation.
 The above note was taken from the [CMD webform](https://stev.oapd.inaf.it/cgi-bin/cmd) FAQ, copyright Leo Girardi.
 
 This function is an approximation and may not be suitable for precision calculations.
@@ -194,7 +194,7 @@ end
 """
     η(m) = Martin2016_complete(m, A, m50, ρ)
 
-Completeness model of [Martin et al. 2016](https://ui.adsabs.harvard.edu/abs/2016ApJ...833..167M/abstract) implemented as their Equation 7:
+Completeness model of [Martin2016](@citet) implemented as their Equation 7:
 
 ```math
 \\eta(m) = \\frac{A}{1 + \\text{exp} \\left( \\frac{m - m_{50}}{\\rho} \\right)}
