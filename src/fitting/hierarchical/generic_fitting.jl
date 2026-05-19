@@ -309,41 +309,39 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     # Compute the Fisher information matrix at x0 to use as the initial inverse-Hessian
     # preconditioner for BFGS. This is computed in the optimization variable space (log-
     # transformed), so no additional transform corrections are needed.
-    if MH_model0 isa AbstractAMR
-        local invH0
-        let S = promote_type(eltype(models), eltype(data))
-            Nfree_extra = length(x0) - Nbins  # number of free MH+disp params in x0
-            # Reconstruct full untransformed variable vector (same layout as passed to fg!)
-            full_x = similar(x0, Nbins + nparams(MH_model0) + nparams(disp_model0))
-            for i in 1:Nbins
-                full_x[i] = exp(x0[i])
-            end
-            x0_extra = @view(x0[Nbins+1:end])
-            x_zdisp = exptransform(x0_extra, SVector(tf)[free])
-            full_x[(Nbins+1:lastindex(full_x))[free]] .= x_zdisp
-            init_par = SVector(fittable_params(MH_model0)..., fittable_params(disp_model0)...)
-            fixed = .~free
-            full_x[(Nbins+1:lastindex(full_x))[fixed]] .= init_par[fixed]
-            composite0 = similar(data, S)
-            H_fisher = Matrix{S}(undef, length(x0), length(x0))
-            fgh!(nothing, nothing, H_fisher, MH_model0, disp_model0, full_x,
-                models, data, composite0, logAge, metallicities)
-
-            # Levenberg-Tikhonov regularization parameter to ensure positive-definiteness
-            λ = 1e-3 * opnorm(H_fisher)
-            @inbounds for i in axes(H_fisher, 1)
-                H_fisher[i, i] += λ
-            end
-            invH0 = inv(H_fisher)
+    local invH0
+    let S = promote_type(eltype(models), eltype(data))
+        Nfree_extra = length(x0) - Nbins  # number of free MH+disp params in x0
+        # Reconstruct full untransformed variable vector (same layout as passed to fg!)
+        full_x = similar(x0, Nbins + nparams(MH_model0) + nparams(disp_model0))
+        for i in 1:Nbins
+            full_x[i] = exp(x0[i])
         end
+        x0_extra = @view(x0[Nbins+1:end])
+        x_zdisp = exptransform(x0_extra, SVector(tf)[free])
+        full_x[(Nbins+1:lastindex(full_x))[free]] .= x_zdisp
+        init_par = SVector(fittable_params(MH_model0)..., fittable_params(disp_model0)...)
+        fixed = .~free
+        full_x[(Nbins+1:lastindex(full_x))[fixed]] .= init_par[fixed]
+        composite0 = similar(data, S)
+        H_fisher = Matrix{S}(undef, length(x0), length(x0))
+        fgh!(nothing, nothing, H_fisher, MH_model0, disp_model0, full_x,
+            models, data, composite0, logAge, metallicities)
 
-        bfgs_struct = Optim.BFGS(alphaguess=LineSearches.InitialStatic(1.0, true),
-                                linesearch=LineSearches.HagerZhang(),
-                                initial_invH = _ -> invH0)
-    else
-        bfgs_struct = Optim.BFGS(alphaguess=LineSearches.InitialStatic(1.0, true),
-                                linesearch=LineSearches.HagerZhang())
+        # Levenberg-Tikhonov regularization parameter to ensure positive-definiteness
+        λ = 1e-3 * opnorm(H_fisher)
+        @inbounds for i in axes(H_fisher, 1)
+            H_fisher[i, i] += λ
+        end
+        invH0 = inv(H_fisher)
     end
+
+    bfgs_struct = Optim.BFGS(alphaguess=LineSearches.InitialStatic(1.0, true),
+                            linesearch=LineSearches.HagerZhang(),
+                            initial_invH = _ -> invH0)
+    # bfgs_struct = Optim.BFGS(alphaguess=LineSearches.InitialStatic(1.0, true),
+    #                         linesearch=LineSearches.HagerZhang())
+    
     # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)
