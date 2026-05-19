@@ -24,3 +24,4 @@ include("fixed_amr.jl")         # Fit under a fixed AMR -- deprecate?
 include("amr.jl")               # Age-metallicity relations
 include("mzr.jl")               # Mass-metallicity relations
 include("generic_fitting.jl")   # Fitting and sampling functions for both AMR and MZR
+include("generic_fitting_second_order.jl")  # Newton Trust-Region fitting with Fisher information Hessian

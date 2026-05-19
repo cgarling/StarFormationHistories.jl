@@ -172,11 +172,224 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
     end
 end
 
+"""
+    fgh!(F, G, H, MHmodel0::AbstractAMR, dispmodel0::AbstractDispersionModel,
+         variables, models, data, composite, logAge, metallicities)
+
+Evaluates the negative log-likelihood, its gradient, and an approximation to the Hessian
+for the Dolphin (2002) Poisson likelihood ratio under an AMR metallicity model. The
+Hessian approximation is the Fisher information matrix in the optimization variable space
+(log-transformed stellar mass coefficients and log- or identity-transformed AMR/dispersion
+parameters), which equals the exact Hessian in expectation and is positive semi-definite by
+construction.
+
+The Fisher information in the full optimization variable space is computed via the Jacobian
+``\\mathbf{J}`` of the composite model with respect to all optimization variables:
+```math
+I^{\\text{opt}}_{qq'} = \\sum_i \\frac{J_{iq} J_{iq'}}{m_i}
+```
+where ``J_{iq} = \\partial m_i / \\partial x_q``, with ``x_q`` the ``q``-th optimization
+variable (log-transformed). Column ``j`` (for ``x_j = \\log R_j``) contributes the partial
+composite ``J_{i,j} = R_j \\sum_k c_{i,jk}`` (the Jacobian absorbs the chain-rule factor
+``R_j`` from the log transform). Columns for the free AMR and dispersion parameters
+similarly include the chain-rule factor from their respective transforms. The matrix is
+assembled as ``\\mathbf{W}^\\top \\mathbf{W}`` where ``W_{iq} = J_{iq}/\\sqrt{m_i}``.
+
+This function computes `H` before calling [`∇loglikelihood!`](@ref) because the latter
+overwrites `composite` in place.
+"""
+function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel{U},
+              variables::AbstractVector{<:Number},
+              models::Union{AbstractMatrix{<:Number},
+                            AbstractVector{<:AbstractMatrix{<:Number}}},
+              data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+              composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
+              logAge::AbstractVector{<:Number},
+              metallicities::AbstractVector{<:Number}) where {T, U}
+
+    @argcheck axes(data) == axes(composite)
+    S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
+                     eltype(composite), eltype(logAge), eltype(metallicities), T, U)
+    Zpar   = nparams(MHmodel0)
+    disppar = nparams(dispmodel0)
+
+    MHmodel  = update_params(MHmodel0,  @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
+    Zfree    = BitVector(free_params(MHmodel))
+    dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
+    dispfree  = BitVector(free_params(dispmodel))
+    coeffs   = calculate_coeffs(MHmodel, dispmodel,
+                                @view(variables[begin:end-(Zpar+disppar)]),
+                                logAge, metallicities)
+
+    composite!(composite, coeffs, models)
+    logL = loglikelihood(composite, data)
+
+    # Compute Fisher information (Hessian approximation) in optimization variable space.
+    # Must happen BEFORE ∇loglikelihood! overwrites composite.
+    if !isnothing(H)
+        # flat composite / models are required for this path
+        flat_composite = vec(composite)
+        flat_models    = models isa AbstractMatrix ? models : stack_models(models)
+
+        unique_logAge = unique(logAge)
+        Nbins    = length(unique_logAge)
+        # Count of free MH and dispersion parameters entering the optimization
+        n_free_Z    = count(Zfree)
+        n_free_disp = count(dispfree)
+        n_opt = Nbins + n_free_Z + n_free_disp  # total number of optimization variables
+
+        npix = length(flat_composite)
+        W = Matrix{S}(undef, npix, n_opt)
+
+        # Precompute 1/sqrt(m_i) weights
+        inv_sqrt_m = similar(flat_composite, S)
+        @turbo thread=false for i in eachindex(flat_composite)
+            @inbounds inv_sqrt_m[i] = one(S) / sqrt(max(flat_composite[i], eps(S)))
+        end
+
+        # Columns for log R_j: J[:,j] = partial composite for time bin j × R_j
+        # (the R_j factor comes from d(m_i)/d(log R_j) = R_j * dc_{i}/dR_j = R_j * Σ_k c_{i,jk})
+        for j in eachindex(unique_logAge)
+            la   = unique_logAge[j]
+            idxs = findall(==(la), logAge)
+            Rj   = variables[j]
+            # partial composite = Rj * models[:,idxs] * (coeffs[idxs]/Rj) = models[:,idxs]*coeffs[idxs]
+            # but we want d(m_i)/d(log R_j) = Rj * d(m_i)/dR_j = models[:,idxs]*coeffs[idxs]
+            col_j = @view(W[:, j])
+            fill!(col_j, zero(S))
+            for k in idxs
+                ck = coeffs[k]
+                @turbo thread=false for i in axes(flat_models, 1)
+                    @inbounds col_j[i] = muladd(flat_models[i, k], ck, col_j[i])
+                end
+            end
+            # Scale by inv_sqrt_m
+            @turbo thread=false for i in eachindex(col_j)
+                @inbounds col_j[i] *= inv_sqrt_m[i]
+            end
+        end
+
+        # Columns for free AMR and dispersion parameters
+        # We iterate over unique logAge bins to compute contributions
+        free_Z_col    = 0  # counter for which free Z param column we are filling
+        free_disp_col = 0  # counter for which free disp param column we are filling
+
+        # Zero-out the free-parameter columns first
+        for q in Nbins+1:n_opt
+            fill!(@view(W[:, q]), zero(S))
+        end
+
+        for j in eachindex(unique_logAge)
+            la   = unique_logAge[j]
+            μ    = MHmodel(la)
+            idxs = findall(==(la), logAge)
+            tmp_mh     = metallicities[idxs]
+            tmp_coeffs = dispmodel.(tmp_mh, μ)
+            A          = sum(tmp_coeffs)
+            Rj         = variables[j]
+
+            gradμ    = values(gradient(MHmodel, la))
+            grad_disp = tups_to_mat(values.(gradient.(dispmodel, tmp_mh, μ)))
+            dAjk_dμj  = grad_disp[end, :]
+            ksum_dμ   = sum(dAjk_dμj)
+
+            # AMR free parameters: d(m_i)/d(θ_p) = Rj * Σ_k c_{i,jk} * d(r_{jk}/Rj)/d(θ_p) * chain_rule
+            # r_{jk}/Rj = tmp_coeffs[k]/A
+            # d(r_{jk}/Rj)/d(μ_j) = (dAjk_dμj[k] - tmp_coeffs[k]/A * ksum_dμ) / A
+            # The optimization variable x_{Nbins+p} = log(θ_p) for transforms==1 → chain-rule factor θ_p
+            # so d(m_i)/d(x_{Nbins+p}) = θ_p * d(m_i)/d(θ_p)
+            tf_Z    = transforms(MHmodel0)
+            tf_disp = transforms(dispmodel0)
+
+            free_count_Z = 0
+            for par in 1:Zpar
+                if Zfree[par]
+                    free_count_Z += 1
+                    col_q = @view(W[:, Nbins + free_count_Z])
+                    chain = tf_Z[par] == 1 ? variables[end-(Zpar+disppar)+par] : one(S)
+                    dμ_dθ = gradμ[par]
+                    for k in eachindex(idxs)
+                        weight_k = Rj * chain * dμ_dθ *
+                                   (dAjk_dμj[k] - tmp_coeffs[k] / A * ksum_dμ) / A
+                        flat_k   = idxs[k]
+                        @turbo thread=false for i in axes(flat_models, 1)
+                            @inbounds col_q[i] = muladd(flat_models[i, flat_k], weight_k, col_q[i])
+                        end
+                    end
+                end
+            end
+
+            free_count_disp = 0
+            for par in 1:disppar
+                if dispfree[par]
+                    free_count_disp += 1
+                    col_q = @view(W[:, Nbins + n_free_Z + free_count_disp])
+                    chain   = tf_disp[par] == 1 ? variables[end-(disppar)+par] : one(S)
+                    dAjk_dP = grad_disp[par, :]
+                    ksum_dP = sum(dAjk_dP)
+                    for k in eachindex(idxs)
+                        weight_k = Rj * chain *
+                                   (dAjk_dP[k] - tmp_coeffs[k] / A * ksum_dP) / A
+                        flat_k   = idxs[k]
+                        @turbo thread=false for i in axes(flat_models, 1)
+                            @inbounds col_q[i] = muladd(flat_models[i, flat_k], weight_k, col_q[i])
+                        end
+                    end
+                end
+            end
+        end
+
+        # Scale free-parameter columns by inv_sqrt_m
+        for q in Nbins+1:n_opt
+            col_q = @view(W[:, q])
+            @turbo thread=false for i in eachindex(col_q)
+                @inbounds col_q[i] *= inv_sqrt_m[i]
+            end
+        end
+
+        # H = W' * W  (Fisher information in optimization variable space)
+        mul!(H, W', W)
+    end
+
+    if !isnothing(G) # Optim.optimize wants gradient -- update G in place
+        Base.require_one_based_indexing(G)
+        @argcheck axes(G) == axes(variables)
+        unique_logAge = unique(logAge)
+        fullG = Vector{eltype(G)}(undef, length(coeffs))
+        ∇loglikelihood!(fullG, composite, models, data)
+        G .= zero(eltype(G))
+        for i in eachindex(unique_logAge)
+            la = unique_logAge[i]
+            μ = MHmodel(la)
+            idxs = findall(==(la), logAge)
+            tmp_mh = metallicities[idxs]
+            tmp_coeffs = dispmodel.(tmp_mh, μ)
+            A = sum(tmp_coeffs)
+            G[i] = -sum(fullG[j] * coeffs[j] / variables[i] for j in idxs)
+            gradμ = values(gradient(MHmodel, la))
+            grad_disp = tups_to_mat(values.(gradient.(dispmodel, tmp_mh, μ)))
+            dAjk_dμj = grad_disp[end,:]
+            ksum_dAjk_dμj = sum(dAjk_dμj)
+            psum = -sum(fullG[idxs[j]] * variables[i] / A *
+                (dAjk_dμj[j] - tmp_coeffs[j] / A * ksum_dAjk_dμj) for j in eachindex(idxs))
+            for par in (1:Zpar)[Zfree]
+                G[end-(Zpar+disppar-par)] += psum * gradμ[par]
+            end
+            for par in (1:disppar)[dispfree]
+                dAjk_dP = grad_disp[par,:]
+                ksum_dAjk_dP = sum(dAjk_dP)
+                G[end-(disppar-par)] -= sum(fullG[idxs[j]] * variables[i] / A *
+                    (dAjk_dP[j] - tmp_coeffs[j] / A * ksum_dAjk_dP) for j in eachindex(idxs))
+            end
+        end
+    end
+    if !isnothing(F)
+        return -logL
+    end
+end
+
 ###################
 # Concrete subtypes
-
-############
-# Linear AMR
 
 struct LinearAMR{T <: Real} <: AbstractAMR{T}
     α::T     # Slope

@@ -87,6 +87,16 @@ Main function that differs between AMR and MZR models that accounts for the diff
 """
 function fg! end
 
+"""
+    fgh!(F, G, H, MHmodel0::AbstractMetallicityModel, dispmodel0::AbstractDispersionModel,
+         variables, models, data, composite, logAge, metallicities)
+
+Evaluates the negative log-likelihood, gradient, and Fisher information Hessian
+approximation in the optimization variable space. Dispatches to a concrete implementation
+based on the metallicity model type.
+"""
+function fgh! end
+
 function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimizer, xvec)
     # Unpack struct
     MH_model0 = problem.MH_model0
@@ -296,8 +306,34 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     # Set up options for the optimization
     # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
     # makes it less sensitive to initial x0.
-    bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0, true),
-                             linesearch=LineSearches.HagerZhang())
+    # Compute the Fisher information matrix at x0 to use as the initial inverse-Hessian
+    # preconditioner for BFGS. This is computed in the optimization variable space (log-
+    # transformed), so no additional transform corrections are needed.
+    local invH0
+    let S = promote_type(eltype(models), eltype(data))
+        Nfree_extra = length(x0) - Nbins  # number of free MH+disp params in x0
+        # Reconstruct full untransformed variable vector (same layout as passed to fg!)
+        full_x = similar(x0, Nbins + nparams(MH_model0) + nparams(disp_model0))
+        for i in 1:Nbins
+            full_x[i] = exp(x0[i])
+        end
+        x0_extra = @view(x0[Nbins+1:end])
+        x_zdisp = exptransform(x0_extra, SVector(tf)[free])
+        full_x[(Nbins+1:lastindex(full_x))[free]] .= x_zdisp
+        init_par = SVector(fittable_params(MH_model0)..., fittable_params(disp_model0)...)
+        fixed = .~free
+        full_x[(Nbins+1:lastindex(full_x))[fixed]] .= init_par[fixed]
+        composite0 = similar(data, S)
+        H_fisher = Matrix{S}(undef, length(x0), length(x0))
+        fgh!(nothing, nothing, H_fisher, MH_model0, disp_model0, full_x,
+             models, data, composite0, logAge, metallicities)
+        invH0 = Matrix(inv(Symmetric(H_fisher)))
+    end
+    # bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0, true),
+    #                          linesearch=LineSearches.HagerZhang(),
+    #                          initial_invH = _ -> invH0)
+    bfgs_struct = Optim.BFGS(linesearch=LineSearches.BackTracking(order=2),
+                             initial_invH = _ -> invH0)
     # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
     # covariance matrix, which we can use to make parameter uncertainty estimates
     bfgs_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)

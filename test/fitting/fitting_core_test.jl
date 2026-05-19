@@ -1,5 +1,6 @@
 import StarFormationHistories as SFH
 using Test
+using LinearAlgebra: eigvals, Symmetric
 
 const float_types = (Float32, Float64) # Float types to test most functions with
 const float_type_labels = ("Float32", "Float64") # String labels for the above float_types
@@ -240,6 +241,45 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test result[2] ≈ T[1, 2//3]
                 @test result[3] ≈ T[1//30, 2//300]
                 @test result[4] ≈ T[-4//3, -4//3]
+            end
+        end
+    end
+    @testset "fisher_information" begin
+        for i in eachindex(float_types, float_type_labels)
+            label = float_type_labels[i]
+            @testset "$label" begin
+                T = float_types[i]
+                # Three orthogonal templates: each has support in one pixel row only.
+                # models[:,1] = [1,0,0,...], models[:,2] = [0,1,0,...], models[:,3] = [0,0,1,...]
+                # For composite = [1.5, 3, 3, 0, ...], I_{jk} = sum_i c_{i,j}*c_{i,k}/m_i
+                # I_{11} = 1/1.5, I_{22} = 1/3, I_{33} = 1/3, off-diagonal = 0
+                models = T[1 0 0; 0 1 0; 0 0 1]  # 3 pixels x 3 templates
+                composite = T[1.5, 3.0, 3.0]
+                I_fish = SFH.fisher_information(models, composite)
+                @test I_fish isa Symmetric
+                @test eltype(I_fish) == T
+                @test size(I_fish) == (3, 3)
+                @test I_fish[1,1] ≈ 1/T(1.5) rtol=rtols[i]
+                @test I_fish[2,2] ≈ 1/T(3.0) rtol=rtols[i]
+                @test I_fish[3,3] ≈ 1/T(3.0) rtol=rtols[i]
+                @test I_fish[1,2] ≈ 0 atol=sqrt(eps(T))
+                @test I_fish[1,3] ≈ 0 atol=sqrt(eps(T))
+                @test I_fish[2,3] ≈ 0 atol=sqrt(eps(T))
+
+                # Verify positive semi-definiteness: all eigenvalues ≥ 0
+                @test all(≥(-sqrt(eps(T))), eigvals(Matrix(I_fish)))
+
+                # Verify the computed values match the explicit formula I_{jk} = Σ_i c_{ij}c_{ik}/m_i
+                n_pix = 20
+                n_mod = 4
+                # Use deterministic values to ensure test reproducibility
+                rng_models_T = T[abs(sin(i + j)) for i in 1:n_pix, j in 1:n_mod]
+                coeffs0 = T[1.0, 0.5, 2.0, 0.3]
+                comp0 = rng_models_T * coeffs0
+                I_exact = SFH.fisher_information(rng_models_T, comp0)
+                I_manual = [sum(rng_models_T[i,j] * rng_models_T[i,k] / comp0[i]
+                                for i in 1:n_pix) for j in 1:n_mod, k in 1:n_mod]
+                @test Matrix(I_exact) ≈ I_manual rtol=rtols[i]
             end
         end
     end
