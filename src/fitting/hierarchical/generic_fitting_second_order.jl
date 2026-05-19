@@ -41,6 +41,7 @@ function fit_sfh_newton(MH_model0::AbstractMetallicityModel{T}, disp_model0::Abs
                         allow_f_increases::Bool = true,
                         store_trace::Bool = true,
                         extended_trace::Bool = true,
+                        g_abstol::Real = 1e-5,
                         kws...) where {T, U, S <: Number}
 
     unique_logAge = unique(logAge)
@@ -79,7 +80,7 @@ function fit_sfh_newton(MH_model0::AbstractMetallicityModel{T}, disp_model0::Abs
     x0_mzrdisp = logtransform(par, tf)
     x0 = vcat(x0, x0_mzrdisp[free])
 
-    newton_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)
+    newton_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, g_abstol, kws...)
 
     # Helper: reconstruct full (free+fixed, untransformed) variable vector from x (log-space)
     function _expand_x(x)
@@ -95,16 +96,16 @@ function fit_sfh_newton(MH_model0::AbstractMetallicityModel{T}, disp_model0::Abs
         return full_x
     end
 
-    ptf      = findall(==(1), tf)
-    ptf      = ptf[free[ptf]]
-    ptf_idx  = ptf .+ Nbins
-    ntf      = findall(==(-1), tf)
-    ntf      = ntf[free[ntf]]
+    ptf = findall(==(1), tf)
+    ptf = ptf[free[ptf]]
+    ptf_idx = ptf .+ Nbins
+    ntf = findall(==(-1), tf)
+    ntf = ntf[free[ntf]]
 
     function fgh_map!(F, G, H_out, X)
         SS = promote_type(eltype(models), eltype(data))
         composite = similar(data, SS)
-        full_x    = _expand_x(X)
+        full_x = _expand_x(X)
         G2 = isnothing(G) ? nothing : similar(full_x)
         nlogL = fgh!(F, G2, H_out, MH_model0, disp_model0, full_x, models, data,
                      composite, logAge, metallicities)
@@ -139,7 +140,7 @@ function fit_sfh_newton(MH_model0::AbstractMetallicityModel{T}, disp_model0::Abs
     function fgh_mle!(F, G, H_out, X)
         SS = promote_type(eltype(models), eltype(data))
         composite = similar(data, SS)
-        full_x    = _expand_x(X)
+        full_x = _expand_x(X)
         G2 = isnothing(G) ? nothing : similar(full_x)
         nlogL = fgh!(F, G2, H_out, MH_model0, disp_model0, full_x, models, data,
                      composite, logAge, metallicities)
