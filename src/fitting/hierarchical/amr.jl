@@ -210,16 +210,16 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
     @argcheck axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
                      eltype(composite), eltype(logAge), eltype(metallicities), T, U)
-    Zpar   = nparams(MHmodel0)
+    Zpar = nparams(MHmodel0)
     disppar = nparams(dispmodel0)
 
-    MHmodel  = update_params(MHmodel0,  @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
-    Zfree    = BitVector(free_params(MHmodel))
+    MHmodel = update_params(MHmodel0,  @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
+    Zfree = BitVector(free_params(MHmodel))
     dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
-    dispfree  = BitVector(free_params(dispmodel))
-    coeffs   = calculate_coeffs(MHmodel, dispmodel,
-                                @view(variables[begin:end-(Zpar+disppar)]),
-                                logAge, metallicities)
+    dispfree = BitVector(free_params(dispmodel))
+    coeffs = calculate_coeffs(MHmodel, dispmodel,
+                              @view(variables[begin:end-(Zpar+disppar)]),
+                              logAge, metallicities)
 
     composite!(composite, coeffs, models)
     logL = loglikelihood(composite, data)
@@ -229,23 +229,16 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
     if !isnothing(H)
         # flat composite / models are required for this path
         flat_composite = vec(composite)
-        flat_models    = models isa AbstractMatrix ? models : stack_models(models)
+        flat_models = models isa AbstractMatrix ? models : stack_models(models)
 
         unique_logAge = unique(logAge)
-        Nbins    = length(unique_logAge)
+        Nbins = length(unique_logAge)
         # Count of free MH and dispersion parameters entering the optimization
-        n_free_Z    = count(Zfree)
+        n_free_Z = count(Zfree)
         n_free_disp = count(dispfree)
         n_opt = Nbins + n_free_Z + n_free_disp  # total number of optimization variables
 
-        npix = length(flat_composite)
-        W = Matrix{S}(undef, npix, n_opt)
-
-        # Precompute 1/sqrt(m_i) weights
-        inv_sqrt_m = similar(flat_composite, S)
-        @turbo thread=false for i in eachindex(flat_composite)
-            @inbounds inv_sqrt_m[i] = one(S) / sqrt(max(flat_composite[i], eps(S)))
-        end
+        W = Matrix{S}(undef, length(flat_composite), n_opt)
 
         # Columns for log R_j: J[:,j] = partial composite for time bin j × R_j
         # (the R_j factor comes from d(m_i)/d(log R_j) = R_j * dc_{i}/dR_j = R_j * Σ_k c_{i,jk})
@@ -259,19 +252,16 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
             fill!(col_j, zero(S))
             for k in idxs
                 ck = coeffs[k]
-                @turbo thread=false for i in axes(flat_models, 1)
+                # Keep loop simple so that @turbo can fuse and optimize it
+                @turbo for i in axes(flat_models, 1)
                     @inbounds col_j[i] = muladd(flat_models[i, k], ck, col_j[i])
                 end
-            end
-            # Scale by inv_sqrt_m
-            @turbo thread=false for i in eachindex(col_j)
-                @inbounds col_j[i] *= inv_sqrt_m[i]
             end
         end
 
         # Columns for free AMR and dispersion parameters
         # We iterate over unique logAge bins to compute contributions
-        free_Z_col    = 0  # counter for which free Z param column we are filling
+        free_Z_col = 0  # counter for which free Z param column we are filling
         free_disp_col = 0  # counter for which free disp param column we are filling
 
         # Zero-out the free-parameter columns first
@@ -280,25 +270,25 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
         end
 
         for j in eachindex(unique_logAge)
-            la   = unique_logAge[j]
-            μ    = MHmodel(la)
+            la = unique_logAge[j]
+            μ = MHmodel(la)
             idxs = findall(==(la), logAge)
-            tmp_mh     = metallicities[idxs]
+            tmp_mh = metallicities[idxs]
             tmp_coeffs = dispmodel.(tmp_mh, μ)
-            A          = sum(tmp_coeffs)
-            Rj         = variables[j]
+            A = sum(tmp_coeffs)
+            Rj = variables[j]
 
-            gradμ    = values(gradient(MHmodel, la))
+            gradμ = values(gradient(MHmodel, la))
             grad_disp = tups_to_mat(values.(gradient.(dispmodel, tmp_mh, μ)))
-            dAjk_dμj  = grad_disp[end, :]
-            ksum_dμ   = sum(dAjk_dμj)
+            dAjk_dμj = grad_disp[end, :]
+            ksum_dμ = sum(dAjk_dμj)
 
             # AMR free parameters: d(m_i)/d(θ_p) = Rj * Σ_k c_{i,jk} * d(r_{jk}/Rj)/d(θ_p) * chain_rule
             # r_{jk}/Rj = tmp_coeffs[k]/A
             # d(r_{jk}/Rj)/d(μ_j) = (dAjk_dμj[k] - tmp_coeffs[k]/A * ksum_dμ) / A
             # The optimization variable x_{Nbins+p} = log(θ_p) for transforms==1 → chain-rule factor θ_p
             # so d(m_i)/d(x_{Nbins+p}) = θ_p * d(m_i)/d(θ_p)
-            tf_Z    = transforms(MHmodel0)
+            tf_Z = transforms(MHmodel0)
             tf_disp = transforms(dispmodel0)
 
             free_count_Z = 0
@@ -311,8 +301,8 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
                     for k in eachindex(idxs)
                         weight_k = Rj * chain * dμ_dθ *
                                    (dAjk_dμj[k] - tmp_coeffs[k] / A * ksum_dμ) / A
-                        flat_k   = idxs[k]
-                        @turbo thread=false for i in axes(flat_models, 1)
+                        flat_k = idxs[k]
+                        @turbo for i in axes(flat_models, 1)
                             @inbounds col_q[i] = muladd(flat_models[i, flat_k], weight_k, col_q[i])
                         end
                     end
@@ -324,14 +314,14 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
                 if dispfree[par]
                     free_count_disp += 1
                     col_q = @view(W[:, Nbins + n_free_Z + free_count_disp])
-                    chain   = tf_disp[par] == 1 ? variables[end-(disppar)+par] : one(S)
+                    chain = tf_disp[par] == 1 ? variables[end-(disppar)+par] : one(S)
                     dAjk_dP = grad_disp[par, :]
                     ksum_dP = sum(dAjk_dP)
                     for k in eachindex(idxs)
                         weight_k = Rj * chain *
                                    (dAjk_dP[k] - tmp_coeffs[k] / A * ksum_dP) / A
-                        flat_k   = idxs[k]
-                        @turbo thread=false for i in axes(flat_models, 1)
+                        flat_k = idxs[k]
+                        @turbo for i in axes(flat_models, 1)
                             @inbounds col_q[i] = muladd(flat_models[i, flat_k], weight_k, col_q[i])
                         end
                     end
@@ -339,16 +329,31 @@ function fgh!(F, G, H, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionM
             end
         end
 
-        # Scale free-parameter columns by inv_sqrt_m
-        for q in Nbins+1:n_opt
-            col_q = @view(W[:, q])
-            @turbo thread=false for i in eachindex(col_q)
-                @inbounds col_q[i] *= inv_sqrt_m[i]
+        # Scale by inv_sqrt_m
+        @turbo for i in eachindex(flat_composite)
+            inv_sqrt_m_i = one(S) / sqrt(max(flat_composite[i], eps(S)))
+            for q in 1:n_opt
+                W[i, q] *= inv_sqrt_m_i
             end
         end
 
         # H = W' * W  (Fisher information in optimization variable space)
         mul!(H, W', W)
+
+        # Levenberg-Tikhonov regularization to ensure positive-definiteness
+        # λ = 1e-6 * opnorm(H)
+        # @inbounds for i in axes(H, 1)
+        #     H[i, i] += λ
+        # end
+
+        # Only regularize if the minimum eigenvalue is very small compared to the operator norm, which indicates near-singularity
+        # if eigmin(H) < 1e-8 * opnorm(H)
+        #     λ = 1e-3 * maximum(diag(H))
+        #     @inbounds for i in axes(H, 1)
+        #         H[i,i] += λ
+        #     end
+        # end
+
     end
 
     if !isnothing(G) # Optim.optimize wants gradient -- update G in place
