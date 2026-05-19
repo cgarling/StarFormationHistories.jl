@@ -64,13 +64,6 @@ SUITE["core"]["∇loglikelihood!_vector_models_Float64"] = @benchmarkable SFH.�
 SUITE["core"]["∇loglikelihood!_flat_models_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float32, n_models); C = rand(Float32, prod(hist_size)); B = rand(Float32, prod(hist_size), n_models); D = rand(Float32, prod(hist_size)))
 SUITE["core"]["∇loglikelihood!_flat_models_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float64, n_models); C = rand(Float64, prod(hist_size)); B = rand(Float64, prod(hist_size), n_models); D = rand(Float64, prod(hist_size)))
 
-# fisher_information call signatures
-SUITE["core"]["fisher_information_flat_models_Float32"] = @benchmarkable SFH.fisher_information(B, C) setup=(B = rand(Float32, prod(hist_size), n_models); C = rand(Float32, prod(hist_size)))
-SUITE["core"]["fisher_information_flat_models_Float64"] = @benchmarkable SFH.fisher_information(B, C) setup=(B = rand(Float64, prod(hist_size), n_models); C = rand(Float64, prod(hist_size)))
-SUITE["core"]["fisher_information_flat_models!_Float32"] = @benchmarkable SFH.fisher_information!(I_mat, W, B, C) setup=(I_mat = zeros(Float32, n_models, n_models); W = zeros(Float32, prod(hist_size), n_models); B = rand(Float32, prod(hist_size), n_models); C = rand(Float32, prod(hist_size)))
-SUITE["core"]["fisher_information_flat_models!_Float64"] = @benchmarkable SFH.fisher_information!(I_mat, W, B, C) setup=(I_mat = zeros(Float64, n_models, n_models); W = zeros(Float64, prod(hist_size), n_models); B = rand(Float64, prod(hist_size), n_models); C = rand(Float64, prod(hist_size)))
-
-
 
 
 # If not on CI, we'll show a nice table
