@@ -1,6 +1,5 @@
 import StarFormationHistories as SFH
 using Test
-using LinearAlgebra: eigvals, Symmetric
 
 const float_types = (Float32, Float64) # Float types to test most functions with
 const float_type_labels = ("Float32", "Float64") # String labels for the above float_types
