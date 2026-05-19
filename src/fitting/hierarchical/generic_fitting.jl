@@ -304,7 +304,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     x0 = vcat(x0, x0_mzrdisp[free])
 
     # Set up options for the optimization
-    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
+    # The InitialStatic(1.0, true) alphaguess helps to regularize the optimization and 
     # makes it less sensitive to initial x0.
     # Compute the Fisher information matrix at x0 to use as the initial inverse-Hessian
     # preconditioner for BFGS. This is computed in the optimization variable space (log-
@@ -327,12 +327,17 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         H_fisher = Matrix{S}(undef, length(x0), length(x0))
         fgh!(nothing, nothing, H_fisher, MH_model0, disp_model0, full_x,
              models, data, composite0, logAge, metallicities)
-        invH0 = Matrix(inv(Symmetric(H_fisher)))
+
+        # Levenberg-Tikhonov regularization parameter to ensure positive-definiteness
+        λ = 1e-3 * opnorm(H_fisher)
+        @inbounds for i in axes(H_fisher, 1)
+            H_fisher[i, i] += λ
+        end
+        invH0 = inv(H_fisher)
     end
-    # bfgs_struct = Optim.BFGS(; alphaguess=LineSearches.InitialStatic(1.0, true),
-    #                          linesearch=LineSearches.HagerZhang(),
-    #                          initial_invH = _ -> invH0)
-    bfgs_struct = Optim.BFGS(linesearch=LineSearches.BackTracking(order=2),
+
+    bfgs_struct = Optim.BFGS(alphaguess=LineSearches.InitialStatic(1.0, true),
+                             linesearch=LineSearches.HagerZhang(),
                              initial_invH = _ -> invH0)
     # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
     # covariance matrix, which we can use to make parameter uncertainty estimates
