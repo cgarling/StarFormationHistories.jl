@@ -3,6 +3,9 @@ uuid = "774d3ad4-2d55-48fa-ab42-467705ebff24"
 version = "1.2.1"
 authors = ["cgarling <chris.t.garling@gmail.com>"]
 
+[workspace]
+projects = ["test", "docs", "benchmark"]
+
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"

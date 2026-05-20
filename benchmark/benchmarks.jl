@@ -1,8 +1,29 @@
 import StarFormationHistories as SFH
 using BenchmarkTools
+using PrettyTables: pretty_table
 using LinearAlgebra: BLAS
-
 BLAS.set_num_threads(1)
+
+function show_benchmarks(results)
+    # Collect results
+    sorted  = sort(collect(results), by=first)
+    names   = [k for (k,_) in sorted]
+    trials  = [v for (_,v) in sorted]
+
+    # Pack into matrix
+    data = hcat(
+        names,
+        [BenchmarkTools.prettytime(median(t).time) for t in trials],
+        [BenchmarkTools.prettymemory(median(t).memory) for t in trials],
+        [median(t).allocs for t in trials]
+    )
+
+    # Make pretty table
+    pretty_table(data;
+        column_labels = ["Benchmark", "Median Time", "Memory", "Allocs"],
+        alignment     = [:l, :r, :r, :r]
+    )
+end
 
 const SUITE = BenchmarkGroup()
 SUITE["core"] = BenchmarkGroup()
@@ -42,3 +63,12 @@ SUITE["core"]["∇loglikelihood!_vector_models_Float32"] = @benchmarkable SFH.�
 SUITE["core"]["∇loglikelihood!_vector_models_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float64, n_models); C = rand(Float64, hist_size); B = [rand(Float64, hist_size) for _ in 1:n_models]; D = rand(Float64, hist_size))
 SUITE["core"]["∇loglikelihood!_flat_models_Float32"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float32, n_models); C = rand(Float32, prod(hist_size)); B = rand(Float32, prod(hist_size), n_models); D = rand(Float32, prod(hist_size)))
 SUITE["core"]["∇loglikelihood!_flat_models_Float64"] = @benchmarkable SFH.∇loglikelihood!(G, C, B, D) setup=(G = zeros(Float64, n_models); C = rand(Float64, prod(hist_size)); B = rand(Float64, prod(hist_size), n_models); D = rand(Float64, prod(hist_size)))
+
+
+# If not on CI, we'll show a nice table
+if get(ENV, "CI", "false") == "false"
+    # Run the benchmarks
+    results = run(SUITE, verbose=true)
+    println("⎯⎯⎯ Core Suite ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯")
+    show_benchmarks(results["core"])
+end
