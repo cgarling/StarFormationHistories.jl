@@ -304,7 +304,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     x0 = vcat(x0, x0_mzrdisp[free])
 
     # Set up options for the optimization
-    # The InitialStatic(1.0, true) alphaguess helps to regularize the optimization and 
+    # The InitialStatic(1.0,true) alphaguess helps to regularize the optimization and 
     # makes it less sensitive to initial x0.
     # Compute the Fisher information matrix at x0 to use as the initial inverse-Hessian
     # preconditioner for BFGS. This is computed in the optimization variable space (log-
