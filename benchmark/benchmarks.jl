@@ -1,6 +1,7 @@
 import StarFormationHistories as SFH
 using BenchmarkTools
 using LinearAlgebra: BLAS
+
 BLAS.set_num_threads(1)
 
 const SUITE = BenchmarkGroup()
