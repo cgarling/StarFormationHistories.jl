@@ -396,6 +396,9 @@ end
 ###################
 # Concrete subtypes
 
+############
+# Linear AMR
+
 struct LinearAMR{T <: Real} <: AbstractAMR{T}
     α::T     # Slope
     β::T     # Normalization / intercept
