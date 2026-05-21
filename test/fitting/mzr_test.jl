@@ -180,7 +180,7 @@ end
         x0 = Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5)
         result = SFH.warm_start(SFH.update_params(MHmodel, (MHmodel.α + 0.5, MHmodel.MH0 + 1.0)),
                                 SFH.update_params(disp, (disp.σ + 0.1,)), x0, smodels, sdata2, logAge, MH)
-        @test result[1] isa Tuple{SFH.PowerLawMZR, SFH.GaussianDispersion, Vector{T}}
+        @test result isa Tuple{SFH.PowerLawMZR, SFH.GaussianDispersion, Vector{T}}
         @test result[1].α ≈ MHmodel.α atol=0.2
         @test result[1].MH0 ≈ MHmodel.MH0 atol=0.2
     end
