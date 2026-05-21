@@ -16,9 +16,16 @@ julia> nparams(LinearAMR(1.0, 1.0), GaussianDispersion(0.2))
 """
 nparams(models...) = mapreduce(nparams, +, models)
 
+include("dispersion_models.jl") # AbstractDispersionModel and subtypes
+
+"""
+    warm_start(MH_model0::AbstractMetallicityModel, disp_model0::AbstractDispersionModel, ...)
+Custom procedure to set the initial guess for the optimization. By default, this just returns the provided `MH_model0`, `disp_model0`, and `x0` without modification, but you can overload this function to implement a custom procedure for setting the initial guess for the optimization. This is useful for hierarchical models where the initial guess for the metallicity model parameters may depend on the initial guess for the dispersion model parameters, or vice versa.
+"""
+warm_start(MH_model0::AbstractMetallicityModel, disp_model0::AbstractDispersionModel, x0::Vector, models, data, logAge, metallicities) = (MH_model0, disp_model0, x0)
+
 include("construct_x0_mdf.jl")  # utility function to set initial guess x0
 include("transformations.jl")   # Variable transformations
-include("dispersion_models.jl") # AbstractDispersionModel and subtypes
 include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
 include("fixed_amr.jl")         # Fit under a fixed AMR -- deprecate?
 include("amr.jl")               # Age-metallicity relations

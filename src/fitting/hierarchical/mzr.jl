@@ -283,3 +283,145 @@ update_params(model::PowerLawMZR, newparams) =
 transforms(::PowerLawMZR) = (1, 0)
 free_params(model::PowerLawMZR) = model.free
 
+# Custom warm_start method for PowerLawMZR
+# Helper function to evaluate the objective (negative log-likelihood)
+function _evaluate_objective(MH_model::PowerLawMZR, disp_model::AbstractDispersionModel,
+                            x0::Vector, models, data, logAge, metallicities)
+    Nbins = length(x0)
+    zpar = nparams(MH_model)  # 2
+    disppar = nparams(disp_model)
+    free_mzr = free_params(MH_model)
+    free_disp = free_params(disp_model)
+    nfree_mzr = count(free_mzr)
+    nfree_disp = count(free_disp)
+    xvec_len = Nbins + nfree_mzr + nfree_disp
+    xvec = Vector{Float64}(undef, xvec_len)
+    # Stellar mass coefficients (log-transformed)
+    xvec[1:Nbins] .= log.(x0)
+    # MZR parameters (if free)
+    mzr_vals = (MH_model.α, MH_model.MH0)
+    mzr_tf = transforms(MH_model)  # (1, 0)
+    offset = Nbins
+    for i in 1:zpar
+        if free_mzr[i]
+            val = mzr_vals[i]
+            tf = mzr_tf[i]
+            if tf == 1
+                xvec[offset+1] = log(val)
+            elseif tf == 0
+                xvec[offset+1] = val
+            elseif tf == -1
+                xvec[offset+1] = log(-val)
+            end
+            offset += 1
+        end
+    end
+    # Dispersion parameters (if free)
+    disp_vals = fittable_params(disp_model)
+    disp_tf = transforms(disp_model)
+    for i in 1:disppar
+        if free_disp[i]
+            val = disp_vals[i]
+            tf = disp_tf[i]
+            if tf == 1
+                xvec[offset+1] = log(val)
+            elseif tf == 0
+                xvec[offset+1] = val
+            elseif tf == -1
+                xvec[offset+1] = log(-val)
+            end
+            offset += 1
+        end
+    end
+    # We need to pass F (non-nothing) to compute objective, G = nothing, and jacobian_corrections = true
+    instance = HierarchicalOptimizer(MH_model, disp_model, models, data, logAge, metallicities, true, nothing, true)
+    # Call logdensity_and_gradient; returns the logdensity (negative log-likelihood) if F is not nothing
+    # xvec = vcat(log.(x0), [log(MH_model.α), log(MH_model.MH0), log.(values(fittable_params(disp_model)))...])
+    obj = LogDensityProblems.logdensity_and_gradient(instance, xvec)
+    return obj
+end
+
+# Custom warm_start method for PowerLawMZR
+function warm_start(MH_model0::PowerLawMZR, disp_model0::AbstractDispersionModel, x0::Vector, models, data, logAge, metallicities)
+    # Determine which parameters are free
+    free = free_params(MH_model0)
+    nfree = sum(free)
+    # If no free parameters, return original
+    nfree == 0 && return (MH_model0, disp_model0, x0)
+
+    best_obj = -Inf
+    best_mh = MH_model0
+    best_disp = disp_model0
+
+    if nfree == 1
+        # Only one free parameter; identify which
+        if free[1]  # α free
+            init_α = MH_model0.α
+            # Generate trial values from 0.2*init to 5*init
+            trials = range(0.2init_α, 5init_α; length=10)
+            for trial_α in trials
+                trial_model = PowerLawMZR(trial_α, MH_model0.MH0, MH_model0.logMstar0, free)
+                obj = _evaluate_objective(trial_model, disp_model0, x0, models, data, logAge, metallicities)
+                if obj > best_obj
+                    best_obj = obj
+                    best_mh = trial_model
+                end
+            end
+        elseif free[2]  # MH0 free
+            init_MH0 = MH_model0.MH0
+            trials = range(0.2init_MH0, 5init_MH0; length=10)
+            for trial_MH0 in trials
+                trial_model = PowerLawMZR(MH_model0.α, trial_MH0, MH_model0.logMstar0, free)
+                obj = _evaluate_objective(trial_model, disp_model0, x0, models, data, logAge, metallicities)
+                if obj > best_obj
+                    best_obj = obj
+                    best_mh = trial_model
+                end
+            end
+        end
+    elseif nfree == 2
+        # Both parameters free; create 2D grid
+        init_α = MH_model0.α
+        init_MH0 = MH_model0.MH0
+        # Use a 5x5 grid
+        for α in range(0.2init_α, 5init_α; length=10), MH0 in range(0.2init_MH0, 5init_MH0; length=10)
+            trial_model = PowerLawMZR(α, MH0, MH_model0.logMstar0, free)
+            obj = _evaluate_objective(trial_model, disp_model0, x0, models, data, logAge, metallicities)
+            if obj > best_obj
+                best_obj = obj
+                best_mh = trial_model
+            end
+        end
+    else
+        error("Unexpected number of free parameters in PowerLawMZR")
+    end
+
+    # # Only one free parameter; identify which
+    # if free[1]  # α free
+    #     init_α = MH_model0.α
+    #     # Generate trial values from 0.2*init to 5*init
+    #     trials = range(0.2init_α, 5init_α; length=10)
+    #     for trial_α in trials
+    #         trial_model = PowerLawMZR(trial_α, MH_model0.MH0, MH_model0.logMstar0, free)
+    #         obj = _evaluate_objective(trial_model, disp_model0, x0, models, data, logAge, metallicities)
+    #         if obj > best_obj
+    #             best_obj = obj
+    #             best_mh = trial_model
+    #         end
+    #     end
+    # elseif free[2]  # MH0 free
+    #     init_MH0 = MH_model0.MH0
+    #     trials = range(0.2init_MH0, 5init_MH0; length=10)
+    #     for trial_MH0 in trials
+    #         trial_model = PowerLawMZR(MH_model0.α, trial_MH0, MH_model0.logMstar0, free)
+    #         obj = _evaluate_objective(trial_model, disp_model0, x0, models, data, logAge, metallicities)
+    #         if obj > best_obj
+    #             best_obj = obj
+    #             best_mh = trial_model
+    #         end
+    #     end
+    # end
+
+    return (best_mh, best_disp, x0)
+end
+
