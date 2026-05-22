@@ -14,12 +14,15 @@ Further, the existence of the gas-phase mass-metallicity relation (MZR) for star
 
 While it is known that higher-mass galaxies do not strictly evolve *along* the MZR, due in large part to the time variability of inflows mentioned above, the simple form of the power law extrapolation of the MZR allows for a simple experiment. If (on average) the ISM metallicity at time ``t`` is primarily driven by the total stellar mass at that time ``M_*(t)``, then a two-parameter MZR (power law slope and intercept) coupled to the SFRs in the SFH fitting process should result in better CMD models than a similar two-parameter AMR (e.g., the [linear AMR model](@ref linear_amr_section)) which has no mathematical link to the SFRs. In turn, the best-fit SFRs and population-integrated MDFs should also be more accurate if the modelled AMR is better.
 
+An alternative parametric model for the evolution of metallicity with cumulative stellar mass is given by Equation 3 of [Zibetti2017](@citet), who introduced this form in the context of stellar population modelling for IFU spectroscopy of intermediate- and high-mass galaxies. This model parameterizes the metallicity as a function of the cumulative stellar mass relative to the total final stellar mass, and spans from an initial metallicity ``Z_0`` (at zero cumulative mass) to a final metallicity ``Z_{\mathrm{final}}`` (at the total final stellar mass), with a shape parameter ``\alpha \geq 0`` controlling the rate of the transition.
+
 We provide a generic interface for describing the analytic form of the MZR so that it is easy to define new MZR models that will integrate with our fitting routines. Built-in, ready to use models are described below, and the API for defining new models is described in [the API section](@ref dispersion_API).
 
 ## Built-In Models
 
 ```@docs
 PowerLawMZR
+Zibetti2017
 ```
 
 The per-SSP stellar mass coefficients (``r_{j,k}`` in the [derivation](@ref mzr_derivation)) can be derived from an MZR model, a [metallicity dispersion model](@ref dispersion_models), the per-unique-log(age) stellar mass coefficients (``R_j`` in the [derivation](@ref mzr_derivation)), and the set of SSP logarithmic ages `logAge = log10(age [yr])` and metallicites using [`calculate_coeffs`](@ref StarFormationHistories.calculate_coeffs).

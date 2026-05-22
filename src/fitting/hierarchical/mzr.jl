@@ -283,3 +283,125 @@ update_params(model::PowerLawMZR, newparams) =
 transforms(::PowerLawMZR) = (1, 0)
 free_params(model::PowerLawMZR) = model.free
 
+"""
+    Zibetti2017(Z0::Real, Zfinal::Real, α::Real, logMfinal::Real=11,
+                free::NTuple{3, Bool}=(true, true, true)) <: AbstractMZR
+
+Mass-metallicity relation describing the evolution of stellar metallicity as a function of
+cumulative stellar mass, following Equation 3 of [Zibetti2017](@citet). The model is
+parameterized by:
+- `Z0 > 0`: initial metallicity in units of solar metallicity (i.e. ``Z_{*,0}`` in
+  [Zibetti2017](@citet)), corresponding to the metallicity of stars forming when the
+  cumulative stellar mass is zero.
+- `Zfinal > 0`: final metallicity in units of solar metallicity (i.e.
+  ``Z_{*,\\mathrm{final}}`` in [Zibetti2017](@citet)), corresponding to the metallicity of
+  stars forming when the cumulative stellar mass reaches
+  ``\\mathrm{M}_{\\mathrm{final}} = 10^{\\mathrm{logMfinal}} \\; \\mathrm{M}_\\odot``.
+- `α ≥ 0`: shape parameter describing how quickly the metallicity transitions from `Z0` to
+  `Zfinal` as the cumulative stellar mass grows.
+- `logMfinal = log10(Mfinal [M⊙])`: logarithm of the total final stellar mass, which is a
+  **fixed** (non-fittable) normalization parameter similar to `logMstar0` in
+  [`PowerLawMZR`](@ref).
+
+The metallicities `Z0` and `Zfinal` are expressed in units of the solar metallicity, so that
+``[\\mathrm{M}/\\mathrm{H}] = \\log_{10}(Z)`` when `Z` is in solar units. `Z0` will be fit
+freely during optimizations if `free[1] == true`, `Zfinal` will be fit freely if
+`free[2] == true`, and `α` will be fit freely if `free[3] == true`. The MZR is defined by
+
+```math
+[\\mathrm{M}/\\mathrm{H}] \\left( \\mathrm{M}_* \\right) = \\log_{10} \\left(
+    Z_{\\mathrm{final}} - \\left( Z_{\\mathrm{final}} - Z_0 \\right)
+    \\left( 1 - \\frac{\\mathrm{M}_*}{\\mathrm{M}_{\\mathrm{final}}} \\right)^{\\alpha}
+\\right)
+```
+
+where ``\\mathrm{M}_{\\mathrm{final}} = 10^{\\mathrm{logMfinal}}``. For physically
+meaningful results the model should be evaluated at
+``0 \\leq \\mathrm{M}_* \\leq \\mathrm{M}_{\\mathrm{final}}``.
+
+# Examples
+```jldoctest; setup=:(using StarFormationHistories: nparams, gradient, update_params, transforms, free_params)
+julia> Zibetti2017(0.01, 1.0, 1.0) isa Zibetti2017{Float64}
+true
+
+julia> import Test
+
+julia> Test.@test_throws(ArgumentError, Zibetti2017(-0.01, 1.0, 1.0)) isa Test.Pass
+true
+
+julia> Test.@test_throws(ArgumentError, Zibetti2017(0.01, -1.0, 1.0)) isa Test.Pass
+true
+
+julia> Test.@test_throws(ArgumentError, Zibetti2017(0.01, 1.0, -1.0)) isa Test.Pass
+true
+
+julia> nparams(Zibetti2017(0.01, 1.0, 1.0)) == 3
+true
+
+julia> Zibetti2017(0.01, 1.0, 1.0, 8)(0.0) ≈ log10(0.01)
+true
+
+julia> Zibetti2017(0.01, 1.0, 1.0, 8)(1e8) ≈ 0.0
+true
+
+julia> all(values(gradient(Zibetti2017(0.01, 1.0, 1.0, 8), 5e7)) .≈
+               (0.42999453653787306, 0.42999453653787306,
+                0.295069005650833, 8.513891823449887e-9))
+true
+
+julia> update_params(Zibetti2017(0.01, 1.0, 1.0, 8, (true, false, true)), (0.02, 2.0, 0.5)) ==
+           Zibetti2017(0.02, 2.0, 0.5, 8, (true, false, true))
+true
+
+julia> transforms(Zibetti2017(0.01, 1.0, 1.0)) == (1, 1, 1)
+true
+
+julia> free_params(Zibetti2017(0.01, 1.0, 1.0, 8, (true, false, true))) == (true, false, true)
+true
+```
+"""
+struct Zibetti2017{T <: Real} <: AbstractMZR{T}
+    Z0::T        # Initial metallicity in solar units
+    Zfinal::T    # Final metallicity in solar units
+    α::T         # Shape parameter (must be ≥ 0)
+    logMfinal::T # log10(total final stellar mass [M⊙]), fixed parameter
+    free::NTuple{3, Bool}
+    function Zibetti2017(Z0::T, Zfinal::T, α::T, logMfinal::T,
+                         free::NTuple{3, Bool}) where T <: Real
+        Z0 > zero(T) || throw(ArgumentError("Z0 must be > 0"))
+        Zfinal > zero(T) || throw(ArgumentError("Zfinal must be > 0"))
+        α >= zero(T) || throw(ArgumentError("α must be ≥ 0"))
+        new{T}(Z0, Zfinal, α, logMfinal, free)
+    end
+end
+Zibetti2017(Z0::Real, Zfinal::Real, α::Real, logMfinal::Real=11,
+            free::NTuple{3, Bool}=(true, true, true)) =
+    Zibetti2017(promote(Z0, Zfinal, α, logMfinal)..., free)
+nparams(::Zibetti2017) = 3
+fittable_params(d::Zibetti2017) = (Z0 = d.Z0, Zfinal = d.Zfinal, α = d.α)
+function (mzr::Zibetti2017)(Mstar::Real)
+    q = 1 - Mstar / exp10(mzr.logMfinal)
+    return log10(mzr.Zfinal - (mzr.Zfinal - mzr.Z0) * q^mzr.α)
+end
+function gradient(model::Zibetti2017{T}, Mstar::S) where {T, S <: Real}
+    P = promote_type(T, S)
+    Mfinal = exp10(model.logMfinal)
+    q = one(P) - Mstar / Mfinal
+    p = q^model.α
+    ΔZ = model.Zfinal - model.Z0
+    f = model.Zfinal - ΔZ * p
+    flnten = f * logten
+    # p * log(q) → 0 as q → 0⁺ for α > 0, but 0.0 * (-Inf) = NaN in IEEE float
+    plnq = q > zero(P) ? p * log(q) : zero(P)
+    # ΔZ * α * q^(α-1): avoid 0 * Inf = NaN when α = 0 or ΔZ = 0
+    dMH_dMstar = (iszero(model.α) || iszero(ΔZ)) ? zero(P) :
+                 ΔZ * model.α * q^(model.α - 1) / (Mfinal * flnten)
+    return (Z0 = p / flnten,
+            Zfinal = (1 - p) / flnten,
+            α = -ΔZ * plnq / flnten,
+            Mstar = dMH_dMstar)
+end
+update_params(model::Zibetti2017, newparams) =
+    Zibetti2017(newparams..., model.logMfinal, model.free)
+transforms(::Zibetti2017) = (1, 1, 1)
+free_params(model::Zibetti2017) = model.free

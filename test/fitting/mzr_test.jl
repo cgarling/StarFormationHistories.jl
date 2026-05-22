@@ -283,3 +283,58 @@ end
         end
     end
 end
+
+@testset "Zibetti2017" begin
+    types = (Float32, Float64)
+    type_labels = ("Float32", "Float64")
+    for i in eachindex(types, type_labels)
+        T = types[i]
+        tl = type_labels[i]
+        @testset "$tl" begin
+            m = SFH.Zibetti2017(T(0.01), T(1.0), T(1.0), T(8))
+            @test m isa SFH.Zibetti2017{T}
+            @test SFH.nparams(m) == 3
+            @test SFH.fittable_params(m) == (Z0=T(0.01), Zfinal=T(1.0), α=T(1.0))
+            @test SFH.transforms(m) == (1, 1, 1)
+            @test SFH.free_params(m) == (true, true, true)
+            # At M_* = 0, [M/H] should equal log10(Z0)
+            @test m(T(0)) ≈ log10(T(0.01))
+            # At M_* = M_final, [M/H] should equal log10(Zfinal) = 0
+            @test m(T(1e8)) ≈ T(0)
+            # update_params
+            @test SFH.update_params(SFH.Zibetti2017(T(0.01), T(1.0), T(1.0), T(8), (true, false, true)),
+                                    (T(0.02), T(2.0), T(0.5))) ==
+                  SFH.Zibetti2017(T(0.02), T(2.0), T(0.5), T(8), (true, false, true))
+            # free_params with some fixed
+            @test SFH.free_params(SFH.Zibetti2017(T(0.01), T(1.0), T(1.0), T(8), (true, false, true))) ==
+                  (true, false, true)
+            # Gradient: check against numerical finite differences
+            M = T(5e7)
+            ε = T == Float32 ? T(1e-3) : T(1e-6)
+            g = values(SFH.gradient(m, M))
+            # ∂/∂Z0
+            gnum_Z0 = (SFH.Zibetti2017(T(0.01) + ε, T(1.0), T(1.0), T(8))(M) -
+                       SFH.Zibetti2017(T(0.01) - ε, T(1.0), T(1.0), T(8))(M)) / (2ε)
+            @test g[1] ≈ gnum_Z0 rtol = T == Float32 ? T(1e-2) : T(1e-4)
+            # ∂/∂Zfinal
+            gnum_Zf = (SFH.Zibetti2017(T(0.01), T(1.0) + ε, T(1.0), T(8))(M) -
+                       SFH.Zibetti2017(T(0.01), T(1.0) - ε, T(1.0), T(8))(M)) / (2ε)
+            @test g[2] ≈ gnum_Zf rtol = T == Float32 ? T(1e-2) : T(1e-4)
+            # ∂/∂α
+            gnum_α = (SFH.Zibetti2017(T(0.01), T(1.0), T(1.0) + ε, T(8))(M) -
+                      SFH.Zibetti2017(T(0.01), T(1.0), T(1.0) - ε, T(8))(M)) / (2ε)
+            @test g[3] ≈ gnum_α rtol = T == Float32 ? T(1e-2) : T(1e-4)
+            # ∂/∂Mstar
+            gnum_M = (m(M * (1 + ε)) - m(M * (1 - ε))) / (2 * ε * M)
+            @test g[4] ≈ gnum_M rtol = T == Float32 ? T(1e-2) : T(1e-4)
+            # Gradient edge cases: α = 0 should give zero gradient for α and Mstar terms
+            m0 = SFH.Zibetti2017(T(0.01), T(1.0), T(0.0), T(8))
+            g0 = values(SFH.gradient(m0, M))
+            @test !isnan(g0[3])  # α gradient should not be NaN
+            @test !isnan(g0[4])  # Mstar gradient should not be NaN
+            # Gradient edge case: q = 0 (M_* = M_final)
+            gq0 = values(SFH.gradient(m, T(1e8)))
+            @test !isnan(gq0[3])  # α gradient should not be NaN at M_* = M_final
+        end
+    end
+end

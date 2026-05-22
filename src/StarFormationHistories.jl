@@ -923,6 +923,7 @@ export fit_templates,
     LinearAMR,
     LogarithmicAMR,
     PowerLawMZR,
+    Zibetti2017,
     fit_sfh,
     sample_sfh,
     calculate_coeffs
