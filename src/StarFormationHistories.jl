@@ -924,6 +924,7 @@ export fit_templates,
     LogarithmicAMR,
     PowerLawMZR,
     fit_sfh,
+    fit_sfh_newton,
     sample_sfh,
     calculate_coeffs
 

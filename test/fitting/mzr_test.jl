@@ -282,4 +282,43 @@ end
                 SFH.calculate_coeffs(fresult.mle, logAge, MH)
         end
     end
+
+    @testset "fit_sfh_newton" begin
+        x0 = Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5)
+        # Run fit on perfect, noise-free data
+        result = SFH.fit_sfh_newton(SFH.update_params(MHmodel, (MHmodel.α + 0.5, MHmodel.MH0 + 1.0)),
+                                    SFH.update_params(disp, (disp.σ + 0.1,)),
+                                    smodels, sdata2, logAge, MH,
+                                    x0=x0)
+        @test result.mle.μ ≈ true_vals # With no error, we should converge exactly
+        @test all(isapprox(result.map.μ[i], true_vals[i];
+                           atol=result.map.σ[i]) for i in eachindex(true_vals))
+
+        # Run fit on noisy data
+        rresult = SFH.fit_sfh_newton(SFH.update_params(MHmodel, (MHmodel.α + 0.5, MHmodel.MH0 + 1.0)),
+                                     SFH.update_params(disp, (disp.σ + 0.1,)),
+                                     smodels, sdata, logAge, MH, x0=x0)
+        # Test that MLE and MAP results are within 3σ of the true answer for all parameters
+        @test all(isapprox(rresult.mle.μ[i], true_vals[i];
+                           atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
+        @test all(isapprox(rresult.map.μ[i], true_vals[i];
+                           atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
+
+        # Run with fixed α, to check that free parameter indexing is working properly
+        fαresult = SFH.fit_sfh_newton(SFH.PowerLawMZR(MHmodel.α, MHmodel.MH0, MHmodel.logMstar0, (false, true)),
+                                      SFH.GaussianDispersion(disp.σ, (true,)),
+                                      smodels, sdata, logAge, MH, x0=x0)
+        @test fαresult.map.μ[end-2] ≈ MHmodel.α
+        @test fαresult.mle.μ[end-2] ≈ MHmodel.α
+        @test fαresult.map.σ[end-2] .== 0
+        @test fαresult.mle.σ[end-2] .== 0
+
+        # Run with fixed parameters on noisy data, verify that best-fit values are unchanged
+        fresult = SFH.fit_sfh_newton(SFH.PowerLawMZR(MHmodel.α, MHmodel.MH0, MHmodel.logMstar0, (false, false)),
+                                     SFH.GaussianDispersion(disp.σ, (false,)),
+                                     smodels, sdata, logAge, MH, x0=x0)
+        @test fresult.map.μ[end-2:end] ≈ [MHmodel.α, MHmodel.MH0, disp.σ]
+        @test fresult.mle.μ[end-2:end] ≈ [MHmodel.α, MHmodel.MH0, disp.σ]
+        @test all(fresult.map.σ[end-2:end] .== 0)
+    end
 end
