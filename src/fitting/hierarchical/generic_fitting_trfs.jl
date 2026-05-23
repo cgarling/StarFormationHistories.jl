@@ -21,7 +21,7 @@ Optim.converged(r::FisherOptimizerResult) = r.converged
 Optim.iterations(r::FisherOptimizerResult) = r.iterations
 
 """
-    _dogleg_step(g, H_reg, Δ) -> (s, step_type)
+    _tr_subproblem_step(g, H, Δ) -> (s, step_type)
 
 Solves the trust-region subproblem
 
@@ -29,42 +29,54 @@ Solves the trust-region subproblem
 \\min_{\\|s\\| \\le \\Delta} \\; g^\\top s + \\tfrac{1}{2} s^\\top H s
 ```
 
-using the dogleg method. `H_reg` is a positive-definite (regularized) approximation to
-the Hessian. Returns the step vector `s` and a symbol (`:newton`, `:cauchy`, or
-`:dogleg`) indicating which portion of the dogleg path was used.
+using the **Moré–Sorensen** method via eigendecomposition of `H`. Unlike the dogleg
+method, this handles indefinite and highly correlated Hessians correctly by finding the
+optimal regularisation parameter λ ≥ 0 such that `‖(H + λI)⁻¹ g‖ = Δ`.
+
+Returns the step vector `s` and `:newton` (interior, λ = 0) or `:boundary` (λ > 0).
 """
-function _dogleg_step(g::AbstractVector{T}, H_reg::AbstractMatrix{T}, Δ::T) where {T}
-    # Full (unconstrained) Newton step: s_N = -H_reg \\ g
-    F_chol = cholesky(Hermitian(H_reg))
-    s_N = -(F_chol \ g)
-    norm_sN = norm(s_N)
+function _tr_subproblem_step(g::AbstractVector{T}, H::AbstractMatrix{T}, Δ::T) where {T}
+    # Eigendecomposition of the symmetric Hessian: H = Q diag(d) Q'
+    F   = eigen(Symmetric(H))
+    d   = F.values      # ascending eigenvalues
+    Q   = F.vectors     # orthogonal eigenvectors (columns)
+    Qg  = Q' * g        # gradient rotated into eigenbasis
+    d_min = d[1]
 
-    # If Newton step is inside the trust region, accept it directly
-    if norm_sN ≤ Δ
-        return s_N, :newton
+    # ── Interior case ──────────────────────────────────────────────────────────
+    # If H is positive-definite and the Newton step fits inside the trust region,
+    # accept it directly.
+    if d_min > zero(T)
+        s_N = -(Q * (Qg ./ d))
+        norm(s_N) ≤ Δ && return s_N, :newton
     end
 
-    # Cauchy point: optimal step along the steepest-descent direction
-    norm_g2 = dot(g, g)
-    gHg = dot(g, H_reg * g)
-    α_SD = norm_g2 / max(gHg, eps(T))
-    norm_sSD = α_SD * sqrt(norm_g2)
+    # ── Boundary case ──────────────────────────────────────────────────────────
+    # Find λ ≥ max(0, -d_min) such that ‖s(λ)‖ = Δ, where
+    #   s(λ) = -(H + λI)⁻¹ g  ⟺  s̃(λ) = Qg ./ (d .+ λ),  s = -Q s̃
+    # ‖s(λ)‖ = ‖s̃(λ)‖ is strictly decreasing in λ on (-d_min, ∞).
+    λ_lo = max(zero(T), -d_min + T(1e-8) * (abs(d_min) + one(T)))
 
-    if norm_sSD ≥ Δ
-        # Cauchy point is outside trust region: truncate along gradient
-        return -(Δ / sqrt(norm_g2)) .* g, :cauchy
+    # Upper-bound λ such that ‖s(λ_hi)‖ < Δ.
+    λ_hi = λ_lo + norm(g) / Δ + maximum(abs, d)
+    for _ in 1:60
+        norm(Qg ./ (d .+ λ_hi)) < Δ && break
+        λ_hi *= T(2)
     end
 
-    # Dogleg: interpolate along the path from the Cauchy point to the Newton step.
-    # Find τ ∈ [0,1] such that ‖s_SD + τ·(s_N − s_SD)‖ = Δ.
-    s_SD = -(α_SD .* g)
-    d = s_N .- s_SD
-    a = dot(d, d)
-    b = 2 * dot(s_SD, d)
-    c_coef = norm_sSD^2 - Δ^2
-    disc = max(b^2 - 4 * a * c_coef, zero(T))
-    τ = (-b + sqrt(disc)) / (2 * max(a, eps(T)))
-    return s_SD .+ τ .* d, :dogleg
+    # Bisection (60 iterations → ~18 significant digits)
+    for _ in 1:60
+        λ_mid = (λ_lo + λ_hi) / 2
+        if norm(Qg ./ (d .+ λ_mid)) > Δ
+            λ_lo = λ_mid
+        else
+            λ_hi = λ_mid
+        end
+        abs(λ_hi - λ_lo) < T(1e-12) * (λ_hi + one(T)) && break
+    end
+
+    λ = (λ_lo + λ_hi) / 2
+    return -(Q * (Qg ./ (d .+ λ))), :boundary
 end
 
 """
