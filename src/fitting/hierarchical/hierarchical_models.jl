@@ -25,3 +25,4 @@ include("amr.jl")               # Age-metallicity relations
 include("mzr.jl")               # Mass-metallicity relations
 include("generic_fitting.jl")   # Fitting and sampling functions for both AMR and MZR
 include("generic_fitting_second_order.jl")  # Newton Trust-Region fitting with Fisher information Hessian
+include("generic_fitting_trfs.jl")  # Custom trust-region Fisher scoring optimizer
