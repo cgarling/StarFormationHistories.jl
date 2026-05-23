@@ -102,14 +102,14 @@ estimate.
 
 # Algorithm
 1. Compute f, g, H at the current iterate via `fgh_fn!`.
-2. Regularize H with a scaled Levenberg–Marquardt diagonal shift.
-3. Solve the trust-region subproblem using the **dogleg method**
-   ([`_dogleg_step`](@ref StarFormationHistories._dogleg_step)).
-4. Evaluate f at the proposed iterate (without recomputing g or H).
-5. Compute the reduction ratio ρ = (actual decrease) / (predicted decrease).
-6. Update the trust-region radius and accept or reject the step.
-7. On acceptance, recompute f, g, H at the new iterate.
-8. Repeat until ‖g‖∞ ≤ `g_abstol` or `maxiter` steps are taken.
+2. Solve the trust-region subproblem using the **Moré–Sorensen** method
+   ([`_tr_subproblem_step`](@ref StarFormationHistories._tr_subproblem_step)),
+   which handles indefinite and correlated Hessians via eigendecomposition.
+3. Evaluate f at the proposed iterate (without recomputing g or H).
+4. Compute the reduction ratio ρ = (actual decrease) / (predicted decrease).
+5. Update the trust-region radius and accept or reject the step.
+6. On acceptance, recompute f, g, H at the new iterate.
+7. Repeat until ‖g‖∞ ≤ `g_abstol` or `maxiter` steps are taken.
 
 # Keyword Arguments
   - `Δ_init`: initial trust-region radius; defaults to the norm of the initial
@@ -119,7 +119,7 @@ estimate.
   - `η2`: threshold above which the trust region is expanded (default `0.75`).
   - `α1`: trust-region shrink factor when ρ < η1 (default `0.25`).
   - `α2`: trust-region expansion factor when ρ > η2 (default `2.0`).
-  - `maxiter`: maximum number of iterations (default `300`).
+  - `maxiter`: maximum number of iterations (default `1000`).
   - `g_abstol`: convergence criterion on ‖g‖∞ (default `1e-5`).
 """
 function _trust_region_fisher_scoring(fgh_fn!, x0::AbstractVector{T};
@@ -129,7 +129,7 @@ function _trust_region_fisher_scoring(fgh_fn!, x0::AbstractVector{T};
                                       η2      = T(0.75),
                                       α1      = T(0.25),
                                       α2      = T(2.0),
-                                      maxiter = 300,
+                                      maxiter = 1000,
                                       g_abstol = T(1e-5)) where {T}
     n = length(x0)
     x = copy(x0)
@@ -142,16 +142,17 @@ function _trust_region_fisher_scoring(fgh_fn!, x0::AbstractVector{T};
     Δ = if !isnothing(Δ_init)
         T(Δ_init)
     else
-        # Use the norm of the (regularised) Newton step as a sensible initial radius
+        # Use the norm of the Newton step as a sensible initial radius
+        # Add small regularisation only for this initial step-norm estimate
         max_diag = maximum(abs, diag(H))
         λ0 = max(T(1e-6) * max_diag, T(1e-12))
-        H_reg0 = H + Diagonal(fill(λ0, n))
+        H_init = H + Diagonal(fill(λ0, n))
         s0_norm = try
-            norm(-(cholesky(Hermitian(H_reg0)) \ g))
+            norm(-(cholesky(Hermitian(H_init)) \ g))
         catch
-            T(1.0)
+            T(10.0)
         end
-        clamp(s0_norm, T(1e-3), T(1.0))
+        clamp(s0_norm, T(1.0), T(1e4))
     end
 
     final_g_norm = norm(g, Inf)
@@ -164,21 +165,16 @@ function _trust_region_fisher_scoring(fgh_fn!, x0::AbstractVector{T};
             break
         end
 
-        # Scaled Levenberg–Marquardt regularisation (relative to H diagonal)
-        # This is more scale-invariant than an absolute λ and keeps H_reg PD.
-        max_diag = maximum(abs, diag(H))
-        λ = max(T(1e-6) * max_diag, T(1e-12))
-        H_reg = H + Diagonal(fill(λ, n))
-
-        # Solve the trust-region subproblem with the dogleg method
-        s, _ = _dogleg_step(g, H_reg, Δ)
+        # Solve the trust-region subproblem with the Moré–Sorensen method
+        # (handles indefinite and correlated Hessians directly via eigendecomposition)
+        s, _ = _tr_subproblem_step(g, H, Δ)
 
         # Evaluate the objective at the proposed step (no g or H needed)
         x_new = x .+ s
         f_new = fgh_fn!(true, nothing, nothing, x_new)
 
-        # Predicted decrease from the quadratic model (use H_reg for consistency with dogleg)
-        Hs = H_reg * s
+        # Predicted decrease from the quadratic model
+        Hs = H * s
         predicted = -(dot(g, s) + T(0.5) * dot(s, Hs))
 
         # Reduction ratio
@@ -246,20 +242,18 @@ Unlike [`fit_sfh`](@ref) (L-BFGS) and [`fit_sfh_newton`](@ref) (Optim
    Poisson negative log-likelihood, this is identical to Fisher scoring and provides
    well-scaled search directions throughout the iteration, not just near the solution.
 
-2. **Dogleg subproblem solver.** The trust-region subproblem is solved with the dogleg
-   method ([`_dogleg_step`](@ref StarFormationHistories._dogleg_step)), which is exact
-   and cheap for the moderate problem sizes (≲ a few hundred variables) typical of SFH
-   fitting.
+2. **Moré–Sorensen subproblem solver.** The trust-region subproblem is solved via
+   eigendecomposition of the Fisher information matrix and bisection on the secular
+   equation ([`_tr_subproblem_step`](@ref StarFormationHistories._tr_subproblem_step)).
+   This handles indefinite and strongly correlated Hessians correctly, which arise
+   frequently in SFH fitting due to coupling between stellar-mass and AMR/dispersion
+   parameters.
 
 3. **Correct MAP objective.** The log-prior Jacobian correction (``-\\sum_j \\log R_j``)
    is applied to the objective whenever the function value is requested, including during
    trial-step evaluations inside the trust-region loop. This corrects a subtle issue in
    [`fit_sfh_newton`](@ref) where the correction was inadvertently skipped for trial
    steps, causing the reduction-ratio estimate to be inaccurate for the MAP problem.
-
-4. **Scaled Levenberg–Marquardt regularisation.** The diagonal shift ``\\lambda \\,
-   \\mathrm{diag}(H)`` is used, giving a scale-invariant regularisation that keeps the
-   Hessian positive definite without distorting the step direction.
 
 # Performance Notes
   - Each accepted step requires one evaluation of `fgh!` (to get f, g, and H) and one
@@ -287,7 +281,7 @@ function fit_sfh_fisher(MH_model0::AbstractMetallicityModel{T},
                             construct_x0_mdf(logAge, convert(S, 13.7);
                                              normalize_value=S(1e6)),
                         g_abstol::Real = 1e-5,
-                        maxiter::Int   = 300,
+                        maxiter::Int   = 1000,
                         kws...) where {T, U, S <: Number}
 
     unique_logAge = unique(logAge)
