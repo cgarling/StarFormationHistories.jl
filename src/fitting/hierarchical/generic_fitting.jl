@@ -123,8 +123,6 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     # All stellar mass coefficients are transformed as they must be > 0,
     # but MH_model and dispersion model coefficients may or may not be similarly constrained.
     # Use the transforms() function to determine which parameters should be transformed.
-    # We use the squared transform (x = y²) following Dolphin (2013) to enforce positivity
-    # while keeping the optimization variables finite as x → 0.
     x = similar(xvec, Nbins + zpar + disppar)
     # These are the stellar mass coefficients: x = y²
     for i in eachindex(xvec)[begin:Nbins]; x[i] = xvec[i]^2; end
