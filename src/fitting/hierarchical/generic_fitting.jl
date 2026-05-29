@@ -165,14 +165,14 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     ptf_idx = ptf .+ Nbins
     ntf = findall(==(-1), tf) # Find indices of variables constrained to always be negative
     ntf = ntf[free[ntf]]      # Only keep indices for variables that we are fitting
-    ntf_idx = ntf .+ Nbins
     if jacobian_corrections
         # For positive-constrained parameters, including stellar mass coefficients
         for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
             if ret_F; nlogL -= log(2) + log(abs(y[i])); end
             if ret_G; G2[i] = G2[i] * 2 * y[i] - 1 / y[i]; end
         end
-        for i in ntf_idx
+        for i in ntf
+            i += Nbins
             # For negative constraint x = -y², |dx/dy| = 2|y|, same Jacobian magnitude
             if ret_F; nlogL -= log(2) + log(abs(y[i])); end
             if ret_G; G2[i] = G2[i] * (-2 * y[i]) - 1 / y[i]; end
@@ -183,7 +183,8 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
         for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
             if ret_G; G2[i] = G2[i] * 2 * y[i]; end
         end
-        for i in ntf_idx
+        for i in ntf
+            i += Nbins
             # For negative constraint x = -y², dx/dy = -2y
             if ret_G; G2[i] = G2[i] * (-2 * y[i]); end
         end
