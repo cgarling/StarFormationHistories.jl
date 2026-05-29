@@ -106,10 +106,10 @@ using Test
     end
     
     @testset "logdensity_and_gradient all free" begin
-        transformed_vals = vcat(log.(Mstars), log(MHmodel.α), MHmodel.β, log(disp.σ))
-        # Gradient of objective with respect to transformed variables
-        G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
-                             fd_result[end-2] * MHmodel.α, fd_result[end-1], fd_result[end] * disp.σ)
+        transformed_vals = vcat(sqrt.(Mstars), sqrt(MHmodel.α), MHmodel.β, sqrt(disp.σ))
+        # Gradient of objective with respect to transformed variables (chain rule: ∂f/∂y = ∂f/∂x * 2y)
+        G_transformed = vcat(fd_result[begin:length(Mstars)] .* 2 .* sqrt.(Mstars),
+                             fd_result[end-2] * 2 * sqrt(MHmodel.α), fd_result[end-1], fd_result[end] * 2 * sqrt(disp.σ))
         # Test with jacobian corrections off, we get -nlogL as expected
         S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                       MH, true, G, false)
@@ -117,9 +117,10 @@ using Test
         @test result[1] ≈ -nlogL # positive logL
         @test result[2] ≈ -G_transformed # positive ∇logL
         # Test with jacobian corrections on
+        # Jacobian for x² transform: log|dx/dy| = log(2|y|) = log(2) + log|y|
         SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                        MH, true, G, true)
-        logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α) + log(disp.σ)
+        logLJ = -nlogL + sum(log(2) .+ log.(sqrt.(Mstars))) + (log(2) + log(sqrt(MHmodel.α))) + (log(2) + log(sqrt(disp.σ)))
         resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
         @test resultj[1] ≈ logLJ
     end
@@ -127,10 +128,10 @@ using Test
     @testset "logdensity_and_gradient σ fixed" begin
         let disp = SFH.GaussianDispersion(disp.σ, (false,))
             G2 = G[begin:end-1] # Fixed parameters are not included in G gradient
-            transformed_vals = vcat(log.(Mstars), log(MHmodel.α), MHmodel.β)
-            # Gradient of objective with respect to transformed variables
-            G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
-                                 fd_result[end-2] * MHmodel.α, fd_result[end-1])
+            transformed_vals = vcat(sqrt.(Mstars), sqrt(MHmodel.α), MHmodel.β)
+            # Gradient of objective with respect to transformed variables (chain rule: ∂f/∂y = ∂f/∂x * 2y)
+            G_transformed = vcat(fd_result[begin:length(Mstars)] .* 2 .* sqrt.(Mstars),
+                                 fd_result[end-2] * 2 * sqrt(MHmodel.α), fd_result[end-1])
             # Test with jacobian corrections off, we get -nlogL as expected
             S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                           MH, true, G2, false)
@@ -140,7 +141,7 @@ using Test
             # Test with jacobian corrections on
             SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                            MH, true, G2, true)
-            logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α)
+            logLJ = -nlogL + sum(log(2) .+ log.(sqrt.(Mstars))) + (log(2) + log(sqrt(MHmodel.α)))
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
             @test resultj[1] ≈ logLJ
         end
@@ -149,10 +150,10 @@ using Test
     @testset "logdensity_and_gradient β fixed" begin
         let MHmodel = SFH.LinearAMR(MHmodel.α, MHmodel.β, MHmodel.T_max, (true, false))
             G2 = vcat(G[begin:end-2], G[end])  # Fixed parameters are not included in G gradient
-            transformed_vals = vcat(log.(Mstars), log(MHmodel.α), log(disp.σ))
-            # Gradient of objective with respect to transformed variables
-            G_transformed = vcat(fd_result[begin:length(Mstars)] .* Mstars,
-                                 fd_result[end-2] * MHmodel.α, fd_result[end] * disp.σ)
+            transformed_vals = vcat(sqrt.(Mstars), sqrt(MHmodel.α), sqrt(disp.σ))
+            # Gradient of objective with respect to transformed variables (chain rule: ∂f/∂y = ∂f/∂x * 2y)
+            G_transformed = vcat(fd_result[begin:length(Mstars)] .* 2 .* sqrt.(Mstars),
+                                 fd_result[end-2] * 2 * sqrt(MHmodel.α), fd_result[end] * 2 * sqrt(disp.σ))
             # Test with jacobian corrections off, we get -nlogL as expected
             S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                           MH, true, G2, false)
@@ -162,7 +163,7 @@ using Test
             # Test with jacobian corrections on
             SJ = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, sdata, logAge,
                                            MH, true, G2, true)
-            logLJ = -nlogL + sum(log.(Mstars)) + log(MHmodel.α) + log(disp.σ)
+            logLJ = -nlogL + sum(log(2) .+ log.(sqrt.(Mstars))) + (log(2) + log(sqrt(MHmodel.α))) + (log(2) + log(sqrt(disp.σ)))
             resultj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, transformed_vals)
             @test resultj[1] ≈ logLJ
         end

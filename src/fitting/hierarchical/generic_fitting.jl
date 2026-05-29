@@ -124,10 +124,10 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     # but MH_model and dispersion model coefficients may or may not be similarly constrained.
     # Use the transforms() function to determine which parameters should be transformed.
     x = similar(xvec, Nbins + zpar + disppar)
-    # These are the stellar mass coefficients
-    for i in eachindex(xvec)[begin:Nbins]; x[i] = exp(xvec[i]); end
-    # Apply logarithmic transformations
-    x_zdisp = exptransform(par, SVector(tf)[free])
+    # These are the stellar mass coefficients: x = y²
+    for i in eachindex(xvec)[begin:Nbins]; x[i] = xvec[i]^2; end
+    # Apply squared transformations to metallicity/dispersion parameters
+    x_zdisp = inverse_transform(par, SVector(tf)[free])
     # Concatenate transformed stellar mass coefficients and MH_model / disp parameters
     x[(Nbins+1:lastindex(x))[free]] .= x_zdisp
     # Write fixed parameters into x
@@ -139,7 +139,27 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     ret_G ? G2 = similar(x) : G2 = nothing
     nlogL = fg!(F, G2, MH_model0, disp_model0, x, models, data, composite, logAge, metallicities)
     # Add Jacobian corrections for transformed variables if jacobian_corrections == true
-    # fg! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
+    # fg! returns -logL and fills G2 with -∇_x logL, so remember to invert signs in Jacobian corrections.
+    # For the squared transform x = y², |dx/dy| = 2|y|, log|J| = log(2) + log|y|.
+    # Chain rule gradient: ∂(-logL)/∂y = ∂(-logL)/∂x * 2y (for positive constraint x = y²)
+    #                                  = ∂(-logL)/∂x * (-2y) (for negative constraint x = -y²)
+    # With Jacobian, subtract log|J| from nlogL (since nlogL = -logL and prior adds log|J| to logL):
+    #   ∂nlogL_total/∂y = ∂nlogL/∂x * 2y - 1/y  (positive)
+    #   ∂nlogL_total/∂y = ∂nlogL/∂x * (-2y) - 1/y  (negative)
+
+    # Build y-vector (optimization space values) paralleling x for all parameters
+    y = similar(x)
+    for i in eachindex(xvec)[begin:Nbins]; y[i] = xvec[i]; end
+    free_idx = 0
+    for i in 1:length(free)
+        if free[i]
+            free_idx += 1
+            y[Nbins+i] = par[free_idx]
+        else
+            y[Nbins+i] = zero(eltype(x))
+        end
+    end
+
     ptf = findall(==(1), tf)  # Find indices of variables constrained to always be positive
     ptf = ptf[free[ptf]]      # Only keep indices for variables that we are fitting
     ptf_idx = ptf .+ Nbins
@@ -148,24 +168,26 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     if jacobian_corrections
         # For positive-constrained parameters, including stellar mass coefficients
         for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
-            if ret_F; nlogL -= log(x[i]); end
-            if ret_G; G2[i] = G2[i] * x[i] - 1; end
+            if ret_F; nlogL -= log(2) + log(abs(y[i])); end
+            if ret_G; G2[i] = G2[i] * 2 * y[i] - 1 / y[i]; end
         end
         for i in ntf
-            @warn "Negative transformations have not yet been validated."
             i += Nbins
-            if ret_F; nlogL += log(x[i]); end
-            if ret_G; G2[i] = -G2[i] * x[i] + 1; end
+            # For negative constraint x = -y², |dx/dy| = 2|y|, same Jacobian magnitude
+            if ret_F; nlogL -= log(2) + log(abs(y[i])); end
+            if ret_G; G2[i] = G2[i] * (-2 * y[i]) - 1 / y[i]; end
         end
     else
         # Still have to correct gradient for transform, even if not adding Jacobian correction to logL
+        # Chain rule: ∂(-logL)/∂y = ∂(-logL)/∂x * dx/dy
         for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
-            if ret_G; G2[i] = G2[i] * x[i]; end
+            if ret_G; G2[i] = G2[i] * 2 * y[i]; end
         end
         for i in ntf
-            @warn "Negative transformations have not yet been validated."
-            if ret_G; G2[i] = -G2[i] * x[i]; end
-        end        
+            i += Nbins
+            # For negative constraint x = -y², dx/dy = -2y
+            if ret_G; G2[i] = G2[i] * (-2 * y[i]); end
+        end
     end
 
     # Return if gradient is not requested
@@ -282,14 +304,15 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         end
     end
 
-    # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
-    x0 = map(log, x0) # Does not modify x0 in place
-    # Perform logarithmic transformation on MZR and dispersion parameters
+    # Perform sqrt transformation on the provided x0 (stellar mass coefficients)
+    # This maps x → y = √x so that the optimizer works in y-space where x = y² ≥ 0
+    x0 = map(sqrt, x0) # Does not modify x0 in place
+    # Perform sqrt transformation on MZR and dispersion parameters
     par = (values(fittable_params(MH_model0))..., values(fittable_params(disp_model0))...)
     tf = (transforms(MH_model0)..., transforms(disp_model0)...)
     free = SVector(free_params(MH_model0)..., free_params(disp_model0)...)
-    # Apply logarithmic transformations
-    x0_mzrdisp = logtransform(par, tf)
+    # Apply forward transformations (sqrt for positive-constrained, sqrt(-x) for negative)
+    x0_mzrdisp = forward_transform(par, tf)
     # Concatenate transformed stellar mass coefficients and *free* MZR / disp parameters
     x0 = vcat(x0, x0_mzrdisp[free])
 
@@ -361,11 +384,12 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     σ_map_tmp = sqrt.(diag(invH_map))
     σ_mle_tmp = sqrt.(diag(invH_mle))
     # Write stellar mass coefficients, with transformations applied
+    # For x² transform: x = y², so μ_x = y², σ_x = |dx/dy| * σ_y = 2|y| * σ_y
     for i in 1:Nbins 
-        μ_map[i] = exp(μ_map_tmp[i])
-        μ_mle[i] = exp(μ_mle_tmp[i])
-        σ_map[i] = μ_map[i] * σ_map_tmp[i]
-        σ_mle[i] = μ_mle[i] * σ_mle_tmp[i]
+        μ_map[i] = μ_map_tmp[i]^2
+        μ_mle[i] = μ_mle_tmp[i]^2
+        σ_map[i] = 2 * abs(μ_map_tmp[i]) * σ_map_tmp[i]
+        σ_mle[i] = 2 * abs(μ_mle_tmp[i]) * σ_mle_tmp[i]
     end
     free_count = 0
     for i in Nbins+1:length(μ_map)
@@ -375,20 +399,20 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
             # need to offset for missing free parameters
             j = i - free_count
             if tfi == 1
-                μ_map[i] = exp(μ_map_tmp[j])
-                μ_mle[i] = exp(μ_mle_tmp[j])
-                σ_map[i] = μ_map[j] * σ_map_tmp[j]
-                σ_mle[i] = μ_map[j] * σ_mle_tmp[j]
+                μ_map[i] = μ_map_tmp[j]^2
+                μ_mle[i] = μ_mle_tmp[j]^2
+                σ_map[i] = 2 * abs(μ_map_tmp[j]) * σ_map_tmp[j]
+                σ_mle[i] = 2 * abs(μ_mle_tmp[j]) * σ_mle_tmp[j]
             elseif tfi == 0
                 μ_map[i] = μ_map_tmp[j]
                 μ_mle[i] = μ_mle_tmp[j]
                 σ_map[i] = σ_map_tmp[j]
                 σ_mle[i] = σ_mle_tmp[j]
             elseif tfi == -1
-                μ_map[i] = -exp(μ_map_tmp[j])
-                μ_mle[i] = -exp(μ_mle_tmp[j])
-                σ_map[i] = -μ_map[j] * σ_map_tmp[j]
-                σ_mle[i] = -μ_map[j] * σ_mle_tmp[j]
+                μ_map[i] = -(μ_map_tmp[j]^2)
+                μ_mle[i] = -(μ_mle_tmp[j]^2)
+                σ_map[i] = 2 * abs(μ_map_tmp[j]) * σ_map_tmp[j]
+                σ_mle[i] = 2 * abs(μ_mle_tmp[j]) * σ_mle_tmp[j]
             end
         else # Parameter is fixed; no transformation applied
             μ_map[i] = par[i-Nbins]
