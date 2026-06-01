@@ -1,6 +1,6 @@
 name = "StarFormationHistories"
 uuid = "774d3ad4-2d55-48fa-ab42-467705ebff24"
-version = "1.3.0"
+version = "1.3.1"
 authors = ["cgarling <chris.t.garling@gmail.com>"]
 
 [workspace]
@@ -49,7 +49,7 @@ Interpolations = "0.13.4, 0.14, 0.15, 0.16"
 IrrationalConstants = "0.2"
 KissMCMC = "0.2"
 LBFGSB = "0.4"
-LineSearches = "7.2"
+LineSearches = "7.2 - 7.6.0" # Issue with HagerZhang linesearch updates in 7.6.1, https://github.com/JuliaNLSolvers/LineSearches.jl/pull/194
 LinearAlgebra = "<0.0.1, 1"
 LogDensityProblems = "1, 2"
 Logging = "<0.0.1, 1"
