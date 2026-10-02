@@ -463,7 +463,7 @@ Generates a random sample of stars with a complex star formation history using m
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
- - `frac_type::Symbol` either `:lum`, in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or `:mass`, in which case it is assumed that `fracs` contains mass fractions (`:mass` is not yet implemented). 
+ - `frac_type::Symbol` either `:lum`, in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or `:mass`, in which case it is assumed that `fracs` contains birth stellar mass fractions. Mass fractions are converted to luminosity fractions in the `absmag_name` filter using [`StarFormationHistories.luminosity_per_mass`](@ref).
 All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information. 
 
 # Returns
@@ -473,16 +473,19 @@ All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref);
 function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number}
     !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
-    fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
     # Interpret whether user requests `fracs` represent luminosity or mass fractions.
-    if frac_type == :lum
-        limit = mag2flux(absmag)   # Convert the provided `limit` from magnitudes into flux.
-        fracs = flux2mag.( fracs .* limit )
-    elseif frac_type == :mass
-        throw(ArgumentError("`frac_type == :mass` not yet implemented."))
-    else
+    if frac_type == :mass
+        idx = findfirst(==(absmag_name), mag_names)
+        isnothing(idx) && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
+        # Convert mass fractions to luminosity fractions in the `absmag_name` filter. The 1 / mean_mass
+        # `mean_mass` normalization is common to all populations and cancels when fracs is normalized below.
+        fracs = fracs .* [luminosity_per_mass(mini_vec[i], mags[i], imf; mean_mass=1)[idx] for i in eachindex(mini_vec, mags)]
+    elseif frac_type != :lum
         throw(ArgumentError("Supported `frac_type` arguments for generate_stars_mag_composite are `:lum` or `:mass`."))
     end
+    fracs = fracs ./ sum(fracs) # Ensure fracs is normalized to sum to 1.
+    limit = mag2flux(absmag)    # Convert the provided `limit` from magnitudes into flux.
+    fracs = flux2mag.(fracs .* limit)
     # Allocate output vectors.
     massvec = [ Vector{SVector{length(binary_model),eltype(imf)}}(undef,0) for i in 1:ncomposite ]
     # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
@@ -496,6 +499,52 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
         mag_vec[i] = result[2]
     end
     return massvec, mag_vec
+end
+
+"""
+    luminosity_per_mass(mini_vec::AbstractVector{<:Number}, mags, imf; mean_mass::Number=mean(imf))
+
+Returns the expected present-day luminosity per unit birth stellar mass of the stellar population defined by the isochrone initial masses `mini_vec` and absolute magnitudes `mags` for the provided `imf`, as a `StaticArrays.SVector` with one entry per filter. `mags` accepts the same formats as [`generate_stars_mass`](@ref).
+
+```math
+\\frac{L_i}{M_*} = \\frac{1}{\\langle m \\rangle} \\int_{m_\\text{min}}^{m_\\text{max}} \\phi(m) \\, 10^{-0.4 \\, M_i(m)} \\, dm
+```
+
+where ``\\phi(m)`` is the IMF probability density, ``M_i(m)`` is the absolute magnitude in filter ``i`` along the isochrone at initial mass ``m``, ``\\langle m \\rangle`` is `mean_mass`, and ``m_\\text{min}`` and ``m_\\text{max}`` are `extrema(mini_vec)`.
+
+Luminosities are returned as `10^(-0.4 M)` for absolute magnitude `M`, i.e., in units of the luminosity of a source with absolute magnitude zero in the same filter and photometric system (the absolute-magnitude analog of maggies). These are the units returned by [`StarFormationHistories.mag2flux`](@ref) with its default zeropoint, so a population with total birth stellar mass `M_*` has expected integrated absolute magnitude `flux2mag(M_* * luminosity_per_mass(mini_vec, mags, imf)[i])` in filter `i`. To convert to solar luminosities, multiply by `10^(0.4 M_⊙)`, where `M_⊙` is the Sun's absolute magnitude in that filter.
+
+As in [`partial_cmd_smooth`](@ref), `imf` can be a `Distributions.ContinuousUnivariateDistribution` or any callable returning the IMF probability density at a given mass (see `StarFormationHistories.dispatch_imf`). `mean_mass` is the mean initial stellar mass of `imf`; it is computed for you if `imf` is a `Distributions.Distribution`, but must be provided otherwise.
+
+The integral is computed with the trapezoidal rule over the isochrone points, so only stars with initial masses in `extrema(mini_vec)` contribute; stars more massive than the end of the isochrone are assumed to be dead. For binary models that pair stars independently drawn from the IMF (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the expected luminosity per unit mass is unchanged by the binary model. For [`BinaryMassRatio`](@ref StarFormationHistories.BinaryMassRatio) this is an approximation.
+"""
+function luminosity_per_mass(mini_vec::AbstractVector{<:Number}, mags, imf; mean_mass::Number=mean(imf))
+    # collect so that deduplicate_knots! in sort_ingested does not mutate the caller's vector
+    mini_vec, mags = sort_ingested(collect(mini_vec), ingest_mags(mini_vec, mags))
+    f = [dispatch_imf(imf, mini_vec[i]) .* mag2flux.(mags[i]) for i in eachindex(mini_vec, mags)]
+    return sum((mini_vec[i+1] - mini_vec[i]) .* (f[i] .+ f[i+1]) ./ 2 for i in eachindex(mini_vec)[begin:end-1]) ./ mean_mass
+end
+
+"""
+    mass_from_absmag(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, massfrac::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
+
+Returns the expected total birth stellar mass of a complex stellar population whose integrated absolute magnitude in the filter `absmag_name` is `absmag`. The population consists of the isochrones given by `mini_vec` and `mags` with relative birth stellar mass fractions `massfrac`, which need not be normalized. Arguments are as in [`generate_stars_mag_composite`](@ref) with `frac_type=:mass`, and `imf` and `mean_mass` are as in [`StarFormationHistories.luminosity_per_mass`](@ref), which is used to compute the luminosity per unit birth stellar mass of each isochrone.
+
+```math
+M_* = \\frac{\\langle m \\rangle \\, 10^{-0.4 \\, M} \\sum_j x_j}{\\sum_j x_j \\int_{m_{\\text{min},j}}^{m_{\\text{max},j}} \\phi(m) \\, 10^{-0.4 \\, M_j(m)} \\, dm}
+```
+
+where ``M`` is `absmag`, ``x_j`` is `massfrac[j]`, ``M_j(m)`` is the absolute magnitude in filter `absmag_name` along isochrone ``j`` at initial mass ``m``, ``m_{\\text{min},j}`` and ``m_{\\text{max},j}`` are `extrema(mini_vec[j])`, and ``\\phi(m)`` and ``\\langle m \\rangle`` are as in [`StarFormationHistories.luminosity_per_mass`](@ref). Equivalently, ``M_*`` is the mass for which ``M_* \\sum_j (x_j / \\sum_k x_k) (L/M_*)_j = 10^{-0.4 \\, M}``, where ``(L/M_*)_j`` is the luminosity per unit birth stellar mass of isochrone ``j``.
+
+This is the expected mass; a population sampled to `absmag` with [`generate_stars_mag_composite`](@ref) will scatter around it due to stochastic sampling of the IMF.
+"""
+function mass_from_absmag(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, massfrac::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
+    @argcheck axes(mini_vec, 1) == axes(mags, 1) == axes(massfrac, 1) "The arguments `mini_vec`, `mags`, and `massfrac` must all have equal length and identical indexing."
+    idx = findfirst(==(absmag_name), mag_names)
+    isnothing(idx) && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
+    L = [luminosity_per_mass(mini_vec[i], mags[i], imf; mean_mass)[idx] for i in eachindex(mini_vec, mags)]
+    # Total flux = M * Σ (x_i / Σx) L_i; solve for the total birth mass M
+    return mag2flux(absmag) * sum(massfrac) / sum(massfrac .* L)
 end
 
 """
@@ -515,10 +564,13 @@ julia> starcat = generate_stars_mass_composite(...)
 julia> filters = (:F475W, :F814W) # Names of filters to associate with the magnitudes in `starcat[2]`
 
 julia> add_metadata(starcat, filters, logAge = ages, MH = MH)
-5866911-element Vector{@NamedTuple{mini::SVector{1, Float64}, F475W::Float64, F814W::Float64, logAge::Float64, MH::Float64}}:
- (mini = [0.25293134503128467], F475W = 33.53553000158083, F814W = 31.415817763596586, logAge = 6.6, MH = -2.4)
+5866911-element Vector{@NamedTuple{mini::Float64, F475W::Float64, F814W::Float64, logAge::Float64, MH::Float64}}:
+ (mini = 0.25293134503128467, F475W = 33.53553000158083, F814W = 31.415817763596586, logAge = 6.6, MH = -2.4)
 [...]
 ```
+
+# Initial Masses
+The initial masses of each sampled system are split into scalar fields. `mini` is always the initial mass of the primary star. When `starcat` was sampled with a binary model (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the companion initial mass is given in `mini2`, which is zero for systems without a companion, so `mini + mini2` is the initial mass of the system.
 """
 function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
     @argcheck length(starcat[1]) == length(starcat[2]) "Length of `starcat[1]` not equal to length of `starcat[2]`."
@@ -530,17 +582,22 @@ function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
     end
 
     mini, mags = starcat
-    
+
     # Pre-compute the NamedTuple type for performance
-    mini_type = eltype(mini[1])
+    # Each system's initial masses (primary first) are split into scalar columns mini, mini2, ..., miniK
+    # so the result can be written by any table writer
+    mini_example = first(mini[findfirst(!isempty, mini)])
+    K = length(mini_example)
+    mass_symbols = (:mini, ntuple(k -> Symbol(:mini, k + 1), K - 1)...)
+    mass_types = ntuple(_ -> eltype(mini_example), K)
     mag_scalar_type = eltype(eltype(mags[findfirst(!isempty, mags)]))
     kw_values = [values(kws)...]  # Convert to vector for easier indexing
     kw_types = isempty(kw_values) ? () : Tuple{(eltype(val) for val in kw_values)...} # eltype.(kw_values)
 
-    # Build tuple type: (mini, mag1, mag2, ..., magN, kw1, kw2, ...)
+    # Build tuple type: (mini, mini2, ..., miniK, mag1, mag2, ..., magN, kw1, kw2, ...)
     mag_types = ntuple(_ -> mag_scalar_type, N)
-    symbols = (:mini, mag_symbols...)
-    T = Tuple{mini_type, mag_types...}
+    symbols = (mass_symbols..., mag_symbols...)
+    T = Tuple{mass_types..., mag_types...}
     S = NamedTuple{symbols, T}
     result = _rows(S, mini, mags)
     if !isempty(kw_values)
@@ -563,7 +620,7 @@ function _rows(::Type{NT}, mini, mags) where NT
     @inbounds for i in eachindex(mini)
         ni = length(mini[i])
         for j in 1:ni
-            vals = (mini[i][j], mags[i][j]...)
+            vals = (mini[i][j]..., mags[i][j]...)
             result[idx] = NT(vals)
             idx += 1
         end

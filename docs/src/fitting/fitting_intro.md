@@ -84,6 +84,6 @@ While generally the methods using BLAS routines offer significant performance im
 
 ## References
 ```@bibliography
-Pages = ["fitting/fitting_intro.md"]
+Pages = [@__FILE__]
 Canonical = false
 ```

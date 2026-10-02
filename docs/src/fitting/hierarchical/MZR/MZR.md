@@ -14,7 +14,7 @@ Further, the existence of the gas-phase mass-metallicity relation (MZR) for star
 
 While it is known that higher-mass galaxies do not strictly evolve *along* the MZR, due in large part to the time variability of inflows mentioned above, the simple form of the power law extrapolation of the MZR allows for a simple experiment. If (on average) the ISM metallicity at time ``t`` is primarily driven by the total stellar mass at that time ``M_*(t)``, then a two-parameter MZR (power law slope and intercept) coupled to the SFRs in the SFH fitting process should result in better CMD models than a similar two-parameter AMR (e.g., the [linear AMR model](@ref linear_amr_section)) which has no mathematical link to the SFRs. In turn, the best-fit SFRs and population-integrated MDFs should also be more accurate if the modelled AMR is better.
 
-We provide a generic interface for describing the analytic form of the MZR so that it is easy to define new MZR models that will integrate with our fitting routines. Built-in, ready to use models are described below, and the API for defining new models is described in [the API section](@ref dispersion_API).
+We provide a generic interface for describing the analytic form of the MZR so that it is easy to define new MZR models that will integrate with our fitting routines. Built-in, ready to use models are described below, and the API for defining new models is described in [the API section](@ref mzr_API).
 
 ## Built-In Models
 
@@ -104,12 +104,12 @@ We can, however, simplify the sum over ``j^\prime`` somewhat. Let the ``R_j`` be
 \end{aligned}
 ```
 
-As the ``R_j`` dependence on the ``r_{j^\prime,k}`` enters through the cumulative stellar mass ``\text{M}_* \left( t_{j^\prime} \right)``, it is clear that the ``r_{j^\prime,k}`` will depend only on the ``R_j`` for which ``t_j`` is earlier than ``t_{j^\prime}``. Given the above sorting of the ``R_j``, we can write the sum as
+As the ``R_j`` dependence on the ``r_{j^\prime,k}`` enters through the cumulative stellar mass ``\text{M}_* \left( t_{j^\prime} \right)``, it is clear that the ``r_{j^\prime,k}`` will depend only on the ``R_j`` for which ``t_j`` is the same as or earlier than ``t_{j^\prime}``; that is, for which ``j \leq j^\prime``. Given the above sorting of the ``R_j``, we can write the sum as
 
 ```math
 \begin{aligned}
-\frac{\partial \, F}{\partial \, R_j} &= \sum_k \sum_{j^\prime=0}^j \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \\
-&= \sum_k \left( \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j} + \sum_{j^\prime=0}^{j-1} \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \right) \\
+\frac{\partial \, F}{\partial \, R_j} &= \sum_k \sum_{j^\prime \geq j} \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \\
+&= \sum_k \left( \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j} + \sum_{j^\prime > j} \, \frac{\partial \, F}{\partial \, r_{j^\prime,k}} \, \frac{\partial \, r_{j^\prime,k}}{\partial \, R_j} \right) \\
 \end{aligned}
 ```
 
@@ -192,7 +192,7 @@ and for our choice of a power law MZR we have
 \end{aligned}
 ```
 
-such that we now have all the terms we need to compute the ``\frac{\partial \, r_{j,k}}{\partial \, R_j}`` which enables us to compute the partial derivatives of the objective with respect to the ``R_j``, ``\frac{\partial \, F}{\partial \, R_j} = \sum_k \, \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j}``.
+such that we now have all the terms we need to compute the ``\frac{\partial \, r_{j,k}}{\partial \, R_j}``, which give the ``j^\prime = j`` term ``\sum_k \, \frac{\partial \, F}{\partial \, r_{j,k}} \, \frac{\partial \, r_{j,k}}{\partial \, R_j}`` of ``\frac{\partial \, F}{\partial \, R_j}``. The remaining ``j^\prime > j`` terms are derived in the next section.
 
 ## Case: ``j \neq j^\prime``
 
@@ -236,7 +236,7 @@ We can now write the partial derivatives of the ``A_{j^\prime,k}`` with respect 
 
 ```math
 \begin{aligned}
-\frac{\partial \, A_{j^\prime,k}}{\partial \, R_j} &= \frac{\partial \, A_{j^\prime,k}}{\partial \, \mu_j^\prime} \frac{\partial \, \mu_{j^\prime}}{\partial \, R_j} \\
+\frac{\partial \, A_{j^\prime,k}}{\partial \, R_j} &= \frac{\partial \, A_{j^\prime,k}}{\partial \, \mu_{j^\prime}} \frac{\partial \, \mu_{j^\prime}}{\partial \, R_j} \\
 &= \frac{\partial \, A_{j^\prime,k}}{\partial \, \mu_{j^\prime}} \frac{\partial \, \mu_{j^\prime}}{\partial \, \text{M}_* \left( t_{j^\prime} \right)} \, \Theta \left( j^\prime - j \right) \\
 \end{aligned}
 ```
@@ -330,6 +330,6 @@ so that we can reuse the majority of the calculation for all the parameters ``P`
 ```
 ## References
 ```@bibliography
-Pages = ["fitting/hierarchical/MZR/MZR.md"]
+Pages = [@__FILE__]
 Canonical = false
 ```

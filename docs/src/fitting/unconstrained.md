@@ -153,6 +153,6 @@ StarFormationHistories.calculate_cum_sfr
 
 ## References
 ```@bibliography
-Pages = ["fitting/unconstrained.md"]
+Pages = [@__FILE__]
 Canonical = false
 ```
