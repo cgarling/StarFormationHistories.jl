@@ -21,7 +21,7 @@ using PDMats: PDMat
 using Printf: @sprintf
 import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
-using Random: AbstractRNG, default_rng
+using Random: AbstractRNG, default_rng, seed!
 using Roots: find_zero # For mass_limits in simulate.jl
 import Tables # For Tables.rows, process_ASTs
 using TaskLocalValues: TaskLocalValue # For threadsafe buffers

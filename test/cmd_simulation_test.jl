@@ -224,6 +224,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 # Test total mass of the returned stars
                 # There will be less random variance with higher `total_mass`.
                 @test sum( reduce(+,reduce(+,i)) for i in result[1] ) ≈ total_mass * mass_frac rtol=5e-2
+                # Results are reproducible for a given rng state even though populations are sampled in parallel
+                gen_seeded() = SFH.generate_stars_mass_composite(composite_masses, composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=StableRNG(seedval), mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
+                @test gen_seeded() == gen_seeded()
 
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mass_composite([m_ini, composite_masses...], composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
@@ -272,6 +275,9 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 # Test total flux instead of magnitude
                 flux_total = sum( sum(map(x->SFH.mag2flux(x[2] - dmod), i)) for i in result[2])
                 @test 1 ≤ flux_total / SFH.mag2flux(absmaglim) ≤ 1.05
+                # Results are reproducible for a given rng state even though populations are sampled in parallel
+                gen_mag_seeded() = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=StableRNG(seedval), mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
+                @test gen_mag_seeded() == gen_mag_seeded()
 
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name

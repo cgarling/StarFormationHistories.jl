@@ -404,7 +404,7 @@ end
 #### Functions to generate composite mock galaxy catalogs from multiple SSPs
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mass_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; kws...)
+    (sampled_masses, sampled_mags) = generate_stars_mass_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; rng::Random.AbstractRNG=Random.default_rng(), kws...)
 
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mass`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total birth stellar mass of the sampled population is given by `limit`. The proportion of this mass allotted to each of the individual isochrones is given by the entries of the `massfrac` vector. This basically just proportions `limit` according to `massfrac` and calls [`generate_stars_mass`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
@@ -419,13 +419,14 @@ Generates a random sample of stars with a complex star formation history using m
  - `imf::Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` is a sampleable continuous univariate distribution implementing a stellar initial mass function with a defined `rand(rng::Random.AbstractRNG, imf)` method to use for sampling masses. All instances of `Distributions.ContinuousUnivariateDistribution` are also valid. Implementations of commonly used IMFs are available in [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl).
 
 # Keyword Arguments
-All keyword arguments `kws...` are passed to [`generate_stars_mass`](@ref); you should refer to that method's documentation for more information. 
+ - `rng::Random.AbstractRNG` is the random number generator. Because the populations are sampled in parallel, `rng` is not used to sample stars directly; instead, one seed per population is drawn from `rng`, and each population is sampled with a copy of `rng` seeded with `Random.seed!(copy(rng), seed)`. Results for a given `rng` state are therefore reproducible regardless of the number of threads. `rng` must support `copy` and seeding from an integer, which is true of `Random.default_rng()`, `Random.Xoshiro`, `Random.MersenneTwister`, and `StableRNGs.StableRNG`, among others.
+All other keyword arguments `kws...` are passed to [`generate_stars_mass`](@ref); you should refer to that method's documentation for more information.
 
 # Returns
- - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details. 
- - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
+ - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details.
+ - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`.
 """
-function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number} 
+function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), rng::AbstractRNG=default_rng(), kws...) where T <: AbstractVector{<:Number}
     if !(axes(mini_vec,1) == axes(mags,1) == axes(massfrac,1))
         throw(ArgumentError("The arguments `mini_vec`, `mags`, and `massfrac` to `generate_stars_mass_composite` must all have equal length and identical indexing."))
     end
@@ -433,13 +434,17 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
     massfrac = massfrac ./ sum(massfrac) # Ensure massfrac is normalized to sum to 1.
     # Allocate output vectors.
     massvec = [ Vector{SVector{length(binary_model),eltype(imf)}}(undef,0) for i in 1:ncomposite ]
-    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
+    # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec.
     mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
     mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
+    # Most RNG objects are not thread-safe, so `rng` cannot be shared across the threaded loop.
+    # Instead, draw one seed per population from `rng` serially and sample each population with
+    # its own seeded copy of `rng`, which also makes results independent of the number of threads.
+    seeds = rand(rng, UInt64, ncomposite)
     # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
     Threads.@threads for i in eachindex(mini_vec, mags, massfrac)
         result = generate_stars_mass(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf;
-                                      binary_model = binary_model, kws...)
+                                      binary_model = binary_model, rng = seed!(copy(rng), seeds[i]), kws...)
         massvec[i] = result[1]
         mag_vec[i] = result[2]
     end
@@ -447,7 +452,7 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
 end
 
 """
-    (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, kws...)
+    (sampled_masses, sampled_mags) = generate_stars_mag_composite(mini_vec::AbstractVector{<:AbstractVector{<:Number}}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, rng::Random.AbstractRNG=Random.default_rng(), kws...)
 
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mag`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total absolute magnitude of the sampled population is given by `absmag`. The proportion of the luminosity allotted to each of the individual isochrones is given by the entries of the `frac` vector. This basically just proportions the luminosity according to `frac` and calls [`generate_stars_mag`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
@@ -464,19 +469,21 @@ Generates a random sample of stars with a complex star formation history using m
 
 # Keyword Arguments
  - `frac_type::Symbol` either `:lum`, in which case `fracs` is assumed to contain the relative luminosity fractions for each individual isochrone, or `:mass`, in which case it is assumed that `fracs` contains birth stellar mass fractions. Mass fractions are converted to luminosity fractions in the `absmag_name` filter using [`StarFormationHistories.luminosity_per_mass`](@ref).
-All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information. 
+ - `rng::Random.AbstractRNG` is the random number generator. As in [`generate_stars_mass_composite`](@ref), one seed per population is drawn from `rng` and each population is sampled with a seeded copy of `rng`, so results for a given `rng` state are reproducible regardless of the number of threads. `rng` must support `copy` and seeding from an integer.
+All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information.
 
 # Returns
  - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details. 
  - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
 """
-function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), kws...) where T <: AbstractVector{<:Number}
+function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), rng::AbstractRNG=default_rng(), kws...) where T <: AbstractVector{<:Number}
     !(axes(mini_vec,1) == axes(mags,1) == axes(fracs,1)) && throw(ArgumentError("The arguments `mini_vec`, `mags`, and `fracs` to `generate_stars_mag_composite` must all have equal length and identical indexing."))
     ncomposite = length(mini_vec) # Number of stellar populations provided.
+    # Validate before the threaded loop below, where errors would be wrapped in a CompositeException
+    idx = findfirst(==(absmag_name), mag_names)
+    isnothing(idx) && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
     # Interpret whether user requests `fracs` represent luminosity or mass fractions.
     if frac_type == :mass
-        idx = findfirst(==(absmag_name), mag_names)
-        isnothing(idx) && throw(ArgumentError("Provided `absmag_name` is not contained in provided `mag_names` array."))
         # Convert mass fractions to luminosity fractions in the `absmag_name` filter. The 1 / mean_mass
         # `mean_mass` normalization is common to all populations and cancels when fracs is normalized below.
         fracs = fracs .* [luminosity_per_mass(mini_vec[i], mags[i], imf; mean_mass=1)[idx] for i in eachindex(mini_vec, mags)]
@@ -491,10 +498,12 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     # Need to ingest here so we know what type of SVector we're going to be putting into mag_vec. 
     mags = [ ingest_mags(mini_vec[i], mags[i]) for i in eachindex( mini_vec, mags ) ]
     mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
+    # Sample each population with its own seeded copy of `rng`; see generate_stars_mass_composite
+    seeds = rand(rng, UInt64, ncomposite)
     # Loop over each component, calling generate_stars_mag. Threading works with good scaling.
-    for i in eachindex(mini_vec, mags, fracs)
+    Threads.@threads for i in eachindex(mini_vec, mags, fracs)
         result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf;
-                                     binary_model = binary_model, kws...)
+                                     binary_model = binary_model, rng = seed!(copy(rng), seeds[i]), kws...)
         massvec[i] = result[1]
         mag_vec[i] = result[2]
     end
