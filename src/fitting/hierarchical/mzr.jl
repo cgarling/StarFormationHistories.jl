@@ -70,8 +70,7 @@ function calculate_coeffs(mzr_model::AbstractMZR{T}, disp_model::AbstractDispers
         μ = mzr_model(cum_mstar[i])
         idxs = findall(==(la), logAge)
         # Calculate relative weights
-        tmp_coeffs = [disp_model(metallicities[ii], μ) for ii in idxs]
-        A = sum(tmp_coeffs)
+        tmp_coeffs, A = dispersion_weights(disp_model, view(metallicities, idxs), μ)
         # Make sure sum over tmp_coeffs equals 1 and write to coeffs
         coeffs[idxs] .= tmp_coeffs .* mstars[i] ./ A
     end
@@ -148,15 +147,18 @@ function fg!(F, G, MHmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel
         dμ_dRj_vec = gradμ[end,:]
         
         # Calculate quantities from metallicity dispersion model
-        # Relative weights A_{j,k} for *all* templates
-        tmp_coeffs_vec = dispmodel.(metallicities, μvec[jidx])
+        # Relative weights A_{j,k} for *all* templates and their sums over k, A_vec, for each j
+        tmp_coeffs_vec = Vector{S}(undef, length(metallicities))
+        A_vec = Vector{S}(undef, length(jidx_inv))
+        for (i, idxs) in enumerate(jidx_inv)
+            w, A_vec[i] = dispersion_weights(dispmodel, view(metallicities, idxs), μvec[i])
+            tmp_coeffs_vec[idxs] .= w
+        end
         # Full gradient of the dispersion model with respect to parameters
         # and mean metallicity μ_j
         grad_disp = tups_to_mat(values.(gradient.(dispmodel, metallicities, μvec[jidx])))
         # \frac{\partial A_{j,k}}{\partial \mu_j}
         dAjk_dμj = grad_disp[end,:]
-        # Calculate sum_k A_{j,k} for all j
-        A_vec = [sum(tmp_coeffs_vec[ii] for ii in idxs) for idxs in jidx_inv]
 
         # \frac{\partial A_{j,k}}{\partial R_j}; one entry for every template
         dAjk_dRj = dAjk_dμj .* dμ_dRj_vec[jidx]
