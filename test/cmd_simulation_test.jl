@@ -236,6 +236,18 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test all(am_result[i].logAge == 6.6 for i in eachindex(result[1][1]))
                 @test all(am_result[i].logAge == 6.7 for i in eachindex(result[1][2]) .+ length(result[1][1]))
                 @test all(am_result[i].MH == 1.0 for i in eachindex(am_result))
+                # Single-star systems give a scalar `mini` equal to the sampled mass
+                @test keys(first(am_result))[1:3] == (:mini, :F606W, :F814W)
+                @test [a.mini for a in am_result] == [m[1] for m in reduce(vcat, result[1])]
+                # A leading SSP with no sampled stars is handled
+                @test SFH.add_metadata(([similar(result[1][1], 0), result[1][2]], [similar(result[2][1], 0), result[2][2]]), (:F606W, :F814W)) isa Vector{<:NamedTuple}
+                # Binary systems are split into primary `mini` and companion `mini2`
+                bresult = SFH.generate_stars_mass_composite(composite_masses, composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
+                b_am = SFH.add_metadata(bresult, (:F606W, :F814W))
+                @test keys(first(b_am)) == (:mini, :mini2, :F606W, :F814W)
+                @test [(a.mini, a.mini2) for a in b_am] == [(m[1], m[2]) for m in reduce(vcat, bresult[1])]
+                @test all(a.mini >= a.mini2 for a in b_am)
+                @test any(a.mini2 == 0 for a in b_am) && any(a.mini2 > 0 for a in b_am)
                 @test_throws ArgumentError SFH.add_metadata((result[1][1:1], result[2]), (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
 
                 @test_throws ArgumentError SFH.add_metadata(result, (:F606W,))
@@ -265,6 +277,29 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad absmag_name
                 @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", T[1//2, 1//2], imf; frac_type=:asdf, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad frac_type
                 @test_throws ArgumentError SFH.generate_stars_mag_composite([m_ini, composite_masses...], composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries()) # Test bad array input
+
+                # Test luminosity_per_mass; constant magnitudes on a fine grid give an analytic result
+                fine_mini = range(T(1//10), T(4//5); length=10_000)
+                lpm = SFH.luminosity_per_mass(fine_mini, [fill(T(5), length(fine_mini)), fill(T(6), length(fine_mini))], imf)
+                @test lpm isa SVector{2}
+                @test lpm ≈ SFH.mag2flux.(T[5, 6]) .* (SFH.cdf(imf, T(4//5)) - SFH.cdf(imf, T(1//10))) ./ SFH.mean(imf) rtol=1e-4
+                # Test mass_from_absmag against the analytic result for two constant-magnitude populations
+                fine_mags = [[fill(T(5), length(fine_mini)), fill(T(6), length(fine_mini))], [fill(T(6), length(fine_mini)), fill(T(7), length(fine_mini))]]
+                lpm2 = SFH.luminosity_per_mass(fine_mini, fine_mags[2], imf)
+                mfa = SFH.mass_from_absmag([fine_mini, fine_mini], fine_mags, mag_names, absmaglim, mag_names[1], T[1, 3], imf)
+                @test mfa ≈ SFH.mag2flux(absmaglim) / (lpm[1] / 4 + 3 * lpm2[1] / 4)
+                @test SFH.mass_from_absmag([fine_mini, fine_mini], fine_mags, mag_names, absmaglim, mag_names[1], T[1//4, 3//4], imf) ≈ mfa # massfrac need not be normalized
+                @test_throws ArgumentError SFH.mass_from_absmag([fine_mini, fine_mini], fine_mags, mag_names, absmaglim, "V", T[1, 3], imf)
+                # A callable IMF with an explicit mean_mass gives the same result
+                @test SFH.luminosity_per_mass(fine_mini, [fill(T(5), length(fine_mini)), fill(T(6), length(fine_mini))], x -> pdf(imf, x); mean_mass=SFH.mean(imf)) == lpm
+                # Test generate_stars_mag_composite with frac_type=:mass is identical to frac_type=:lum
+                # with mass fractions converted to luminosity fractions
+                mfracs = T[1//4, 3//4]
+                lfracs = mfracs .* [SFH.luminosity_per_mass(composite_masses[i], composite_mags[i], imf)[2] for i in eachindex(composite_masses)]
+                r_mass = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], mfracs, imf; frac_type=:mass, dist_mod=dmod, rng=StableRNG(seedval), binary_model=SFH.NoBinaries())
+                r_lum = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], lfracs, imf; frac_type=:lum, dist_mod=dmod, rng=StableRNG(seedval), binary_model=SFH.NoBinaries())
+                @test r_mass == r_lum
+                @test_throws ArgumentError SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, "V", mfracs, imf; frac_type=:mass, dist_mod=dmod, rng=rng, binary_model=SFH.NoBinaries()) # Test bad absmag_name
 
                 ################
                 # Test model_cmd

@@ -121,6 +121,6 @@ Then all we need is
 which we can substitute into the above expressions to find ``\frac{\partial \, F}{\partial \, \sigma}``.
 ## References
 ```@bibliography
-Pages = ["fitting/hierarchical/linear_amr.md"]
+Pages = [@__FILE__]
 Canonical = false
 ```
