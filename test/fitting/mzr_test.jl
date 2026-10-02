@@ -110,6 +110,18 @@ end
             fdr_result = vcat(fd_result[begin:end-3][rperm], fd_result[end-2:end])
             @test G ≈ fdr_result
         end
+
+        # A stellar mass coefficient of exactly 0 (reached when log(R_j) underflows during MLE fits)
+        # must give a finite gradient equal to the R_j -> 0 limit. This uses a bin after the oldest
+        # (unique_logAge[1]) so that the cumulative stellar mass entering the MZR stays positive.
+        let zvals = copy(true_vals), tvals = copy(true_vals), Gz = similar(G), Gt = similar(G)
+            zvals[5] = 0
+            tvals[5] = floatmin(T)
+            SFH.fg!(true, Gz, MHmodel, disp, zvals, models, data, C, logAge, MH)
+            SFH.fg!(true, Gt, MHmodel, disp, tvals, models, data, C, logAge, MH)
+            @test all(isfinite, Gz)
+            @test Gz ≈ Gt
+        end
     end
 
     @testset "logdensity_and_gradient all free" begin

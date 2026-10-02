@@ -138,7 +138,9 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
             #     \frac{\partial F}{\partial R_j} &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{\partial r_{j,k}}{\partial R_j} \\
             #     &= \sum_k \frac{\partial F}{\partial r_{j,k}} \frac{r_{j,k}}{R_j} \\
             # \end{aligned}
-            G[i] = -sum(fullG[j] * coeffs[j] / variables[i] for j in idxs)
+            # r_{j,k} / R_j is the normalized weight A_{j,k} / \sum_k A_{j,k}; computing it from r and R
+            # gives 0/0 = NaN when R_j underflows to 0, which MLE fits reach for bins the data do not support
+            G[i] = -sum(fullG[idxs[k]] * tmp_coeffs[k] / A for k in eachindex(idxs))
 
             # Gradient of MHmodel with respect to parameters
             gradμ = values(gradient(MHmodel, la))

@@ -184,8 +184,10 @@ function fg!(F, G, MHmodel0::AbstractMZR{T}, dispmodel0::AbstractDispersionModel
         for i in eachindex(unique_logAge)
             A = A_vec[i]
             idxs = jidx_inv[i]
-            # Add the j^\prime == j term
-            G[i] -= sum(fullG[idx] * (coeffs[idx] / variables[i] +
+            # Add the j^\prime == j term. r_{j,k} / R_j is the normalized weight A_{j,k} / \sum_k A_{j,k};
+            # computing it from r and R gives 0/0 = NaN when R_j underflows to 0, which MLE fits reach
+            # for bins the data do not support
+            G[i] -= sum(fullG[idx] * (tmp_coeffs_vec[idx] / A +
                 (dAjk_dRj[idx] - (ksum_dAjk_dRj[i] * tmp_coeffs_vec[idx] / A)) *
                 variables[i] / A) for idx in idxs)
             
