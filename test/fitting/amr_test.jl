@@ -64,6 +64,25 @@ using Test
             @test x ≈ y[sortperm(logAge)]
         end
     end
+
+    @testset "dispersion_weights" begin
+        w, A = SFH.dispersion_weights(disp, unique_MH, T(-1))
+        @test w == disp.(unique_MH, T(-1))
+        @test A == sum(w)
+        # μ so far from the grid that every weight underflows: all weight on the nearest metallicity
+        for (μ, k) in ((T(-30), 1), (T(30), length(unique_MH)), (T(-Inf), 1), (T(Inf), length(unique_MH)))
+            w, A = SFH.dispersion_weights(disp, unique_MH, μ)
+            @test A == 1 && w[k] == 1 && sum(w) == 1
+        end
+        # An AMR far off the metallicity grid gives finite coefficients and gradient instead of NaN
+        let far = SFH.LinearAMR(MHmodel.α, T(-30), MHmodel.T_max, (true, true)), Gf = similar(G)
+            c = SFH.calculate_coeffs(far, disp, Mstars, logAge, MH)
+            @test all(isfinite, c)
+            @test sum(c) ≈ sum(Mstars)
+            SFH.fg!(true, Gf, far, disp, vcat(Mstars, SFH.fittable_params(far)..., disp.σ), models, data, C, logAge, MH)
+            @test all(isfinite, Gf)
+        end
+    end
     
     # x0 = vcat(SFH.construct_x0_mdf(logAge, convert(T, 13.7); normalize_value=sum(x)), α, β, σ)
     @testset "fg!" begin

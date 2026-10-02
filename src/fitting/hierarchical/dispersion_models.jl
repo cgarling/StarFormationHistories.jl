@@ -40,6 +40,26 @@ Returns an tuple of length `nparams(model)` that is `true` for fittable paramete
  """
 free_params(model::AbstractDispersionModel)
 
+"""
+    (weights, A) = dispersion_weights(model::AbstractDispersionModel, metallicities::AbstractVector, μ)
+Returns the relative weights ``A_{j,k}`` of the `metallicities` in one age bin with mean metallicity `μ`
+under the dispersion `model`, and their sum ``A = \\sum_k A_{j,k}``, so that `weights ./ A` are the
+normalized weights. If no metallicity has nonzero weight (e.g., `μ` is so far from every metallicity that
+all weights underflow to 0), all weight is placed on the metallicity nearest `μ`, which is the limit of
+the normalized weights for dispersion models whose weights decrease with distance from `μ`.
+"""
+function dispersion_weights(model::AbstractDispersionModel, metallicities::AbstractVector, μ)
+    weights = [model(x, μ) for x in metallicities]
+    A = sum(weights)
+    if iszero(A)
+        # For infinite μ every distance is infinite, so take the extreme metallicity on that side
+        k = isfinite(μ) ? argmin(abs.(metallicities .- μ)) : (μ < 0 ? argmin(metallicities) : argmax(metallicities))
+        weights[k] = one(eltype(weights))
+        A = one(A)
+    end
+    return weights, A
+end
+
 
 #### Concrete subtypes
 

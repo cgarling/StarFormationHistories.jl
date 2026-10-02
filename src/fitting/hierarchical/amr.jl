@@ -64,8 +64,7 @@ function calculate_coeffs(amr_model::AbstractAMR{T}, disp_model::AbstractDispers
         μ = amr_model(la)
         idxs = findall(==(la), logAge)
         # Calculate relative weights
-        tmp_coeffs = [disp_model(metallicities[ii], μ) for ii in idxs]
-        A = sum(tmp_coeffs)
+        tmp_coeffs, A = dispersion_weights(disp_model, view(metallicities, idxs), μ)
         # Make sure sum over tmp_coeffs equals 1 and write to coeffs
         coeffs[idxs] .= tmp_coeffs .* variables[i] ./ A
     end
@@ -130,8 +129,7 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
             μ = MHmodel(la)
             idxs = findall( ==(la), logAge) # Find all entries that match this logAge
             tmp_mh = metallicities[idxs]
-            tmp_coeffs = dispmodel.(tmp_mh, μ)
-            A = sum(tmp_coeffs)
+            tmp_coeffs, A = dispersion_weights(dispmodel, tmp_mh, μ)
             
             # Partial derivatives with respect to stellar mass coefficients
             # \begin{aligned}
