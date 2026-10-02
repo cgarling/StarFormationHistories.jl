@@ -24,6 +24,13 @@ We provide the convenience function [`StarFormationHistories.add_metadata`](@ref
 StarFormationHistories.add_metadata
 ```
 
+[`generate_stars_mag_composite`](@ref) can also take birth stellar mass fractions for each population (`frac_type=:mass`), which are converted to luminosity fractions with [`StarFormationHistories.luminosity_per_mass`](@ref) before sampling. [`StarFormationHistories.mass_from_absmag`](@ref) uses the same calculation to estimate the total birth stellar mass corresponding to a desired absolute magnitude.
+
+```@docs
+StarFormationHistories.luminosity_per_mass
+StarFormationHistories.mass_from_absmag
+```
+
 ## Observational Effects
 
 The output produced from the above methods are clean in the sense that they do not include any observational effects like photometric error or incompleteness. These effects should be implemented in a post-processing step. We provide a simple method [`model_cmd`](@ref) that accepts user-defined photometric error and completeness functions and applies them to the initial catalog, returning a Monte Carlo realization of a possible observed catalog. This method assumes Gaussian photometric errors and that the photometric error and completeness functions are separable by filter -- these assumptions are not applicable for all types of data, but the source code for the method is exceedingly simple (~20 lines) and should provide an example for how you could write a similar method that more accurately reflects your data.
