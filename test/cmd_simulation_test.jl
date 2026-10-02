@@ -53,6 +53,10 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test result[2] ==
                     SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]])[sortperm(T[2,3,1,4])]
                 @test eltype(result[2]) == SVector{2,T}
+                # Deduplication does not mutate the caller's vector
+                dup = T[1,2,2,3]
+                result = SFH.sort_ingested(dup, SFH.ingest_mags(dup, [T[1,2,3,4], T[1,2,3,4]]))
+                @test allunique(result[1]) && dup == T[1,2,2,3]
             end
         end
     end
@@ -162,6 +166,13 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
 
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(25), mag_lim_name="V", binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1))))
+                # A finite mag_lim keeps exactly the systems whose combined light is brighter than mag_lim
+                for bm in (SFH.NoBinaries(), SFH.RandomBinaryPairs(T(4//10)), SFH.BinaryMassRatio(T(4//10), Uniform(T(1//2), T(1))))
+                    lim_res = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=StableRNG(seedval), mag_lim=T(30), mag_lim_name=mag_names[2], binary_model=bm)
+                    inf_res = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=StableRNG(seedval), mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=bm)
+                    keep = findall(x -> x[2] < T(30), inf_res[2])
+                    @test lim_res == (inf_res[1][keep], inf_res[2][keep])
+                end
 
                 ##################################
                 ####### Testing generate_stars_mag
@@ -171,33 +182,30 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test result[1] isa Vector{SVector{1,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
-                # Test that total magnitude of sampled population is (slightly)
-                # brighter than the requested absmaglim
+                # Test that total magnitude of sampled population is close to the requested absmaglim
                 apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                 abs_mag = apparent_mag - dmod
-                @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                @test abs(abs_mag - absmaglim) <= T(0.05)
 
                 # Test with RandomBinaryPairs() model
                 result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
                 @test result[1] isa Vector{SVector{2,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
-                # Test that total magnitude of sampled population is (slightly)
-                # brighter than the requested absmaglim
+                # Test that total magnitude of sampled population is close to the requested absmaglim
                 apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                 abs_mag = apparent_mag - dmod
-                @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                @test abs(abs_mag - absmaglim) <= T(0.05)
 
                 # Test with BinaryMassRatio() model
                 result = SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, mag_names[2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
                 @test result[1] isa Vector{SVector{2,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
-                # Test that total magnitude of sampled population is (slightly)
-                # brighter than the requested absmaglim
+                # Test that total magnitude of sampled population is close to the requested absmaglim
                 apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                 abs_mag = apparent_mag - dmod
-                @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
+                @test abs(abs_mag - absmaglim) <= T(0.05)
 
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mag(m_ini, mags, mag_names, absmaglim, "V", imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10),T(1))))
@@ -244,6 +252,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test [a.mini for a in am_result] == [m[1] for m in reduce(vcat, result[1])]
                 # A leading SSP with no sampled stars is handled
                 @test SFH.add_metadata(([similar(result[1][1], 0), result[1][2]], [similar(result[2][1], 0), result[2][2]]), (:F606W, :F814W)) isa Vector{<:NamedTuple}
+                # A catalog with no sampled stars gives an empty result
+                @test isempty(SFH.add_metadata(([similar(result[1][1], 0)], [similar(result[2][1], 0)]), (:F606W, :F814W)))
                 # Binary systems are split into primary `mini` and companion `mini2`
                 bresult = SFH.generate_stars_mass_composite(composite_masses, composite_mags, mag_names, total_mass, T[1//2, 1//2], imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
                 b_am = SFH.add_metadata(bresult, (:F606W, :F814W))
@@ -268,13 +278,12 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     @test result[1][i] isa Vector{SVector{1,S}} # Masses
                     @test result[2][i] isa Vector{SVector{2,T}} # Magnitudes
                 end
-                # Test that total magnitude of sampled population is only slightly
-                # brighter than the requested absmaglim
+                # Test that total magnitude of sampled population is close to the requested absmaglim
                 # absmag = SFH.flux2mag( sum( sum(map(x->SFH.mag2flux(x[2] - dmod), i)) for i in result[2]) )
                 # @test T(-0.05) <= (abs_mag - absmaglim) <= T(0)
                 # Test total flux instead of magnitude
                 flux_total = sum( sum(map(x->SFH.mag2flux(x[2] - dmod), i)) for i in result[2])
-                @test 1 ≤ flux_total / SFH.mag2flux(absmaglim) ≤ 1.05
+                @test flux_total / SFH.mag2flux(absmaglim) ≈ 1 rtol=5e-2
                 # Results are reproducible for a given rng state even though populations are sampled in parallel
                 gen_mag_seeded() = SFH.generate_stars_mag_composite(composite_masses, composite_mags, mag_names, absmaglim, mag_names[2], T[1//2, 1//2], imf; frac_type=:lum, dist_mod=dmod, rng=StableRNG(seedval), mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.NoBinaries())
                 @test gen_mag_seeded() == gen_mag_seeded()

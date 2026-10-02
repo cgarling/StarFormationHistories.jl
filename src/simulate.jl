@@ -49,7 +49,7 @@ ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` met
 """
     (new_mini_vec, new_mags) = sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
 
-Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on `mini_vec` to ensure there are no repeat entries. Arguments must satisfy `length(mini_vec) == length(mags)`. 
+Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on a copy of `mini_vec` to ensure there are no repeat entries; the arguments are not mutated. Arguments must satisfy `length(mini_vec) == length(mags)`. 
 """
 function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
     @argcheck axes(mini_vec) == axes(mags)
@@ -58,7 +58,7 @@ function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
         mini_vec = mini_vec[idx]
         mags = mags[idx]
     end
-    mini_vec = deduplicate_knots!(mini_vec; move_knots=true) # Interpolations.jl function. 
+    mini_vec = deduplicate_knots!(copy(mini_vec); move_knots=true) # Interpolations.jl function; copy so the caller's vector is not mutated
     return mini_vec, mags
 end
 
@@ -273,7 +273,7 @@ end
 Generates a random sample of stars from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names` with total population birth stellar mass `limit` (e.g., 1e5 solar masses). Initial stellar masses are sampled from the provided `imf`. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:Number}` contains the initial masses (in solar masses) for the stars in the isochrone; must be mutable as we call `Interpolations.deduplicate_knots!(mini_vec)`.
+ - `mini_vec::AbstractVector{<:Number}` contains the initial masses (in solar masses) for the stars in the isochrone.
  - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). Valid inputs are:
     - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
     - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
@@ -312,16 +312,24 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
     imf_sampler = sampler(imf) 
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
     mmin1, mmax = extrema(mini_vec) # Need this to determine validity for mag interpolation.
-    mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name) # Determine initial mass that corresponds to mag_lim, if provided.
-    
+    # Initial mass below which a system of length(binary_model) stars, none more massive than the primary,
+    # must be fainter than `mag_lim`; systems above it are checked against `mag_lim` with their combined flux below.
+    # The first call only validates the arguments so errors report the user's `mag_lim`; the second computes the shifted cutoff.
+    mass_limits(mini_vec, mags, mag_names, mag_lim, mag_lim_name)
+    mmin2, _ = mass_limits(mini_vec, mags, mag_names, mag_lim + 2.5 * log10(length(binary_model)), mag_lim_name)
+    sourceidx = findfirst(==(mag_lim_name), mag_names)
+
     total = zero(eltype(imf))
     mass_vec = Vector{SVector{length(binary_model),eltype(imf)}}(undef,0)
     mag_vec = Vector{eltype(mags)}(undef,0)
     while total < limit
         masses = sample_system(imf_sampler, rng, binary_model) # Sample masses of stars in a single system
-        total += sum(masses)                           # Add to accumulator
-        # if (first(masses) < mmin2) | (first(masses) > mmax)
-        if first(masses) < mmin2 # Primary by itself would be fainter than `mag_lim` so continue
+        m = sum(masses)
+        # Keep the system that crosses `limit` with probability (limit - total) / m so that the
+        # expected total mass equals `limit`; early `break` will discard this sample. 
+        total + m > limit && rand(rng) * m > limit - total && break
+        total += m
+        if first(masses) < mmin2 # System would be fainter than `mag_lim` so continue
             continue
         end
         flux = zero(eltype(mags))
@@ -330,7 +338,8 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
                 flux += mag2flux.( itp(mass) ) # Think this works for SVectors? not sure
             end
         end
-        if sum(flux) > 0 # Possible that first(masses) > mmax and no valid companions either, meaning sum(lum) == 0
+        # Possible that first(masses) > mmax and no valid companions either, meaning sum(flux) == 0
+        if (sum(flux) > 0) & (!isfinite(mag_lim) || flux2mag(flux[sourceidx]) < mag_lim)
             push!(mass_vec, masses)
             push!(mag_vec, flux2mag.(flux))
         end
@@ -389,6 +398,9 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
             end
             flux += mag2flux.( itp(mass) )
         end
+        # Keep the system that crosses `limit` with probability (limit - total) / m so that the
+        # expected total mass equals `limit`; early `break` will discard this sample. 
+        total + flux[idxlim] > limit && rand(rng) * flux[idxlim] > limit - total && break
         total += flux[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
         # If the source is bright enough, or `mag_lim` is infinite, add it to output
         if (sum(flux) > 0) & (!isfinite(mag_lim) || flux2mag(flux[sourceidx]) < mag_lim) 
@@ -409,7 +421,7 @@ end
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mass`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total birth stellar mass of the sampled population is given by `limit`. The proportion of this mass allotted to each of the individual isochrones is given by the entries of the `massfrac` vector. This basically just proportions `limit` according to `massfrac` and calls [`generate_stars_mass`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone; the internal vectors must be mutable as we will call `Interpolations.deduplicate_knots!` on each. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The length of `mini_vec` should be equal to the number of isochrones. 
  - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
     - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
@@ -441,12 +453,9 @@ function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::Abstra
     # Instead, draw one seed per population from `rng` serially and sample each population with
     # its own seeded copy of `rng`, which also makes results independent of the number of threads.
     seeds = rand(rng, UInt64, ncomposite)
-    # Loop over each component, calling generate_stars_mass. Threading works with good scaling.
-    Threads.@threads for i in eachindex(mini_vec, mags, massfrac)
-        result = generate_stars_mass(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf;
-                                      binary_model = binary_model, rng = seed!(copy(rng), seeds[i]), kws...)
-        massvec[i] = result[1]
-        mag_vec[i] = result[2]
+    # One task per population for better load balancing between pops of different masses
+    @sync for i in eachindex(mini_vec, mags, massfrac)
+        Threads.@spawn massvec[i], mag_vec[i] = generate_stars_mass(mini_vec[i], mags[i], mag_names, limit * massfrac[i], imf; binary_model, rng=seed!(copy(rng), seeds[i]), kws...)
     end
     return massvec, mag_vec
 end
@@ -457,7 +466,7 @@ end
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mag`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total absolute magnitude of the sampled population is given by `absmag`. The proportion of the luminosity allotted to each of the individual isochrones is given by the entries of the `frac` vector. This basically just proportions the luminosity according to `frac` and calls [`generate_stars_mag`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone; the internal vectors must be mutable as we will call `Interpolations.deduplicate_knots!` on each. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The length of `mini_vec` should be equal to the number of isochrones. 
  - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
     - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
@@ -500,12 +509,9 @@ function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::Abstrac
     mag_vec = [ Vector{eltype(i)}(undef,0) for i in mags ]
     # Sample each population with its own seeded copy of `rng`; see generate_stars_mass_composite
     seeds = rand(rng, UInt64, ncomposite)
-    # Loop over each component, calling generate_stars_mag. Threading works with good scaling.
-    Threads.@threads for i in eachindex(mini_vec, mags, fracs)
-        result = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf;
-                                     binary_model = binary_model, rng = seed!(copy(rng), seeds[i]), kws...)
-        massvec[i] = result[1]
-        mag_vec[i] = result[2]
+    # One task per population for better load balancing between pops of different magnitudes
+    @sync for i in eachindex(mini_vec, mags, fracs)
+        Threads.@spawn massvec[i], mag_vec[i] = generate_stars_mag(mini_vec[i], mags[i], mag_names, fracs[i], absmag_name, imf; binary_model, rng=seed!(copy(rng), seeds[i]), kws...)
     end
     return massvec, mag_vec
 end
@@ -528,8 +534,7 @@ As in [`partial_cmd_smooth`](@ref), `imf` can be a `Distributions.ContinuousUniv
 The integral is computed with the trapezoidal rule over the isochrone points, so only stars with initial masses in `extrema(mini_vec)` contribute; stars more massive than the end of the isochrone are assumed to be dead. For binary models that pair stars independently drawn from the IMF (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the expected luminosity per unit mass is unchanged by the binary model. For [`BinaryMassRatio`](@ref StarFormationHistories.BinaryMassRatio) this is an approximation.
 """
 function luminosity_per_mass(mini_vec::AbstractVector{<:Number}, mags, imf; mean_mass::Number=mean(imf))
-    # collect so that deduplicate_knots! in sort_ingested does not mutate the caller's vector
-    mini_vec, mags = sort_ingested(collect(mini_vec), ingest_mags(mini_vec, mags))
+    mini_vec, mags = sort_ingested(mini_vec, ingest_mags(mini_vec, mags))
     f = [dispatch_imf(imf, mini_vec[i]) .* mag2flux.(mags[i]) for i in eachindex(mini_vec, mags)]
     return sum((mini_vec[i+1] - mini_vec[i]) .* (f[i] .+ f[i+1]) ./ 2 for i in eachindex(mini_vec)[begin:end-1]) ./ mean_mass
 end
@@ -583,23 +588,23 @@ The initial masses of each sampled system are split into scalar fields. `mini` i
 """
 function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
     @argcheck length(starcat[1]) == length(starcat[2]) "Length of `starcat[1]` not equal to length of `starcat[2]`."
-    @argcheck mapreduce(x -> isa(first(x[findfirst(!isempty, x)]), AbstractVector), &, starcat) "Dimensions of input `starcat` incorrect. `add_metadata` only works on `starcat` constructed with multiple SSPs."
-    @argcheck N == length(first(starcat[2][findfirst(!isempty, starcat[2])])) "Length of `mag_symbols` must match length of magnitude vectors (i.e., `length(mag_symbols) == length(starcat[2][1][1])`."
+    mini, mags = starcat
+    # Shapes come from the StaticArrays.SVector element types so that catalogs with no sampled stars work
+    mini_T, mag_T = eltype(eltype(mini)), eltype(eltype(mags))
+    @argcheck (mini_T <: SVector) && (mag_T <: SVector) "Dimensions of input `starcat` incorrect. `add_metadata` only works on `starcat` constructed with multiple SSPs."
+    @argcheck N == length(mag_T) "Length of `mag_symbols` must match length of magnitude vectors (i.e., `length(mag_symbols) == length(starcat[2][1][1])`."
     nSSP = length(starcat[1]) # Number of SSP models
     for (k, v) in kws
         @argcheck (length(v) == nSSP) "Length of keyword argument $k is incorrect; must be equal to `length(starcat[1])` and `length(starcat[2])`."
     end
 
-    mini, mags = starcat
-
     # Pre-compute the NamedTuple type for performance
     # Each system's initial masses (primary first) are split into scalar columns mini, mini2, ..., miniK
     # so the result can be written by any table writer
-    mini_example = first(mini[findfirst(!isempty, mini)])
-    K = length(mini_example)
+    K = length(mini_T)
     mass_symbols = (:mini, ntuple(k -> Symbol(:mini, k + 1), K - 1)...)
-    mass_types = ntuple(_ -> eltype(mini_example), K)
-    mag_scalar_type = eltype(eltype(mags[findfirst(!isempty, mags)]))
+    mass_types = ntuple(_ -> eltype(mini_T), K)
+    mag_scalar_type = eltype(mag_T)
     kw_values = [values(kws)...]  # Convert to vector for easier indexing
     kw_types = isempty(kw_values) ? () : Tuple{(eltype(val) for val in kw_values)...} # eltype.(kw_values)
 
