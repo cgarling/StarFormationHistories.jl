@@ -41,3 +41,32 @@ end
     addstar!(h, p)
     @test any(!=(0), h.weights)
 end
+
+# Reference for the covariant kernel: numerical integral over y and exact integral over color for each pixel
+using Distributions: Normal, cdf, pdf
+using QuadGK: gauss
+const gl_nodes, gl_weights = gauss(200) # Gauss-Legendre rule on (-1, 1)
+covariant_pixel(xlo, xhi, ylo, yhi, x0, y0, σx, σy, c) = sum(zip(gl_nodes, gl_weights)) do (t, w)
+    y = (ylo + yhi) / 2 + t * (yhi - ylo) / 2
+    w * (yhi - ylo) / 2 * pdf(Normal(y0, σy), y) * (cdf(Normal(x0 - c * (y - y0), σx), xhi) - cdf(Normal(x0 - c * (y - y0), σx), xlo))
+end
+@testset "GaussianPSFCovariant accuracy" begin
+    # Narrow color bins and tall magnitude bins as in typical Hess diagrams, including σy much smaller than the bin height
+    xe, ye = range(0.0, 1.0; step=0.02), range(19.0, 21.0; step=0.1)
+    newhist() = Histogram((xe, ye), zeros(length(xe) - 1, length(ye) - 1), :left, false)
+    for (σx, σy, c) in ((0.02, 0.01, 1), (0.02, 0.02, -1), (0.03, 0.05, 1), (0.05, 0.2, -1)), y0 in (20.0, 20.037, 20.081)
+        h = newhist()
+        addstar!(h, GaussianPSFCovariant(0.5, y0, σx, σy, c, 1.0, 0.0))
+        # Reference only for rows within 6σy of the kernel, where it is nonzero to within the test tolerance
+        ref = [abs((ye[j] + ye[j+1]) / 2 - y0) < 6σy + step(ye) ? covariant_pixel(xe[i], xe[i+1], ye[j], ye[j+1], 0.5, y0, σx, σy, c) : 0.0
+               for i in 1:length(xe)-1, j in 1:length(ye)-1]
+        # Weight is conserved, apart from what falls outside the image in both the kernel and the reference
+        @test sum(h.weights) ≈ sum(ref) atol=2e-4
+        @test maximum(abs, h.weights .- ref) < 1e-3
+    end
+    # A kernel overlapping only the first row of the image still contributes
+    h = newhist()
+    addstar!(h, GaussianPSFCovariant(0.5, 18.95, 0.02, 0.02, 1, 1.0, 0.0))
+    @test sum(h.weights) ≈ cdf(Normal(18.95, 0.02), 19.1) - cdf(Normal(18.95, 0.02), 19.0) rtol=1e-3
+    @test_throws ArgumentError addstar!(newhist(), GaussianPSFCovariant(0.5, 20.0, 0.02, 0.02, 1, 1.0, 1.0))
+end

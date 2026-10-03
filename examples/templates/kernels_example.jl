@@ -1,4 +1,4 @@
-import StarFormationHistories: GaussianPSFAsymmetric, GaussianPSFCovariant, gaussian_psf_covariant, addstar!, evaluate, parameters, histogram_pix
+import StarFormationHistories: GaussianPSFAsymmetric, GaussianPSFCovariant, addstar!, evaluate, parameters, histogram_pix
 import StatsBase: fit, Histogram
 
 # Set up for plotting
@@ -64,14 +64,9 @@ hist_centers = (x = range(hist1_bins.x[1] + (hist1_bins.x[2] - hist1_bins.x[1])/
                           hist1_bins.y[end] - (hist1_bins.y[2] - hist1_bins.y[1])/2;
                           length=length(hist1_bins.y)-1))
 
-# Explicit evaluation
-z = [gaussian_psf_covariant(i, j, (hist1_bins.x[2] - hist1_bins.x[1])/2, (hist1_bins.y[2] - hist1_bins.y[1])/2,
-                            parameters(model)...) for i=hist_centers.x, j=hist_centers.y]
-# Use addstar! instead
 zz = Histogram(Tuple(hist1_bins), zeros(size(hist1_data)), :left, false)
-addstar!(zz, model, (100,100))
+addstar!(zz, model)
 zz = zz.weights # Choose matrix to display
-# z ≈ zz # Explicit evaluation and addstar! result should be approximately the same
 
 hist_im = axs[1].imshow(permutedims(hist1_data); aspect="auto", origin="lower",
                         extent=(extrema(hist1_bins.x)..., extrema(hist1_bins.y)...))
@@ -121,7 +116,7 @@ hist_centers = (x = range(hist1_bins.x[1] + (hist1_bins.x[2] - hist1_bins.x[1])/
                           length=length(hist1_bins.y)-1))
 
 zz = Histogram(Tuple(hist1_bins), zeros(size(hist1_data)), :left, false)
-addstar!(zz, model, (100,100))
+addstar!(zz, model)
 zz = zz.weights # Choose matrix to display
 
 hist_im = axs[1].imshow(permutedims(hist1_data); aspect="auto", origin="lower",
