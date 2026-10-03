@@ -124,3 +124,48 @@ const seedval = 58392 # Seed to use when instantiating new StableRNG objects
         @test result6[4][begin:end-1] ≈ a_error
     end
 end
+
+@testset "process_ASTs joint" begin
+    rng = StableRNG(seedval)
+    nstars = 200_000
+    bins = (20.0:0.25:22.0, 20.0:0.25:22.0)
+    in1, in2 = 20 .+ 2 .* rand(rng, nstars), 20 .+ 2 .* rand(rng, nstars)
+    # Leave the red corner of the grid without artificial stars
+    keep = in1 .- in2 .< 1.5
+    in1, in2 = in1[keep], in2[keep]
+    out1 = in1 .+ 0.02 .* randn(rng, length(in1)) .+ 0.01
+    out2 = in2 .+ 0.05 .* randn(rng, length(in2)) .- 0.02
+    # Diagonal selection that depends on both filters
+    selectfunc(x) = (x.in1 + x.in2) / 2 < 21
+    for ttype in (Table, DataFrame)
+        centers, completeness, bias, error = process_ASTs(ttype(in1=in1, in2=in2, out1=out1, out2=out2), (:in1, :in2), (:out1, :out2), bins, selectfunc)
+        @test centers == Tuple(b[begin:end-1] .+ step(b) / 2 for b in bins)
+        @test size(completeness) == (length(bins[1]) - 1, length(bins[2]) - 1)
+        @test all(x -> size(x) == size(completeness), (bias..., error...))
+        # Compare against a direct calculation in each bin
+        for i in axes(completeness, 1), j in axes(completeness, 2)
+            inbin = findall((bins[1][i] .<= in1 .< bins[1][i+1]) .& (bins[2][j] .<= in2 .< bins[2][j+1]))
+            if isempty(inbin)
+                @test isnan(completeness[i, j]) && isnan(bias[1][i, j]) && isnan(error[2][i, j])
+                continue
+            end
+            det = [k for k in inbin if (in1[k] + in2[k]) / 2 < 21]
+            @test completeness[i, j] == length(det) / length(inbin)
+            if isempty(det)
+                @test isnan(bias[1][i, j]) && isnan(error[2][i, j])
+            else
+                for (k, (inm, outm)) in enumerate(((in1, out1), (in2, out2)))
+                    d = outm[det] .- inm[det]
+                    @test bias[k][i, j] == median(d)
+                    @test error[k][i, j] == median(abs.(d .- median(d)))
+                end
+            end
+        end
+        # Fully selected bins recover the input bias and error
+        @test completeness[1, 1] == 1
+        @test bias[1][1, 1] ≈ 0.01 atol=0.005
+        @test bias[2][1, 1] ≈ -0.02 atol=0.01
+        # Bins entirely past the diagonal selection have zero completeness
+        @test completeness[end, end] == 0
+    end
+end

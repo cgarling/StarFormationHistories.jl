@@ -342,6 +342,22 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 # Vector{Vector} mags argument
                 @test_throws ArgumentError SFH.model_cmd( model_mags2, [one, errfuncs...], completefuncs; rng=rng)
 
+                # Joint models that are products of the per-filter models give the same results
+                biasfuncs = [x->T(1//100)*x, x->T(-1//100)*x]
+                jerr(a, b) = (errfuncs[1](a), errfuncs[2](b))
+                jcomp(a, b) = completefuncs[1](a) * completefuncs[2](b)
+                jbias(a, b) = (biasfuncs[1](a), biasfuncs[2](b))
+                for mm in (model_mags, model_mags2)
+                    ref = SFH.model_cmd(mm, errfuncs, completefuncs, biasfuncs; rng=StableRNG(seedval), ret_idxs=true)
+                    @test SFH.model_cmd(mm, jerr, jcomp, jbias; rng=StableRNG(seedval), ret_idxs=true) == ref
+                    @test SFH.model_cmd(mm, errfuncs, jcomp, biasfuncs; rng=StableRNG(seedval), ret_idxs=true) == ref
+                end
+                # A joint completeness that depends on color keeps only the selected stars
+                mean_color = sum(m[1] - m[2] for m in model_mags) / length(model_mags)
+                jcut(a, b) = a - b < mean_color
+                _, idxs = SFH.model_cmd(model_mags, errfuncs, jcut; rng=rng, ret_idxs=true)
+                @test idxs == findall(m -> jcut(m...), model_mags)
+
                 ################
                 # Test surviving_fraction and friends
                 s = SFH.surviving_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)

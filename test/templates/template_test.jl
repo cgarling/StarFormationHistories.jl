@@ -4,7 +4,8 @@ import Distributions: pdf
 using Test
 import StatsBase: Histogram
 import InitialMassFunctions: Kroupa2001
-using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs
+using StableRNGs: StableRNG
+using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, generate_stars_mass, model_cmd
 
 
 @testset "mini_spacing" begin
@@ -104,6 +105,44 @@ end
             @test template.edges == edges
             @test template.isdensity == false
         end
+    end
+
+    @testset "Joint photometric models" begin
+        filters = [F090W, F150W, F277W]
+        comp, err = [F090W_complete, F150W_complete, F277W_complete], [F090W_error, F150W_error, F277W_error]
+        bias = [m -> 0.01 * (m - 25), m -> -0.02 * (m - 25), zero]
+        # Joint models that are products of the per-filter models give the same templates
+        jcomp(ms...) = prod(comp[k](ms[k]) for k in eachindex(ms))
+        jerr(ms...) = map((f, m) -> f(m), Tuple(err), ms)
+        jbias(ms...) = map((f, m) -> f(m), Tuple(bias), ms)
+        for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
+            # Joint errors with binaries require only the two Hess diagram filters
+            nf = y_index in color_indices ? 2 : 3
+            binary_models = y_index in color_indices ? (NoBinaries(), RandomBinaryPairs(0.3)) : (NoBinaries(),)
+            for binary_model in binary_models
+                tmpl(e, c, b) = partial_cmd_smooth(m_ini, filters[1:nf], e, y_index, color_indices, imf, c, b; dmod=distmod, normalize_value=template_norm, edges, binary_model).weights
+                ref = tmpl(err[1:nf], comp[1:nf], bias[1:nf])
+                @test tmpl(err[1:nf], jcomp, bias[1:nf]) ≈ ref
+                @test tmpl(jerr, comp[1:nf], jbias) ≈ ref
+                @test tmpl(jerr, jcomp, jbias) ≈ ref
+            end
+        end
+        # A non-separable selection (a color-dependent magnitude limit) removes stars from the template
+        diag_comp(m1, m2) = (m1 + m2) / 2 < distmod + 1.5
+        sep = partial_cmd_smooth(m_ini, filters[1:2], err[1:2], 2, (1,2), imf; dmod=distmod, normalize_value=template_norm, edges).weights
+        joint = partial_cmd_smooth(m_ini, filters[1:2], err[1:2], 2, (1,2), imf, diag_comp; dmod=distmod, normalize_value=template_norm, edges).weights
+        @test 0 < sum(joint) < sum(sep)
+        # Templates and mock observations with the same joint completeness model agree
+        smooth_comp(m1, m2) = (1 - tanh(((m1 + m2) / 2 - (distmod + 2.5)) / 0.2)) / 2
+        smooth_tmpl = partial_cmd_smooth(m_ini, filters[1:2], err[1:2], 2, (1,2), imf, smooth_comp; dmod=distmod, normalize_value=3e6, edges).weights
+        _, mock_mags = generate_stars_mass(copy(m_ini), filters[1:2], ["F090W", "F150W"], 3e6, imf; dist_mod=distmod, rng=StableRNG(1), binary_model=NoBinaries())
+        obs = model_cmd(mock_mags, err[1:2], smooth_comp; rng=StableRNG(2))
+        nobs = count(m -> (first(edges[1]) <= m[1] - m[2] < last(edges[1])) & (first(edges[2]) <= m[2] < last(edges[2])), obs)
+        @test nobs ≈ sum(smooth_tmpl) rtol=0.03
+        # Joint errors with binaries and filters not in the Hess diagram are not supported
+        @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, jerr, 2, (1,2), imf, comp; dmod=distmod, normalize_value=template_norm, edges, binary_model=RandomBinaryPairs(0.3))
+        # Per-filter models must have one callable per filter
+        @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, err[1:2], 2, (1,2), imf, jcomp; dmod=distmod, normalize_value=template_norm, edges)
     end
 end
 # 2.5 ms

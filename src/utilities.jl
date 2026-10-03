@@ -313,6 +313,66 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
     end
     return bin_centers, completeness, bias, error
 end
+"""
+    process_ASTs(ASTs,
+                 inmags::NTuple{2, Symbol},
+                 outmags::NTuple{2, Symbol},
+                 bins::NTuple{2, AbstractVector{<:Real}},
+                 selectfunc;
+                 statistic=StatsBase.median)
+
+Processes a table of artificial stars to calculate the joint photometric completeness and the photometric bias and error in two filters on a 2-D grid of input magnitudes. Joint models are needed when detection or selection depends on both filters together; for example, requiring a signal-to-noise ratio above 5 in both filters removes stars along a diagonal line in the Hess diagram, which cannot be represented by the product of single-filter completeness functions. The results can be interpolated (e.g., with `Interpolations.jl`) to construct the joint models accepted by [`partial_cmd_smooth`](@ref) and [`model_cmd`](@ref).
+
+# Arguments
+ - `ASTs` is the table of artificial stars to be analyzed, as in the single-filter method above.
+ - `inmags` are the column names (e.g., `(:F606Wi, :F814Wi)`) of the intrinsic (input) magnitudes in the two filters.
+ - `outmags` are the column names (e.g., `(:F606Wo, :F814Wo)`) of the measured (output) magnitudes in the same two filters.
+ - `bins` are the bin edges in the input magnitudes of the two filters; `bins[1]` applies to `inmags[1]` and `bins[2]` to `inmags[2]`.
+ - `selectfunc` is a method that takes a single row from `ASTs`, corresponding to a single artificial star, and returns `true` if the star is considered successfully measured. For a joint completeness, this should require detection in both filters along with any other selection criteria (e.g., signal-to-noise cuts) applied to your catalog.
+
+# Keyword Arguments
+ - `statistic` is as in the single-filter method above.
+
+# Returns
+`(centers, completeness, bias, error)`, where `completeness` is a `Matrix` of size `(length(bins[1]) - 1, length(bins[2]) - 1)` and `centers`, `bias`, and `error` are 2-tuples with one entry per filter.
+ - `centers[k]` contains the midpoints of `bins[k]`. Unlike the single-filter method, these are bin midpoints rather than the mean input magnitude of the stars in each bin, so that the results lie on a regular grid.
+ - `completeness[i, j]` is the fraction of input stars in the bin `(i, j)` for which `selectfunc` returned `true`.
+ - `bias[k][i, j]` and `error[k][i, j]` are the photometric bias and error in filter `k`, defined as in the single-filter method above, measured from the stars in bin `(i, j)` for which `selectfunc` returned `true`.
+Bins containing no input stars have `NaN` completeness, and bins in which no stars pass `selectfunc` have `NaN` bias and error. These are typically bins outside the region of the Hess diagram covered by the artificial stars, and must be handled (e.g., filled from neighboring bins) before interpolating.
+"""
+function process_ASTs(ASTs, inmags::NTuple{2, Symbol}, outmags::NTuple{2, Symbol},
+                      bins::NTuple{2, AbstractVector{<:Real}}, selectfunc; statistic=median)
+    @argcheck all(length(b) > 1 && issorted(b) for b in bins) "Each element of `bins` must be sorted and contain at least two bin edges."
+    dtype = float(promote_type(typeof.(values(first(ASTs)))...))
+    input = getproperty.(Ref(ASTs), inmags)
+    output = getproperty.(Ref(ASTs), outmags)
+    good = [selectfunc(row) for row in Tables.rows(ASTs)]
+    nbins = length.(bins) .- 1
+    # Group the stars by bin; bin i contains bins[i] <= mag < bins[i+1]
+    members = [Int[] for _ in CartesianIndices(nbins)]
+    for s in eachindex(input[1], input[2], good)
+        i, j = searchsortedlast(bins[1], input[1][s]), searchsortedlast(bins[2], input[2][s])
+        (1 <= i <= nbins[1]) && (1 <= j <= nbins[2]) && push!(members[i, j], s)
+    end
+    completeness = fill(dtype(NaN), nbins)
+    bias = (fill(dtype(NaN), nbins), fill(dtype(NaN), nbins))
+    error = (fill(dtype(NaN), nbins), fill(dtype(NaN), nbins))
+    for c in eachindex(members)
+        m = members[c]
+        isempty(m) && continue
+        detected = m[good[m]]
+        completeness[c] = length(detected) / length(m)
+        isempty(detected) && continue
+        for k in 1:2
+            resid = output[k][detected] .- input[k][detected] # This makes bias relative to input
+            bias[k][c] = statistic(resid)
+            # Error should be defined as scatter around ⟨output⟩ - input = (output - bias) - input
+            error[k][c] = statistic(abs.(resid .- bias[k][c]))
+        end
+    end
+    centers = Tuple(b[begin:end-1] .+ diff(b) ./ 2 for b in bins)
+    return centers, completeness, bias, error
+end
 
 # Numerical utilities
 

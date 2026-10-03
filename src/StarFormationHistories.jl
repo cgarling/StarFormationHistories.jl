@@ -157,6 +157,15 @@ Simple function barrier for [`partial_cmd`](@ref) and [`partial_cmd_smooth`](@re
 dispatch_imf(imf, m) = imf(m)
 dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 
+# Photometric completeness, error, and bias models are either a Tuple or AbstractVector of single-filter
+# callables, or one joint callable taking one magnitude per filter. `mags` holds one magnitude vector per filter.
+# Completeness: per-filter models are multiplied over the filters in `idxs`; a joint model returns the joint completeness.
+completeness_values(completeness::Union{Tuple, AbstractVector}, mags::AbstractVector{<:AbstractVector}, idxs=eachindex(mags)) = .*((completeness[k].(mags[k]) for k in idxs)...)
+completeness_values(completeness, mags::AbstractVector{<:AbstractVector}, idxs=nothing) = completeness.(mags...)
+# Errors and biases: returns one vector per filter; a joint model returns one value per filter for each star
+filter_values(f::Union{Tuple, AbstractVector}, mags::AbstractVector{<:AbstractVector}) = [f[k].(mags[k]) for k in eachindex(f, mags)]
+filter_values(f, mags::AbstractVector{<:AbstractVector}) = (r = f.(mags...); [getindex.(r, k) for k in eachindex(mags)])
+
 """
     mean(imf::Distributions.ContinuousUnivariateDistribution; kws...) =
         quadgk(x->x*pdf(imf,x), extrema(imf)...; kws...)[1]
@@ -663,16 +672,10 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
     end
     # println("Binary weights pre-completeness: ", sum(binary_weights))
     # Apply completeness functions to weights
-    if y_index in color_indices
-        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
-            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] )
-    else
-        binary_weights .*= completeness_funcs[first(color_indices)].( binary_mags[first(color_indices)] ) .*
-            completeness_funcs[last(color_indices)].( binary_mags[last(color_indices)] ) .*
-            completeness_funcs[y_index].( [binary_mags, y_index] )
-    end
+    idxs = y_index in color_indices ? color_indices : (color_indices..., y_index)
+    binary_weights .*= completeness_values(completeness_funcs, binary_mags, idxs)
     # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
-    bias_binary_mags = [binary_mags[i] .+ bias_funcs[i].(binary_mags[i]) for i in eachindex(binary_mags)]
+    bias_binary_mags = binary_mags .+ filter_values(bias_funcs, binary_mags)
     colors = bias_binary_mags[first(color_indices)] .- bias_binary_mags[last(color_indices)]
     hist = fit(Histogram, (colors, bias_binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
     hist_weights = vec(hist.weights)
@@ -685,7 +688,6 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
     # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
     h_colors = repeat(centers[1]; outer=length(centers[2]))[good]
     h_mags = repeat(centers[2]; inner=length(centers[1]))[good]
-    ymag_err = repeat(mag_err_funcs[y_index].(centers[2]); inner=length(centers[1]))[good]
 
     if y_index in color_indices
         if y_index == first(color_indices)
@@ -694,7 +696,14 @@ function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::Abst
             xmags = h_mags .+ h_colors
         end
         x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
-        color_err = mag_err_funcs[x_c_idx].(xmags)
+        # Only the magnitudes of the two CMD filters are known at the bin centers
+        if mag_err_funcs isa Union{Tuple, AbstractVector}
+            ymag_err, color_err = mag_err_funcs[y_index].(h_mags), mag_err_funcs[x_c_idx].(xmags)
+        else
+            @argcheck length(mags) == 2 "Joint error models with binaries require `mags` to contain only the two filters used in the Hess diagram."
+            mag_err = filter_values(mag_err_funcs, [k == y_index ? h_mags : xmags for k in eachindex(mags)])
+            ymag_err, color_err = mag_err[y_index], mag_err[x_c_idx]
+        end
         cov_mult = (y_index == first(color_indices)) ? -1 : 1
     else
         error("`binary_hess(model::RandomBinaryPairs, ...)` for `!(y_index in color_indices)` not yet implemented.")
@@ -804,12 +813,12 @@ Main function for generating template Hess diagrams from a simple stellar popula
 # Arguments
  - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars from the isochrone.
  - `mags::AbstractVector{<:AbstractVector{<:Number}}` is a vector of vectors. Each constituent vector with index `i` should have `length(mags[i]) == length(m_ini)`, representing the magnitudes of the isochrone stars in each of the magnitudes considered. In most cases, mags should contain 2 (if y-axis mag is also involved in the x-axis color) or 3 vectors.
- - `mag_err_funcs` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) to compute the 1σ photometric errors for the same filters provided in `mags`. Each callable must take a single argument (an *apparent* magnitude) and return a `Number`. The length `mag_err_funcs` must be equal to the length of `mags`.
+ - `mag_err_funcs` computes the 1σ photometric errors for the filters provided in `mags`. It is either a `Vector` or `Tuple` of callables (e.g., a `Function`) with one callable per filter in `mags`, each taking a single *apparent* magnitude and returning a `Number`, or a single joint callable as described in the "Joint Photometric Models" section below.
  - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you would set `y_index` as `2`. 
  - `color_indices` is a length-2 indexable object giving the indices into `mags` that are to be used to compute the x-axis color. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]`, and you want B-V to be the x-axis color, then `color_indices` should be `[1,2]` or `(1,2)` or similar.
  - `imf` is a callable that takes an initial stellar mass as its sole argument and returns the (properly normalized) probability density of your initial mass function model. All the models from [InitialMassFunctions.jl](https://github.com/cgarling/InitialMassFunctions.jl) are valid for `imf`.
- - `completeness_funcs` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) that return the single-filter completeness fractions as a function of *apparent* magnitude. Each callable in this argument must correspond to the matching filter provided in `mags`.
- - `bias_funcs` must be an indexable object (e.g., a `Vector` or `Tuple`) that contains callables (e.g., a `Function`) that return the expected photometric bias as a function of *apparent* magnitude. The photometric bias is defined as the difference between measured and intrinsic magnitude (i.e., `output - input` for artificial star tests). Each callable in this argument must correspond to the matching filter provided in `mags`.
+ - `completeness_funcs` gives the completeness fractions as a function of *apparent* magnitude. It is either a `Vector` or `Tuple` of callables (e.g., a `Function`) returning the single-filter completeness for the matching filter provided in `mags`, in which case the completeness of a star is the product of the single-filter completeness values in the filters used in the Hess diagram, or a single joint callable as described in the "Joint Photometric Models" section below.
+ - `bias_funcs` gives the expected photometric bias as a function of *apparent* magnitude. The photometric bias is defined as the difference between measured and intrinsic magnitude (i.e., `output - input` for artificial star tests). It is either a `Vector` or `Tuple` of callables (e.g., a `Function`) with one callable per filter in `mags`, or a single joint callable as described in the "Joint Photometric Models" section below.
 
 # Keyword Arguments
  - `dmod::Number=0` is the distance modulus in magnitudes to apply to the input `mags`. Leave at `0` if you are providing apparent magnitudes in `mags`.
@@ -825,6 +834,9 @@ Main function for generating template Hess diagrams from a simple stellar popula
 
 # Returns
 This method returns the Hess diagram as a `StatsBase.Histogram`; you should refer to the StatsBase documentation for more information. In short, if the output of this method is `result`, then the Hess diagram represented as a `Matrix` is available as `result.weights` (this is what you would want for [`fit_templates`](@ref) and similar functions) and the edges of the histogram are available as `result.edges`.
+
+# Joint Photometric Models
+Per-filter models assume that the completeness, error, and bias in each filter depend only on the magnitude in that filter. This cannot represent, for example, a catalog cut requiring a minimum signal-to-noise ratio in every filter, which removes stars along a diagonal line in the Hess diagram. Each of `mag_err_funcs`, `completeness_funcs`, and `bias_funcs` may instead be a single joint callable that takes one *apparent* magnitude per filter in `mags`, in the same order as `mags` (e.g., `f(mag_1, mag_2)` for two filters). A joint `completeness_funcs` returns the probability that a star is detected and passes all selection criteria, and a joint `mag_err_funcs` or `bias_funcs` returns one value per filter (e.g., a `Tuple` or `StaticArrays.SVector`). Joint and per-filter models can be mixed; for example, a joint completeness model can be used with per-filter error and bias models. Photometric errors are still assumed to be uncorrelated between filters. With `binary_model` other than `NoBinaries()`, a joint `mag_err_funcs` requires `mags` to contain only the two filters used in the Hess diagram. See [`process_ASTs`](@ref) for measuring joint models from artificial star tests.
 """
 function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mags::AbstractVector{<:AbstractVector{<:Number}},
@@ -837,13 +849,12 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
     @argcheck length(color_indices) == 2
-    @argcheck length(mags) == length(mag_err_funcs) == length(completeness_funcs) == length(bias_funcs)
+    # Per-filter models must have one callable per filter; joint callables are not checked here
+    @argcheck all(length(f) == length(mags) for f in (mag_err_funcs, completeness_funcs, bias_funcs) if f isa Union{Tuple, AbstractVector})
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
-    for idx in union(y_index, color_indices)
-        @argcheck all(map(x -> y_index in first(axes(x)), (mags, mag_err_funcs, completeness_funcs)))
-    end
+    @argcheck all(checkbounds(Bool, mags, idx) for idx in union(y_index, color_indices))
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]
@@ -852,7 +863,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, Δmag, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
-    mag_err = [mag_err_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
+    mag_err = filter_values(mag_err_funcs, new_iso_mags)
     if y_index in color_indices # x-axis color is dependent on y-axis magnitude
         # This case will use GaussianPSFCovariant, which expects the color_err
         # to be the single-band error for the filter in the x-axis color which
@@ -860,9 +871,8 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # simply be σB.
         x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
         color_err = mag_err[x_c_idx]
-        # Calculate vector of completeness products; product of the two involved magnitudes
-        completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
-            completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)])
+        # Calculate vector of completeness values; per-filter models use the product of the two involved magnitudes
+        completeness_vec = completeness_values(completeness_funcs, new_iso_mags, color_indices)
         # Calculate weights; output length is one less than input vectors
         weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
         cov_mult = (y_index == first(color_indices)) ? -1 : 1
@@ -870,10 +880,8 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
         # x-axis color error is quadrature of the two constituent magnitudes
         color_err = [sqrt(mag_err[first(color_indices)][i]^2 + mag_err[last(color_indices)][i]^2)
                      for i in eachindex(new_mini)]
-        # Calculate vector of completeness products; product of all three involved magnitudes
-        completeness_vec = completeness_funcs[first(color_indices)].(new_iso_mags[first(color_indices)]) .*
-            completeness_funcs[last(color_indices)].(new_iso_mags[last(color_indices)]) .*
-            completeness_funcs[y_index].(new_iso_mags[y_index])
+        # Calculate vector of completeness values; per-filter models use the product of all three involved magnitudes
+        completeness_vec = completeness_values(completeness_funcs, new_iso_mags, (color_indices..., y_index))
         # Calculate weights; output length is one less than input vectors
         weights = calculate_weights(new_mini, completeness_vec, imf, normalize_value, mean_mass, new_spacing)
         # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
@@ -881,7 +889,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     end
 
     # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
-    bias_iso_mags = [new_iso_mags[i] .+ bias_funcs[i].(new_iso_mags[i]) for i in eachindex(mags)]
+    bias_iso_mags = new_iso_mags .+ filter_values(bias_funcs, new_iso_mags)
     colors = bias_iso_mags[first(color_indices)] .- bias_iso_mags[last(color_indices)]
     single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(bias_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
