@@ -34,7 +34,6 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 TaskLocalValues = "ed4db957-447d-4319-bfb6-7fa9ae7ecf34"
 Trapz = "592b5752-818d-11e9-1e9a-2b8ca4a44cd1"
-VectorizationBase = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
 
 [compat]
 ArgCheck = "2"
@@ -73,7 +72,6 @@ TaskLocalValues = "0.1"
 Test = "<0.0.1, 1"
 Trapz = "2"
 TypedTables = "1"
-VectorizationBase = "0.21"
 julia = "1.7"
 
 [extras]

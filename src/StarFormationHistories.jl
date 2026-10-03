@@ -14,7 +14,6 @@ import LineSearches # For configuration of Optim.jl
 using LinearAlgebra: BLAS, diag, Hermitian, mul! # hermitianpart
 import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
-import LoopVectorization: can_turbo # Extending for our functions
 import Optim
 import NLSolversBase
 using PDMats: PDMat
@@ -27,8 +26,6 @@ import Tables # For Tables.rows, process_ASTs
 using TaskLocalValues: TaskLocalValue # For threadsafe buffers
 import Trapz: trapz
 using SpecialFunctions: erf
-# LoopVectorization has a specialfunctions extension that provides erf(x::AbstractSIMD)
-using VectorizationBase: AbstractSIMD, verf # SIMD-capable erf for Float32 and Float64
 using StaticArrays: SVector, sacollect
 using StatsBase: fit, Histogram, Weights
 import StatsBase: mean, median, mode, std # Extending
@@ -178,174 +175,48 @@ mean(imf::Distribution{Univariate, Continuous}; kws...) =
 ##################################
 # KDE models
 
-"Root abstract type for kernels used in Hess diagram modelling."
-abstract type AbstractKernel end
-"Abstract type for kernels used in Hess diagram modelling that define their parameters \
-(e.g., widths, centers, sizes) in the pixel space of underlying Hess diagram matrix."
-abstract type PixelSpaceKernel <: AbstractKernel end
-"Abstract type for kernels used in Hess diagram modelling that define their parameters \
-(e.g., widths, centers, sizes) in real magnitude space -- these kernels require their \
-parameters converted into pixel-space prior to injection into the Hess diagram matrix."
-abstract type RealSpaceKernel <: AbstractKernel end
-
-##################################
-# Code for concrete implementations of PixelSpaceKernel
-
-"""
-    gaussian_int_general(Δx::Real, Δy::Real, halfxstep::Real, halfystep::Real,
-                         σx::Real, σy::Real, A::Real, B::Real)
-
-Returns the exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
-"""
-@inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
-                                      σx::T, σy::T, A::T, B::T) where T <: Real
-    sqrt2 = sqrt(T(2))
-    return A / 4 * erf((Δx + halfxstep) / (sqrt2 * σx), (Δx - halfxstep) / (sqrt2 * σx)) *
-                   erf((Δy + halfystep) / (sqrt2 * σy), (Δy - halfystep) / (sqrt2 * σy)) + B
-end
-# 2x speedup in double precision for Julia 1.10 using VectorizationBase.verf
-@inline function gaussian_int_general(Δx::T, Δy::T, halfxstep::T, halfystep::T,
-                                      σx::T, σy::T, A::T, B::T) where T <: Union{Float32, Float64,
-                                                                                 AbstractSIMD{<:Any, Float32},
-                                                                                 AbstractSIMD{<:Any, Float64}}
-    sqrt2 = sqrt(T(2))
-    return A / 4 * (verf((Δx - halfxstep) / (sqrt2 * σx)) - verf((Δx + halfxstep) / (sqrt2 * σx))) *
-        (verf((Δy - halfystep) / (sqrt2 * σy)) - verf((Δy + halfystep) / (sqrt2 * σy))) + B
-end
-@inline gaussian_int_general(args::Vararg{Real, 8}) = gaussian_int_general(promote(args...)...)
-
-"""
-    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
-    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
-    GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
-
-A [`PixelSpaceKernel`](@ref StarFormationHistories.PixelSpaceKernel) representing the 2D asymmetric Gaussian PSF without rotation (no θ).
-
-# Parameters
- - `x0`, the center of the PSF model along the first matrix dimension
- - `y0`, the center of the PSF model along the second matrix dimension
- - `σx`, the Gaussian `σ` along the first matrix dimension
- - `σy`, the Gaussian `σ` along the first matrix dimension
- - `A`, and additional multiplicative constant in front of the normalized Gaussian
- - `B`, a constant additive background across the PSF
-"""
-struct GaussianPSFAsymmetric{T <: Real} <: PixelSpaceKernel
+# Gaussian kernel for a star in a Hess diagram with x-axis color and y-axis magnitude, in data units. y is Gaussian with
+# standard deviation σy about y0, and the color given y is Gaussian with standard deviation σx about
+# x0 - cov_mult * (y - y0). `cov_mult` is 1 for y=V and x=B-V, -1 for y=B and x=B-V (the y-axis filter also enters the
+# color), and 0 for y=R and x=B-V (no covariance, in which case σx is the error in the color). `A` is the total weight.
+struct GaussianKernel{T <: Real}
     x0::T
     y0::T
     σx::T
     σy::T
+    cov_mult::T
     A::T
-    B::T
-    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real)
-        T = promote(x0, y0, σx, σy)
-        T_type = eltype(T)
-        new{T_type}(T[1], T[2], T[3], T[4], one(T_type), zero(T_type))
-    end
-    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real)
-        T = promote(x0, y0, σx, σy, A)
-        T_type = eltype(T)
-        new{T_type}(T[1], T[2], T[3], T[4], T[5], zero(T_type))
-    end
-    function GaussianPSFAsymmetric(x0::Real, y0::Real, σx::Real, σy::Real, A::Real, B::Real)
-        T = promote(x0, y0, σx, σy, A, B)
-        new{eltype(T)}(T...)
+    function GaussianKernel{T}(x0, y0, σx, σy, cov_mult, A=1) where T <: Real
+        @argcheck cov_mult in (-1, 0, 1)
+        new{T}(x0, y0, σx, σy, cov_mult, A)
     end
 end
-Base.Broadcast.broadcastable(m::GaussianPSFAsymmetric) = Ref(m)
-parameters(model::GaussianPSFAsymmetric) = (model.x0, model.y0, model.σx, model.σy, model.A, model.B)
-Base.size(model::GaussianPSFAsymmetric) = (ceil(Int, model.σx * 10), ceil(Int, model.σy * 10))
-centroid(model::GaussianPSFAsymmetric) = (model.x0, model.y0)
-""" 
-    gaussian_psf_asymmetric_integral_halfpix(x::Real, y::Real, x0::Real, y0::Real, σx::Real,
-                                             σy::Real, A::Real, B::Real)
+GaussianKernel(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real=1) =
+    GaussianKernel{promote_type(typeof(x0), typeof(y0), typeof(σx), typeof(σy), typeof(cov_mult), typeof(A))}(x0, y0, σx, σy, cov_mult, A)
 
-Exact analytic integral from `(x - 0.5, x + 0.5)` and `(y - 0.5, y + 0.5)` for the asymmetric, non-rotated 2D Gaussian. `A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
-"""
-@inline function gaussian_psf_asymmetric_integral_halfpix(x::T, y::T, x0::T, y0::T,
-                                                          σx::T, σy::T, A::T, B::T) where T <: Real
-    T <: Integer ? onehalf = 0.5 : onehalf = T(1//2) # Cover all integer case
-    Δx = x - x0
-    Δy = y - y0
-    return gaussian_int_general(Δx, Δy, onehalf, onehalf, σx, σy, A, B)
-end
-@inline gaussian_psf_asymmetric_integral_halfpix(args::Vararg{Real,8}) = 
-    gaussian_psf_asymmetric_integral_halfpix(promote(args...)...)
-@inline evaluate(model::GaussianPSFAsymmetric, x::Real, y::Real) = 
-    gaussian_psf_asymmetric_integral_halfpix(x, y, parameters(model)...)
-# Need to let LoopVectorization know that it can turbo this function
-can_turbo(::typeof(evaluate), ::Val{3}) = true
-
-##################################
-# Code for concrete implementations of RealSpaceKernel
-
-struct GaussianPSFCovariant{T <: Real} <: RealSpaceKernel
-    x0::T
-    y0::T
-    σx::T
-    σy::T
-    cov_mult::T # 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-    A::T
-    B::T
-    GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real) = 
-        GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, 1, 0)
-    GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real) =
-        GaussianPSFCovariant(x0, y0, σx, σy, cov_mult, A, 0)
-    function GaussianPSFCovariant(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
-        @argcheck (cov_mult == 1) || (cov_mult == -1) || (cov_mult == 0)
-        T = promote(x0, y0, σx, σy, cov_mult, A, B)
-        new{eltype(T)}(T...)
-    end
-end
-Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
-parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
-                                           model.cov_mult, model.A, model.B)
-centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
-
-#####################################################
-# Function to add a kernel to a smoothed Hess diagram
-
-@inline addstar!(image::Histogram, obj::PixelSpaceKernel) = addstar!(image.weights, obj)
-@inline addstar!(image::Histogram, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}) =
-    addstar!(image.weights, obj, cutout_size)
-function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tuple{Int,Int}=size(obj))
-    @argcheck length(image) > 1
-    x,y = round.(Int, centroid(obj)) # get the center of the object to be inserted, in pixel space
-    x_offset = max(1, cutout_size[1] ÷ 2)
-    y_offset = max(1, cutout_size[2] ÷ 2)
-    # Need to eval at pixel midpoint, so add 0.5
-    onehalf = eltype(image)(1//2)
-    # Define loop indices, verifying safe bounds for @turbo loop
-    xind = max(firstindex(image, 1), x - x_offset):min(lastindex(image, 1), x + x_offset)
-    yind = max(firstindex(image, 2), y - y_offset):min(lastindex(image, 2), y + y_offset)
-    # Double loop over x and y
-    if !isempty(xind) && !isempty(yind) # Kernels overlapping the image by a single row or column still contribute
-        @turbo for i=xind, j=yind
-            @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
-        end
-    end
-end
-
-# Adds the covariant kernel `obj`, integrated over each pixel, to the Hess diagram `image`, which must have uniformly
-# spaced bin edges. The kernel is the distribution of y, Gaussian with standard deviation σy about y0, and of the color,
-# which given y is Gaussian with standard deviation σx about x0 - cov_mult * (y - y0). It is evaluated within `k`
-# standard deviations of its center along y and, in each row, along the color. The integral over each pixel row in y is
-# exact. Each row is split into sub-rows across which the color center shifts by at most σx, and within each sub-row the
-# color distribution is approximated as a Gaussian with the mean and variance implied by the distribution of y in the
-# sub-row, which is integrated exactly over each pixel in color. The total weight added is therefore exactly A when the
+# Adds the kernel `obj`, integrated over each pixel, to the Hess diagram `image`, which must have uniformly spaced bin
+# edges. The kernel is evaluated within `k` standard deviations of its center along y and, in each row, along the
+# color. The integral over each pixel row in y is exact. Each row is oversampled in y by sub-rows across which the
+# mean color shifts by at most σx, and within each sub-row the color distribution is approximated as a Gaussian with
+# the mean and variance of the color over the sub-row, which is integrated exactly over each pixel in color. Without
+# covariance there is one sub-row per row and the integral is exact. The total weight added is exactly A when the
 # kernel lies within `image`.
-function addstar!(image::Histogram, obj::GaussianPSFCovariant; k::Real=4)
+function addstar!(image::Histogram, obj::GaussianKernel; k::Real=4)
     data, (xe, ye) = image.weights, image.edges
     Base.require_one_based_indexing(data)
-    all(Base.Fix2(isa, AbstractRange), image.edges) || throw(ArgumentError("The `image::Histogram` provided to `addstar!` with a `GaussianPSFCovariant` must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
-    x0, y0, σx, σy, c, A, B = parameters(obj)
-    iszero(B) || throw(ArgumentError("`addstar!` does not support a nonzero background `B` for `GaussianPSFCovariant`."))
+    all(Base.Fix2(isa, AbstractRange), image.edges) || throw(ArgumentError("The `image::Histogram` provided to `addstar!` must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
+    (; x0, y0, σx, σy, cov_mult, A) = obj
+    c = cov_mult
     Δx, Δy, x1, y1 = step(xe), step(ye), first(xe), first(ye)
     # Pixel rows within k σy of the center
     jlo = max(1, floor(Int, (y0 - k * σy - y1) / Δy) + 1)
     jhi = min(size(data, 2), floor(Int, (y0 + k * σy - y1) / Δy) + 1)
-    # The color center shifts by |c| Δy / nsub across one sub-row
+    # The mean color shifts by |c| Δy / nsub across one sub-row
     nsub = iszero(c) ? 1 : clamp(ceil(Int, abs(c) * Δy / σx), 1, 16)
     erfs = similar(data, size(data, 1) + 1) # erf at the color bin edges of the current sub-row
+    # Column range and erf values are recomputed only when the color distribution changes, which without covariance
+    # happens only for the first row
+    xprev, σprev, ilo, ihi = oftype(float(x0), NaN), oftype(float(σx), NaN), 1, 0
     for j in jlo:jhi, s in 1:nsub
         # Standardized limits of the sub-row in y, its probability P, and the mean μ and variance v of y - y0 within it
         a = (y1 + (j - 1 + (s - 1) / nsub) * Δy - y0) / σy
@@ -356,13 +227,18 @@ function addstar!(image::Histogram, obj::GaussianPSFCovariant; k::Real=4)
         μ = σy * (φa - φb) / P
         v = σy^2 * (1 + (a * φa - b * φb) / P - ((φa - φb) / P)^2)
         xc, σc = x0 - c * μ, sqrt(σx^2 + c^2 * max(v, 0))
-        ilo = max(1, floor(Int, (xc - k * σc - x1) / Δx) + 1)
-        ihi = min(size(data, 1), floor(Int, (xc + k * σc - x1) / Δx) + 1)
-        ilo > ihi && continue
-        scale = 1 / (sqrt(2) * σc)
-        @turbo for i in ilo:ihi+1
-            erfs[i] = erf((x1 + (i - 1) * Δx - xc) * scale)
+        if (xc != xprev) || (σc != σprev)
+            ilo = max(1, floor(Int, (xc - k * σc - x1) / Δx) + 1)
+            ihi = min(size(data, 1), floor(Int, (xc + k * σc - x1) / Δx) + 1)
+            if ilo <= ihi
+                scale = 1 / (sqrt(2) * σc)
+                @turbo for i in ilo:ihi+1
+                    erfs[i] = erf((x1 + (i - 1) * Δx - xc) * scale)
+                end
+            end
+            xprev, σprev = xc, σc
         end
+        ilo > ihi && continue
         w = A * P / 2 # The integral of the color Gaussian over a bin is half the difference of erf at its edges
         @turbo for i in ilo:ihi
             data[i, j] += w * (erfs[i+1] - erfs[i])
@@ -440,48 +316,6 @@ function calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
 end
 
 """
-    histogram_pix(d, edges)
-    histogram_pix(d, edges::AbstractRange)
-
-Returns the fractional index (i.e., pixel position) of value `d` given the left-aligned bin `edges`. The specialized form for `edges::AbstractRange` accepts reverse-sorted input (e.g., `edges=1:-0.1:0.0`) but `edges` must be sorted if you are providing an `edges` that is not an `AbstractRange`. See also [`StarFormationHistories.histogram_data`](@ref) for inverse function.
-
-# Examples
-```jldoctest
-julia> StarFormationHistories.histogram_pix(0.5,0.0:0.1:1.0) ≈ 6
-true
-
-julia> (0.0:0.1:1.0)[6] == 0.5
-true
-
-julia> StarFormationHistories.histogram_pix(0.55,0.0:0.1:1.0) ≈ 6.5
-true
-
-julia> StarFormationHistories.histogram_pix(0.5,1.0:-0.1:0.0) ≈ 6
-true
-
-julia> StarFormationHistories.histogram_pix(0.5,collect(0.0:0.1:1.0)) ≈ 6
-true
-```
-"""
-histogram_pix(d, edges::AbstractRange) = (d - first(edges)) / step(edges) + 1
-function histogram_pix(d, edges)
-    idd = searchsortedfirst(edges, d)
-    if edges[idd] == d
-        return idd
-    else
-        Δe = edges[idd] - edges[idd-1]
-        return (idd-1) + (d - edges[idd-1]) / Δe
-    end
-end
-
-"""
-    histogram_data(x, edges::AbstractRange)
-
-Given a pixel-space value `x`, return the data-space value `d` it corresponds to according to the provided `edges::AbstractRange`. Inverse of [`StarFormationHistories.histogram_pix`](@ref). 
-"""
-histogram_data(x, edges::AbstractRange) = (x - 1) * step(edges) + first(edges)
-
-"""
     result::StatsBase.Histogram =
        bin_cmd(colors::AbstractVector{<:Number},
                mags::AbstractVector{<:Number};
@@ -544,43 +378,11 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     @argcheck axes(colors) == axes(mags) == axes(color_err) == axes(mag_err) == axes(weights)
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
-    # Construct matrix to hold the 2D histogram
-    mat = zeros(Float64, length(edges[1])-1, length(edges[2])-1)
-    hist = Histogram(edges, mat, :left, false)
-    if cov_mult == 0 # Case: y=R and x=B-V
-        for i in eachindex(colors)
-            # Skip stars that are 3σ away from the histogram region in either x or y.
-            # if (((colors[i] - 3*color_err[i]) > maximum(edges[1]))  |
-            #     ((colors[i] + 3*color_err[i]) < minimum(edges[1])))
-            #     |
-            #     ( ((mags[i] - 3*mag_err[i]) > maximum(edges[2])) | ((mags[i] + 3*mag_err[i]) <
-            #                                                         minimum(edges[2])) )
-            #     continue
-            # end
-            # Get the pixel width in each dimension;
-            # this currently only works if edges[1] and [2] are AbstractRange. 
-            xwidth, ywidth = step(edges[1]), step(edges[2])
-            # Convert colors, mags, color_err, and mag_err from magnitude-space to
-            # pixel-space in `mat`
-            x0 = histogram_pix(colors[i], edges[1])
-            y0 = histogram_pix(mags[i], edges[2])
-            σx = color_err[i] / xwidth
-            σy = mag_err[i] / ywidth
-            # Construct the star object
-            obj = GaussianPSFAsymmetric(x0, y0, σx, σy, weights[i], 0)
-            # Insert the star object
-            cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
-            addstar!(hist, obj, cutout_size)
-        end
-    else # Case: (y=V and x=B-V) or (y=B and x=B-V)
-        for i in eachindex(colors)
-            # Construct the star object
-            obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0)
-            # Insert the star object
-            addstar!(hist, obj)
-        end
+    hist = Histogram(edges, zeros(Float64, length(edges[1]) - 1, length(edges[2]) - 1), :left, false)
+    for i in eachindex(colors, mags, color_err, mag_err, weights)
+        addstar!(hist, GaussianKernel(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i]))
     end
-    return Histogram(edges, mat, :left, false)
+    return hist
 end
 
 ###############################
@@ -616,7 +418,7 @@ function binary_hess(model::AbstractBinaryModel, m_ini::AbstractVector, mags::Ab
     # Errors are evaluated at each cell's mean intrinsic magnitudes, which vary little within a cell
     σ = filter_values(mag_err_funcs, cell_mags)
     if y_index in color_indices
-        # GaussianPSFCovariant takes the error of the color filter that is not on the y-axis
+        # GaussianKernel takes the error of the color filter that is not on the y-axis
         x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
         σx, cov_mult = σ[x_c_idx], (y_index == first(color_indices)) ? -1 : 1
     else
@@ -805,7 +607,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
     mag_err = filter_values(mag_err_funcs, new_iso_mags)
     if y_index in color_indices # x-axis color is dependent on y-axis magnitude
-        # This case will use GaussianPSFCovariant, which expects the color_err
+        # This case will use GaussianKernel, which expects the color_err
         # to be the single-band error for the filter in the x-axis color which
         # does not appear on the y axis; i.e. if y=V and x=B-V, color_err should
         # simply be σB.

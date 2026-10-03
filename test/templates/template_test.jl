@@ -6,7 +6,7 @@ import StatsBase: Histogram, fit
 import InitialMassFunctions: Kroupa2001
 using StableRNGs: StableRNG
 import StarFormationHistories
-using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, BinaryMassRatio, generate_stars_mass, model_cmd
+using StarFormationHistories: bin_cmd, mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, BinaryMassRatio, generate_stars_mass, model_cmd
 
 
 @testset "calculate_weights" begin
@@ -31,6 +31,12 @@ end
     # Unsorted input gives the same result as sorted input
     p = [3, 1, 5, 2, 4]
     @test mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], 0.1, true) == (result, spacing)
+end
+
+@testset "bin_cmd" begin
+    h = bin_cmd([0.1, 0.25, 0.25, 0.9], [20.1, 20.6, 20.6, 21.5]; weights=[1.0, 2.0, 0.5, 1.0], edges=(0.0:0.5:1.0, 20.0:1.0:22.0))
+    @test h isa Histogram
+    @test h.weights == [3.5 0.0; 0.0 1.0]
 end
 
 @testset "midpoints" begin
