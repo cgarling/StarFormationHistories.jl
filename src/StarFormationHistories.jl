@@ -113,13 +113,13 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
                       Δmag,
                       ret_spacing::Bool=false)
     @argcheck axes(m_ini) == axes(mags) == axes(colors)
-    new_mini = Vector{Float64}(undef, 1)
-    new_mini[1] = first(m_ini)
     # Sort the input m_ini and mags. This could be optional.
     idx = sortperm(m_ini)
     m_ini = m_ini[idx]
     mags = mags[idx]
     colors = colors[idx]
+    # Start from the smallest mass, so this must come after sorting
+    new_mini = Float64[first(m_ini)]
     # Loop through the indices, testing if adjacent CMD points are
     # different by less than Δm.
     for i in eachindex(m_ini, mags, colors)[begin:end-1]
@@ -299,54 +299,7 @@ end
 Base.Broadcast.broadcastable(m::GaussianPSFCovariant) = Ref(m)
 parameters(model::GaussianPSFCovariant) = (model.x0, model.y0, model.σx, model.σy,
                                            model.cov_mult, model.A, model.B)
-Base.size(model::GaussianPSFCovariant) = (15 * model.σx, 10 * model.σy)
 centroid(model::GaussianPSFCovariant) = (model.x0, model.y0)
-# This is the PSF but we really want the integral PRF
-# @inline function gaussian_psf_covariant(x::Real,y::Real,x0::Real,y0::Real,σx::Real,
-#                                         σy::Real,cov_mult::Real,A::Real,B::Real)
-#     δy = y - y0
-#     δx = x - x0 + (δy * cov_mult)
-#     return (A / σy / σx / 2 / π) * exp( -(δy/σy)^2 / 2 ) * exp( -(δx/σx)^2 / 2 ) + B
-# end
-# Gauss-Legendre nodes and weights for integration from -1 < x < 1
-const legendre_x_halfpix = (-0.7745966692414834, 0.0, 0.7745966692414834) # SVector{3, Float64}
-const legendre_w_halfpix = (0.5555555555555556, 0.8888888888888888, 0.5555555555555556)
-"""
-    gaussian_psf_covariant(x::Real, y::Real, halfxstep::Real, halfystep::Real, x0::Real, 
-                           y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real, B::Real)
-
-Exact analytic integral from `(x - halfxstep, x + halfxstep)` and `(y - halfystep, y + halfystep)` for the asymmetric, covariant 2D Gaussian. `cov_mult` controls the degree of covariance and should be
- - `1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B-V"`,
- - `-1` for kernels to be injected into Hess diagrams with filter like `y="V"` and `x="B-V"`,
- - `0` for `y="R"` and `x="B-V"`.
-`A` is a normalization constant which is equal to overall integral of the function, not accounting for an additive background `B`. 
-"""
-@inline function gaussian_psf_covariant(x::T, y::T, halfxstep::T, halfystep::T, x0::T, y0::T, σx::T,
-                                        σy::T, cov_mult::T, A::T, B::T) where T <: Real
-    dx = x - x0
-    prefac = A / 2 / sqrt(T(2π)) / σy
-    sqrt2 = sqrt(T(2))
-    # Scale Gauss-Legendre nodes
-    yvals = (legendre_x_halfpix .* halfystep) .+ y
-    # Scale Gauss-Legendre weights
-    yweights = legendre_w_halfpix .* halfystep
-    result = zero(T)
-    # Compiler unrolls this loop
-    for i in eachindex(yvals, yweights)
-        @inbounds Δy = yvals[i] - y0
-        Δx = dx + (Δy * cov_mult)
-        @inbounds result += yweights[i] * exp(-(Δy/σy)^2 / 2) *
-            (erf((Δx + halfxstep) / sqrt2 / σx) +
-             erf((-Δx + halfxstep) / sqrt2 / σx))
-    end
-    return result * prefac
-end
-@inline gaussian_psf_covariant(args::Vararg{Real, 11}) = 
-    gaussian_psf_covariant(promote(args...)...)
-@inline evaluate(model::GaussianPSFCovariant, x::Real, y::Real, halfxstep::Real, halfystep::Real) = 
-    gaussian_psf_covariant(x, y, halfxstep, halfystep, parameters(model)...)
-# Need to let LoopVectorization know that it can turbo this function
-can_turbo(::typeof(evaluate), ::Val{5}) = true
 
 #####################################################
 # Function to add a kernel to a smoothed Hess diagram
@@ -365,55 +318,57 @@ function addstar!(image::AbstractMatrix, obj::PixelSpaceKernel, cutout_size::Tup
     xind = max(firstindex(image, 1), x - x_offset):min(lastindex(image, 1), x + x_offset)
     yind = max(firstindex(image, 2), y - y_offset):min(lastindex(image, 2), y + y_offset)
     # Double loop over x and y
-    if (length(xind) > 1) && (length(yind) > 1) # Don't run if loop indices empty; safety for @turbo
+    if !isempty(xind) && !isempty(yind) # Kernels overlapping the image by a single row or column still contribute
         @turbo for i=xind, j=yind
             @inbounds image[i, j] += evaluate(obj, i + onehalf, j + onehalf) # Add 0.5 to evaluate at pixel midpoint
         end
     end
 end
 
-function addstar!(image::Histogram, obj::RealSpaceKernel, cutout_size::NTuple{2,T}=size(obj)) where T <: Number
-    @argcheck length(image.weights) > 1
-    data = image.weights
-    Base.require_one_based_indexing(data) # Make sure data is 1-indexed
-    edges = image.edges # Get histogram edges
-    # Need uniform step; easiest to enforce via ranges
-    if !all(Base.Fix2(isa, AbstractRange), edges)
-        throw(ArgumentError("The `image::Histogram` provided to `addstar!` with a `obj::RealSpaceKernel` object must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
-    end
-    xrstep = step(edges[1])
-    yrstep = step(edges[2])
-    xr,yr = centroid(obj) # Get the center of the object to be inserted, in real space
-    xp,yp = histogram_pix(xr, edges[1]), histogram_pix(yr, edges[2]) # Convert to fractional pixel space
-    xp,yp = round(Int, xp, RoundNearest), round(Int, yp, RoundNearest) # Round to nearest integer index
-    # Convert cutout_size into pixel-space and take half width
-    x_offset = max(1, round(Int, cutout_size[1] / xrstep / 2, RoundNearest))
-    y_offset = max(1, round(Int, cutout_size[2] / yrstep / 2, RoundNearest))
-    # Construct iterators over pixel indexes, verifying safe bounds for @turbo loop
-    xpiter = max(firstindex(data, 1), xp - x_offset):min(lastindex(data, 1), xp + x_offset)
-    ypiter = max(firstindex(data, 2), yp - y_offset):min(lastindex(data, 2), yp + y_offset)
-    # Using a range defined by a step length (e.g., xrstep) can result in the range having 1 too
-    # few elements as the range is defined according to the following rule:
-    # If length is not specified and stop - start is not an integer multiple of step,
-    # a range that ends before stop will be produced.
-    xriter = range(histogram_data(first(xpiter) + 1//2, edges[1]),
-                   histogram_data(last(xpiter) + 1//2, edges[1]); length=length(xpiter))
-    yriter = range(histogram_data(first(ypiter) + 1//2, edges[2]),
-                   histogram_data(last(ypiter) + 1//2, edges[2]); length=length(ypiter))
-    # Half the step widths are needed for evaluate call
-    halfxstep, halfystep = step(xriter) / 2, step(yriter) / 2
-    # Double loop over x and y
-    # Above takes ~200ns, so this loop dominates runtime if size(obj) > (2,2) or so
-    # for (xind, xreal) = zip(xpiter, xriter), (yind, yreal) = zip(ypiter, yriter)
-    #     data[xind, yind] += evaluate(obj, xreal, yreal, halfxstep, halfystep)
-    # end
-    if (length(xpiter) > 1) && (length(ypiter) > 1) # Don't run if loop indices empty; safety for @turbo
-        @turbo for i=eachindex(xpiter, xriter), j=eachindex(ypiter, yriter)
-            @inbounds xind, xreal = xpiter[i], xriter[i]
-            @inbounds yind, yreal = ypiter[j], yriter[j]
-            @inbounds data[xind, yind] += evaluate(obj, xreal, yreal, halfxstep, halfystep)
+# Adds the covariant kernel `obj`, integrated over each pixel, to the Hess diagram `image`, which must have uniformly
+# spaced bin edges. The kernel is the distribution of y, Gaussian with standard deviation σy about y0, and of the color,
+# which given y is Gaussian with standard deviation σx about x0 - cov_mult * (y - y0). It is evaluated within `k`
+# standard deviations of its center along y and, in each row, along the color. The integral over each pixel row in y is
+# exact. Each row is split into sub-rows across which the color center shifts by at most σx, and within each sub-row the
+# color distribution is approximated as a Gaussian with the mean and variance implied by the distribution of y in the
+# sub-row, which is integrated exactly over each pixel in color. The total weight added is therefore exactly A when the
+# kernel lies within `image`.
+function addstar!(image::Histogram, obj::GaussianPSFCovariant; k::Real=4)
+    data, (xe, ye) = image.weights, image.edges
+    Base.require_one_based_indexing(data)
+    all(Base.Fix2(isa, AbstractRange), image.edges) || throw(ArgumentError("The `image::Histogram` provided to `addstar!` with a `GaussianPSFCovariant` must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
+    x0, y0, σx, σy, c, A, B = parameters(obj)
+    iszero(B) || throw(ArgumentError("`addstar!` does not support a nonzero background `B` for `GaussianPSFCovariant`."))
+    Δx, Δy, x1, y1 = step(xe), step(ye), first(xe), first(ye)
+    # Pixel rows within k σy of the center
+    jlo = max(1, floor(Int, (y0 - k * σy - y1) / Δy) + 1)
+    jhi = min(size(data, 2), floor(Int, (y0 + k * σy - y1) / Δy) + 1)
+    # The color center shifts by |c| Δy / nsub across one sub-row
+    nsub = iszero(c) ? 1 : clamp(ceil(Int, abs(c) * Δy / σx), 1, 16)
+    erfs = similar(data, size(data, 1) + 1) # erf at the color bin edges of the current sub-row
+    for j in jlo:jhi, s in 1:nsub
+        # Standardized limits of the sub-row in y, its probability P, and the mean μ and variance v of y - y0 within it
+        a = (y1 + (j - 1 + (s - 1) / nsub) * Δy - y0) / σy
+        b = (y1 + (j - 1 + s / nsub) * Δy - y0) / σy
+        P = (erf(b / sqrt(2)) - erf(a / sqrt(2))) / 2
+        P > 0 || continue
+        φa, φb = exp(-a^2 / 2) / sqrt(2π), exp(-b^2 / 2) / sqrt(2π)
+        μ = σy * (φa - φb) / P
+        v = σy^2 * (1 + (a * φa - b * φb) / P - ((φa - φb) / P)^2)
+        xc, σc = x0 - c * μ, sqrt(σx^2 + c^2 * max(v, 0))
+        ilo = max(1, floor(Int, (xc - k * σc - x1) / Δx) + 1)
+        ihi = min(size(data, 1), floor(Int, (xc + k * σc - x1) / Δx) + 1)
+        ilo > ihi && continue
+        scale = 1 / (sqrt(2) * σc)
+        @turbo for i in ilo:ihi+1
+            erfs[i] = erf((x1 + (i - 1) * Δx - xc) * scale)
+        end
+        w = A * P / 2 # The integral of the color Gaussian over a bin is half the difference of erf at its edges
+        @turbo for i in ilo:ihi
+            data[i, j] += w * (erfs[i+1] - erfs[i])
         end
     end
+    return image
 end
 
 #########################################
@@ -622,8 +577,7 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
             # Construct the star object
             obj = GaussianPSFCovariant(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i], 0)
             # Insert the star object
-            cutout_size = size(obj) # ( round(Int,3σx,RoundUp), round(Int,3σy,RoundUp) )
-            addstar!(hist, obj, cutout_size)
+            addstar!(hist, obj)
         end
     end
     return Histogram(edges, mat, :left, false)
@@ -632,90 +586,74 @@ end
 ###############################
 # Constructing binary templates
 
-# New idea: Take provided m_ini as primary masses and construct custom secondary mass vector for better sampling
-function binary_hess(model::RandomBinaryPairs, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}},
+# Smooth Hess diagram of the binary systems of `model`, normalized to `normalize_value` solar masses formed.
+# `m_ini` and `mags` are the densely resampled isochrone used for interpolation; the quadrature over binary
+# systems from `binary_systems` uses every `ds`-th mass as its nodes.
+function binary_hess(model::AbstractBinaryModel, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}},
                      mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs,
                      edges::Tuple{<:AbstractRange, <:AbstractRange};
-                     normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
+                     normalize_value::Number=1, mean_mass::Number=mean(imf), ds::Integer=4) where T <: Real
     Base.require_one_based_indexing(m_ini)
     Base.require_one_based_indexing(mags)
     @argcheck all(length(i) == length(m_ini) for i in mags)
-
-    imf_vec = dispatch_imf.(imf, m_ini) # Precompute imf pdf vals to reuse
-    # Need to additionally scale weights by integral of pdf(imf, m_ini) * dm
-    # (to account for limited range of secondary masses in innner integral?)
-    # This works if all binary pairs are restricted to the masses contained in m_ini
-    # It would be more accurate to consider explicitly binary pairs across the full
-    # support of imf, but if the mass of a star falls outside m_ini's support,
-    # then set it won't contribute any flux. 
-    pscale_fact = trapz(m_ini, imf_vec)
-    prefac = normalize_value / mean_mass / 4 / pscale_fact # Precompute constant multiplier on the weights
-    flux_vec = [mag2flux.(i) for i in mags] # Precompute vector of fluxes so we can reuse them
-    mini_spacing = diff(m_ini)
-    npairs = length(mini_spacing) * (length(mini_spacing) - 1) ÷ 2
-    binary_mags = [Vector{T}(undef, npairs) for i in 1:length(mags)]
-    binary_weights = Vector{T}(undef, npairs)
-    prodidx = 1 # Index counter
-    for i=eachindex(mini_spacing)
-        @inbounds ΔMp = mini_spacing[i]
-        @inbounds Mpint = imf_vec[i] + imf_vec[i+1]
-        for j=i+1:lastindex(mini_spacing)
-            for k=eachindex(mags)
-                # binary_mags[k][prodidx] = flux2mag(mag2flux(mags[k][i]) + mag2flux(mags[k][j]))
-                @inbounds binary_mags[k][prodidx] = flux2mag(flux_vec[k][i] + flux_vec[k][j])
-            end
-            @inbounds ΔMs = mini_spacing[j]
-            @inbounds Msint = imf_vec[j] + imf_vec[j+1]
-            @inbounds binary_weights[prodidx] = ΔMp * ΔMs * Mpint * Msint * prefac
-            prodidx += 1 # Increment index counter
-        end
+    m1, m2, w = binary_systems(model, m_ini[begin:ds:end], imf; mean_mass)
+    # System magnitudes from the summed flux of its stars; stars outside the isochrone contribute no light.
+    # Fluxes are interpolated linearly on the dense m_ini grid, which differs negligibly from interpolating
+    # magnitudes, and each star's position in m_ini is found once and reused for every filter.
+    b1, b2 = bracket.(Ref(m_ini), m1), bracket.(Ref(m_ini), m2)
+    sys_mags = map(mags) do mag
+        F = mag2flux.(mag)
+        flux2mag.(lerp_bracket.(Ref(F), b1) .+ lerp_bracket.(Ref(F), b2))
     end
-    # println("Binary weights pre-completeness: ", sum(binary_weights))
-    # Apply completeness functions to weights
+    lit = findall(isfinite, first(sys_mags))
+    sys_mags = [i[lit] for i in sys_mags]
+    # Completeness and bias are evaluated at the intrinsic system magnitudes
     idxs = y_index in color_indices ? color_indices : (color_indices..., y_index)
-    binary_weights .*= completeness_values(completeness_funcs, binary_mags, idxs)
+    w = w[lit] .* normalize_value .* completeness_values(completeness_funcs, sys_mags, idxs)
     # bias is defined as (measured - intrinsic), so measured = intrinsic + bias
-    bias_binary_mags = binary_mags .+ filter_values(bias_funcs, binary_mags)
-    colors = bias_binary_mags[first(color_indices)] .- bias_binary_mags[last(color_indices)]
-    hist = fit(Histogram, (colors, bias_binary_mags[y_index]), Weights(binary_weights), edges; closed=:left)
-    hist_weights = vec(hist.weights)
-    # mag_err = [mag_err_funcs[i].(binary_mags[i][good]) for i in eachindex(binary_mags)]
-    # Filter for only useful bins
-    good = findall(!=(0), hist_weights)
-    # Get bin centers and magnitude errors and call bin_cmd_smooth
-    centers = (hist.edges[1][begin:end-1] .+ step(hist.edges[1]) / 2,
-               hist.edges[2][begin:end-1] .+ step(hist.edges[2]) / 2)
-    # We should be able to use Iterators.cycle(iter, n) in Julia 1.11
-    h_colors = repeat(centers[1]; outer=length(centers[2]))[good]
-    h_mags = repeat(centers[2]; inner=length(centers[1]))[good]
-
+    obs = sys_mags .+ filter_values(bias_funcs, sys_mags)
+    W, x, y, cell_mags = aggregate_cells(w, obs[first(color_indices)] .- obs[last(color_indices)], obs[y_index], sys_mags, edges)
+    # Errors are evaluated at each cell's mean intrinsic magnitudes, which vary little within a cell
+    σ = filter_values(mag_err_funcs, cell_mags)
     if y_index in color_indices
-        if y_index == first(color_indices)
-            xmags = h_mags .- h_colors
-        else
-            xmags = h_mags .+ h_colors
-        end
+        # GaussianPSFCovariant takes the error of the color filter that is not on the y-axis
         x_c_idx = color_indices[findfirst(!=(y_index), color_indices)]
-        # Only the magnitudes of the two CMD filters are known at the bin centers
-        if mag_err_funcs isa Union{Tuple, AbstractVector}
-            ymag_err, color_err = mag_err_funcs[y_index].(h_mags), mag_err_funcs[x_c_idx].(xmags)
-        else
-            @argcheck length(mags) == 2 "Joint error models with binaries require `mags` to contain only the two filters used in the Hess diagram."
-            mag_err = filter_values(mag_err_funcs, [k == y_index ? h_mags : xmags for k in eachindex(mags)])
-            ymag_err, color_err = mag_err[y_index], mag_err[x_c_idx]
-        end
-        cov_mult = (y_index == first(color_indices)) ? -1 : 1
+        σx, cov_mult = σ[x_c_idx], (y_index == first(color_indices)) ? -1 : 1
     else
-        error("`binary_hess(model::RandomBinaryPairs, ...)` for `!(y_index in color_indices)` not yet implemented.")
-        # Need to compute something like a binned average over the Hess diagram
+        σx, cov_mult = sqrt.(σ[first(color_indices)] .^ 2 .+ σ[last(color_indices)] .^ 2), 0
     end
-    return bin_cmd_smooth(h_colors, h_mags,
-                          color_err, ymag_err, cov_mult;
-                          weights=hist_weights[good], edges=edges)
+    return bin_cmd_smooth(x, y, σx, σ[y_index], cov_mult; weights=W, edges)
 end
-
-function binary_hess(model::BinaryMassRatio, m_ini::AbstractVector, mags::AbstractVector{<:AbstractVector{T}}, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs, edges::Tuple{<:AbstractRange, <:AbstractRange}; normalize_value::Number=1, mean_mass::Number=mean(imf)) where T <: Real
-    error("`binary_hess(model::BinaryMassRatio, ...)` not implemented.")
+# Returns (i, t) such that m = m_ini[i] + t * (m_ini[i+1] - m_ini[i]) for sorted m_ini, or i = 0 if m is outside m_ini
+function bracket(m_ini::AbstractVector, m)
+    t0 = zero((m - first(m_ini)) / (last(m_ini) - first(m_ini)))
+    (m < first(m_ini) || m > last(m_ini)) && return (0, t0)
+    i = min(searchsortedlast(m_ini, m), lastindex(m_ini) - 1)
+    return (i, oftype(t0, (m - m_ini[i]) / (m_ini[i+1] - m_ini[i])))
+end
+# Linear interpolation of F at a bracket from `bracket`, or zero outside the grid
+lerp_bracket(F::AbstractVector, (i, t)) = iszero(i) ? zero(eltype(F)) : F[i] + t * (F[i+1] - F[i])
+# One kernel per system is accurate but slow, so binary_hess aggregates systems in cells half the Hess diagram bin
+# width on each axis and places one kernel per cell. Returns the summed weight of each cell, the weighted mean
+# observed position (x, y), and the weighted mean intrinsic magnitude in each filter of `mags`. Cells are not
+# limited to the Hess diagram so that systems outside it can still scatter into it. Also serves as a type barrier.
+function aggregate_cells(w, x, y, mags, edges)
+    Δx, Δy = step(edges[1]) / 2, step(edges[2]) / 2
+    index = Dict{NTuple{2, Int}, Int}()
+    W, X, Y, M = Float64[], Float64[], Float64[], [Float64[] for _ in mags]
+    for k in eachindex(w, x, y)
+        iszero(w[k]) && continue
+        cell = (floor(Int, (x[k] - first(edges[1])) / Δx), floor(Int, (y[k] - first(edges[2])) / Δy))
+        c = get!(index, cell) do
+            foreach(v -> push!(v, 0), (W, X, Y, M...))
+            length(W)
+        end
+        W[c] += w[k]; X[c] += w[k] * x[k]; Y[c] += w[k] * y[k]
+        for f in eachindex(M, mags)
+            M[f][c] += w[k] * mags[f][k]
+        end
+    end
+    return W, X ./ W, Y ./ W, [m ./ W for m in M]
 end
 
 ##########################################
@@ -776,10 +714,12 @@ function calculate_weights(mini::AbstractVector, completeness::AbstractVector,
     @argcheck length(mini) == length(completeness)
     @argcheck length(mini_spacing) == (length(mini) - 1)
     weights = Vector{Float64}(undef, length(mini) - 1)
+    # Trapezoidal rule for the integral of the IMF times the completeness; using the completeness at only one end of
+    # each interval is first-order accurate and biased low where the completeness falls toward lower masses
     for i in eachindex(weights)
         weights[i] = mini_spacing[i] *
-            (dispatch_imf(imf, mini[i]) + dispatch_imf(imf, mini[i+1])) / 2
-        weights[i] *= completeness[i] * normalize_value / mean_mass # Correct normalization
+            (dispatch_imf(imf, mini[i]) * completeness[i] + dispatch_imf(imf, mini[i+1]) * completeness[i+1]) / 2
+        weights[i] *= normalize_value / mean_mass # Correct normalization
     end
     return weights
 end
@@ -823,7 +763,7 @@ Main function for generating template Hess diagrams from a simple stellar popula
 # Keyword Arguments
  - `dmod::Number=0` is the distance modulus in magnitudes to apply to the input `mags`. Leave at `0` if you are providing apparent magnitudes in `mags`.
  - `normalize_value::Number=1` is the total stellar mass of the population you wish to model.
- - `binary_model::AbstractBinaryModel=NoBinaries()` is the model to use for including binary systems. Currently only [`StarFormationHistories.NoBinaries`](@ref) and [`StarFormationHistories.RandomBinaryPairs`](@ref) are supported.
+ - `binary_model::AbstractBinaryModel=NoBinaries()` is the model to use for including binary systems; see [`StarFormationHistories.NoBinaries`](@ref), [`StarFormationHistories.RandomBinaryPairs`](@ref), and [`StarFormationHistories.BinaryMassRatio`](@ref).
  - `mean_mass::Number` is the expectation value of the initial mass for a random star drawn from your provided `imf`. This will be computed for you if your provided `imf` is a valid continuous, univariate `Distributions.Distribution` object.
  - `edges` is a tuple of ranges defining the left-side edges of the bins along the x-axis (`edges[1]`) and the y-axis (`edges[2]`). Example: `(-1.0:0.1:1.5, 22:0.1:27.2)`. If `edges` is provided, it overrides the following keyword arguments that offer other ways to specify the extent of the Hess diagram.
  - `xlim` is a length-2 indexable object (e.g., a `Vector` or `Tuple`) giving the lower and upper bounds on the x-axis corresponding to the provided `colors` array. Example: `(-1.0, 1.5)`. This is only used if `edges` is not provided. 
@@ -836,7 +776,7 @@ Main function for generating template Hess diagrams from a simple stellar popula
 This method returns the Hess diagram as a `StatsBase.Histogram`; you should refer to the StatsBase documentation for more information. In short, if the output of this method is `result`, then the Hess diagram represented as a `Matrix` is available as `result.weights` (this is what you would want for [`fit_templates`](@ref) and similar functions) and the edges of the histogram are available as `result.edges`.
 
 # Joint Photometric Models
-Per-filter models assume that the completeness, error, and bias in each filter depend only on the magnitude in that filter. This cannot represent, for example, a catalog cut requiring a minimum signal-to-noise ratio in every filter, which removes stars along a diagonal line in the Hess diagram. Each of `mag_err_funcs`, `completeness_funcs`, and `bias_funcs` may instead be a single joint callable that takes one *apparent* magnitude per filter in `mags`, in the same order as `mags` (e.g., `f(mag_1, mag_2)` for two filters). A joint `completeness_funcs` returns the probability that a star is detected and passes all selection criteria, and a joint `mag_err_funcs` or `bias_funcs` returns one value per filter (e.g., a `Tuple` or `StaticArrays.SVector`). Joint and per-filter models can be mixed; for example, a joint completeness model can be used with per-filter error and bias models. Photometric errors are still assumed to be uncorrelated between filters. With `binary_model` other than `NoBinaries()`, a joint `mag_err_funcs` requires `mags` to contain only the two filters used in the Hess diagram. See [`process_ASTs`](@ref) for measuring joint models from artificial star tests.
+Per-filter models assume that the completeness, error, and bias in each filter depend only on the magnitude in that filter. This cannot represent, for example, a catalog cut requiring a minimum signal-to-noise ratio in every filter, which removes stars along a diagonal line in the Hess diagram. Each of `mag_err_funcs`, `completeness_funcs`, and `bias_funcs` may instead be a single joint callable that takes one *apparent* magnitude per filter in `mags`, in the same order as `mags` (e.g., `f(mag_1, mag_2)` for two filters). A joint `completeness_funcs` returns the probability that a star is detected and passes all selection criteria, and a joint `mag_err_funcs` or `bias_funcs` returns one value per filter (e.g., a `Tuple` or `StaticArrays.SVector`). Joint and per-filter models can be mixed; for example, a joint completeness model can be used with per-filter error and bias models. Photometric errors are still assumed to be uncorrelated between filters. See [`process_ASTs`](@ref) for measuring joint models from artificial star tests.
 """
 function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mags::AbstractVector{<:AbstractVector{<:Number}},
@@ -895,27 +835,15 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
 
-    @argcheck binary_system_fraction(binary_model) <= 1
     bfrac = binary_system_fraction(binary_model)
-    if bfrac == 0
-        return single_star_hist
-    else
-        ds = 4 # Factor by which to downsample the single-star vectors
-        binary_hist = binary_hess(binary_model, new_mini[begin:ds:end], [i[begin:ds:end] for i in new_iso_mags],
-                                  mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs, edges;
-                                  normalize_value=normalize_value, mean_mass=mean_mass)
-        # println("Binary Weights after completeness: ", sum(binary_hist.weights))
-        bmf = binary_mass_fraction(binary_model, imf)
-        # There will be an excess of single stars at present-day due to stars born in binary
-        # pairs that have died and do not appear in the isochrone. We must account for this
-        # additional factor, which is the integral of the imf over the range of m_ini.
-        # This may only be valid for RandomBinaryPairs; think this depends on the relative
-        # mass functions of stars in singles vs binaries. This distribution is the same for
-        # RBP, but it is different for BinaryMassRatio, which might need a different function.
-        bmf *= trapz(new_mini, dispatch_imf.(imf, new_mini))
-        result_mat = (single_star_hist.weights .* (1 - bmf)) .+ (bmf .* binary_hist.weights)
-        return Histogram(edges, result_mat, :left, false)
-    end
+    @argcheck bfrac <= 1
+    iszero(bfrac) && return single_star_hist
+    binary_hist = binary_hess(binary_model, new_mini, new_iso_mags, mag_err_funcs, y_index, color_indices, imf,
+                              completeness_funcs, bias_funcs, edges; normalize_value, mean_mass)
+    # Single-star systems hold a fraction 1 - binary_mass_fraction of the stellar mass formed;
+    # binary_hist is already normalized and includes binaries with only one star in the isochrone.
+    result_mat = single_star_hist.weights .* (1 - binary_mass_fraction(binary_model, imf)) .+ binary_hist.weights
+    return Histogram(edges, result_mat, :left, false)
 end
 
 # Method exports

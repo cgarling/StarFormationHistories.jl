@@ -127,6 +127,7 @@ end
  - [`StarFormationHistories.sample_system`](@ref)
  - [`StarFormationHistories.binary_system_fraction`](@ref)
  - [`StarFormationHistories.binary_mass_fraction`](@ref)
+ - [`StarFormationHistories.binary_systems`](@ref), used to construct smooth Hess diagram templates
  - `Base.length`, which should return an integer indicating the number of stars per system that can be sampled by \
    the model; this is equivalent to the length of the mass vector returned by `sample_system`.
 
@@ -253,6 +254,54 @@ end
     else
         return SVector{2,eltype(imf)}(mass, zero(eltype(imf)))
     end
+end
+
+"""
+    (m1, m2, w) = binary_systems(model::StarFormationHistories.AbstractBinaryModel, m::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
+
+Returns a quadrature over the binary systems of `model`, used to construct smooth Hess diagram templates with [`partial_cmd_smooth`](@ref); this is the deterministic counterpart of [`StarFormationHistories.sample_system`](@ref). `m` is a sorted vector of initial masses spanning the stars present in the isochrone. Node `k` is a binary system whose stars have initial masses `m1[k] >= m2[k]`; stars with initial masses outside `extrema(m)` are not in the isochrone (e.g., they have died) and contribute no light. `w[k]` is the expected number of binary systems represented by node `k` per unit stellar mass formed. The nodes cover every binary system with at least one star in the isochrone. `imf` and `mean_mass` are as in [`partial_cmd_smooth`](@ref).
+
+Single-star systems are modeled separately, so concrete subtypes of `AbstractBinaryModel` only need to implement this method (along with [`StarFormationHistories.binary_mass_fraction`](@ref)) to support smooth Hess diagram templates.
+"""
+function binary_systems end
+# Trapezoidal rule weights for integrating over the sorted nodes `m`
+trapezoid_weights(m::AbstractVector) = (d = diff(m) ./ 2; [d; zero(eltype(d))] .+ [zero(eltype(d)); d])
+function binary_systems(model::RandomBinaryPairs, m::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
+    Base.require_one_based_indexing(m)
+    a = trapezoid_weights(m) .* dispatch_imf.(imf, m) # IMF probability represented by each node
+    b = binary_system_fraction(model)
+    nb = b / ((1 + b) * mean_mass) # Number of binary systems per unit stellar mass formed
+    n = length(m)
+    # Both stars in the isochrone; unordered pairs i <= j, so distinct masses count both orderings
+    m1 = [m[j] for i in 1:n for j in i:n]
+    m2 = [m[i] for i in 1:n for j in i:n]
+    w = [nb * a[i] * a[j] * (i == j ? 1 : 2) for i in 1:n for j in i:n]
+    # One star in the isochrone and its companion outside it, in either order; max guards against
+    # trapezoidal rule error when the support of `imf` matches the isochrone
+    outside = max(0, 1 - sum(a))
+    return [m1; fill(eltype(m1)(Inf), n)], [m2; m], [w; (2 * nb * outside) .* a]
+end
+function binary_systems(model::BinaryMassRatio, m::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
+    Base.require_one_based_indexing(m)
+    # Equal-width cells in mass ratio q over the support of qdist, with their probabilities from the cdf
+    # ponytail: fixed number of q cells; tie to the Hess diagram bin width if templates need finer q sampling
+    qedges = range(minimum(model.qdist), maximum(model.qdist); length=51)
+    q, pq = midpoints(qedges), diff(cdf.(model.qdist, qedges))
+    a = trapezoid_weights(m)
+    nb = binary_system_fraction(model) / mean_mass # `imf` is the distribution of system masses
+    mmax = maximum(m)
+    T = float(eltype(m))
+    m1, m2, w = T[], T[], T[]
+    for i in eachindex(m, a), l in eachindex(q, pq)
+        # Primary in the isochrone; system mass M = m1 (1 + q), so dM = (1 + q) dm1
+        M = m[i] * (1 + q[l])
+        push!(m1, m[i]); push!(m2, m[i] * q[l]); push!(w, nb * a[i] * pq[l] * (1 + q[l]) * dispatch_imf(imf, M))
+        # Primary outside the isochrone and secondary in it; M = m2 (1 + q) / q, so dM = (1 + q) / q dm2
+        if m[i] / q[l] > mmax
+            push!(m1, m[i] / q[l]); push!(m2, m[i]); push!(w, nb * a[i] * pq[l] * (1 + q[l]) / q[l] * dispatch_imf(imf, M / q[l]))
+        end
+    end
+    return m1, m2, w
 end
 
 #########################################################

@@ -2,11 +2,17 @@ import DelimitedFiles: readdlm
 using Distributions: Normal, ContinuousUnivariateDistribution
 import Distributions: pdf
 using Test
-import StatsBase: Histogram
+import StatsBase: Histogram, fit
 import InitialMassFunctions: Kroupa2001
 using StableRNGs: StableRNG
-using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, generate_stars_mass, model_cmd
+import StarFormationHistories
+using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, BinaryMassRatio, generate_stars_mass, model_cmd
 
+
+@testset "calculate_weights" begin
+    # Trapezoidal rule is exact for a constant IMF and linear completeness
+    @test StarFormationHistories.calculate_weights([1.0, 2.0, 3.0], [0.0, 0.5, 1.0], m -> 1.0, 1, 1) == [0.25, 0.75]
+end
 
 @testset "mini_spacing" begin
     result = mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16],
@@ -22,6 +28,9 @@ using StarFormationHistories: mini_spacing, midpoints, dispatch_imf, mean, parti
                                    0.1, true)
     @test spacing isa Vector{Float64}
     @test spacing ≈ diff(result)
+    # Unsorted input gives the same result as sorted input
+    p = [3, 1, 5, 2, 4]
+    @test mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], 0.1, true) == (result, spacing)
 end
 
 @testset "midpoints" begin
@@ -80,12 +89,7 @@ end
     imf = Kroupa2001(0.08, 100.0)
     # Construct template
     for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
-        if !in(y_index, color_indices) # RandomBinaryPairs not implemented for this case
-            binary_models = (NoBinaries(),)
-        else
-            binary_models = (NoBinaries(), RandomBinaryPairs(0.3))
-        end
-        for binary_model in binary_models
+        for binary_model in (NoBinaries(), RandomBinaryPairs(0.3), BinaryMassRatio(0.3))
             template = partial_cmd_smooth(m_ini,
                                           [F090W, F150W, F277W],
                                           [F090W_error, F150W_error, F277W_error],
@@ -112,18 +116,16 @@ end
         comp, err = [F090W_complete, F150W_complete, F277W_complete], [F090W_error, F150W_error, F277W_error]
         bias = [m -> 0.01 * (m - 25), m -> -0.02 * (m - 25), zero]
         # Joint models that are products of the per-filter models give the same templates
-        jcomp(ms...) = prod(comp[k](ms[k]) for k in eachindex(ms))
         jerr(ms...) = map((f, m) -> f(m), Tuple(err), ms)
         jbias(ms...) = map((f, m) -> f(m), Tuple(bias), ms)
         for (y_index, color_indices) in ((2, (1,2)), (1, (1,2)), (3, (1,2)))
-            # Joint errors with binaries require only the two Hess diagram filters
-            nf = y_index in color_indices ? 2 : 3
-            binary_models = y_index in color_indices ? (NoBinaries(), RandomBinaryPairs(0.3)) : (NoBinaries(),)
-            for binary_model in binary_models
-                tmpl(e, c, b) = partial_cmd_smooth(m_ini, filters[1:nf], e, y_index, color_indices, imf, c, b; dmod=distmod, normalize_value=template_norm, edges, binary_model).weights
-                ref = tmpl(err[1:nf], comp[1:nf], bias[1:nf])
-                @test tmpl(err[1:nf], jcomp, bias[1:nf]) ≈ ref
-                @test tmpl(jerr, comp[1:nf], jbias) ≈ ref
+            # Per-filter completeness uses only the filters in the Hess diagram
+            jcomp(ms...) = prod(comp[k](ms[k]) for k in union(color_indices, y_index))
+            for binary_model in (NoBinaries(), RandomBinaryPairs(0.3), BinaryMassRatio(0.3))
+                tmpl(e, c, b) = partial_cmd_smooth(m_ini, filters, e, y_index, color_indices, imf, c, b; dmod=distmod, normalize_value=template_norm, edges, binary_model).weights
+                ref = tmpl(err, comp, bias)
+                @test tmpl(err, jcomp, bias) ≈ ref
+                @test tmpl(jerr, comp, jbias) ≈ ref
                 @test tmpl(jerr, jcomp, jbias) ≈ ref
             end
         end
@@ -139,10 +141,25 @@ end
         obs = model_cmd(mock_mags, err[1:2], smooth_comp; rng=StableRNG(2))
         nobs = count(m -> (first(edges[1]) <= m[1] - m[2] < last(edges[1])) & (first(edges[2]) <= m[2] < last(edges[2])), obs)
         @test nobs ≈ sum(smooth_tmpl) rtol=0.03
-        # Joint errors with binaries and filters not in the Hess diagram are not supported
-        @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, jerr, 2, (1,2), imf, comp; dmod=distmod, normalize_value=template_norm, edges, binary_model=RandomBinaryPairs(0.3))
         # Per-filter models must have one callable per filter
-        @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, err[1:2], 2, (1,2), imf, jcomp; dmod=distmod, normalize_value=template_norm, edges)
+        @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, err[1:2], 2, (1,2), imf, diag_comp; dmod=distmod, normalize_value=template_norm, edges)
+    end
+
+    @testset "Templates match mock observations" begin
+        # Templates should agree with the Hess diagram of a mock catalog sampled with the same binary model to within
+        # Poisson noise, including near the edges of the Hess diagram where stars scatter in from outside it
+        filters, err = [F090W, F150W, F277W], [F090W_error, F150W_error, F277W_error]
+        mock_mass = 5e6
+        for (binary_model, y_index) in ((NoBinaries(), 2), (RandomBinaryPairs(0.3), 2), (RandomBinaryPairs(0.3), 3), (BinaryMassRatio(0.3), 1), (BinaryMassRatio(0.3), 3))
+            template = partial_cmd_smooth(m_ini, filters, err, y_index, (1,2), imf; dmod=distmod, normalize_value=mock_mass, edges, binary_model).weights
+            _, mock_mags = generate_stars_mass(copy(m_ini), filters, ["F090W", "F150W", "F277W"], mock_mass, imf; dist_mod=distmod, rng=StableRNG(1), binary_model, mag_lim=last(edges[2]) + 1, mag_lim_name=["F090W", "F150W", "F277W"][y_index])
+            obs = model_cmd(mock_mags, err, [one, one, one]; rng=StableRNG(2))
+            mock = fit(Histogram, ([m[1] - m[2] for m in obs], [m[y_index] for m in obs]), edges; closed=:left).weights
+            @test sum(mock) ≈ sum(template) rtol=0.01
+            good = template .> 20
+            pulls = (mock[good] .- template[good]) ./ sqrt.(template[good])
+            @test sqrt(sum(abs2, pulls) / length(pulls)) < 1.15
+        end
     end
 end
 # 2.5 ms
