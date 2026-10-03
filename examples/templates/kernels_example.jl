@@ -1,4 +1,4 @@
-import StarFormationHistories: GaussianPSFAsymmetric, GaussianPSFCovariant, addstar!, evaluate, parameters, histogram_pix
+import StarFormationHistories: GaussianKernel, addstar!
 import StatsBase: fit, Histogram
 
 # Set up for plotting
@@ -29,7 +29,7 @@ hist_size = (50, 100)
 yy = randn(npoints) .* σ.B .+ centers.B
 xx = yy .- (randn(npoints) .* σ.V .+ centers.V)
 # cov_mult = 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-model = GaussianPSFCovariant(centers.B - centers.V, centers.B, σ.V, σ.B, -1.0, 1.0, 0.0)
+model = GaussianKernel(centers.B - centers.V, centers.B, σ.V, σ.B, -1.0)
 
 fig,axs=plt.subplots(nrows=1, ncols=3, sharex=true, sharey=true, figsize=(15,5))
 axs[1].set_ylabel("B")
@@ -92,7 +92,7 @@ end
 yy = randn(npoints) .* σ.V .+ centers.V
 xx = (randn(npoints) .* σ.B .+ centers.B) .- yy
 # cov_mult = 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-model = GaussianPSFCovariant(centers.B - centers.V, centers.V, σ.B, σ.V, 1.0, 1.0, 0.0)
+model = GaussianKernel(centers.B - centers.V, centers.V, σ.B, σ.V, 1.0)
 
 fig,axs=plt.subplots(nrows=1, ncols=3, sharex=true, sharey=true, figsize=(15,5))
 axs[1].set_ylabel("V")
@@ -143,9 +143,8 @@ end
 yy = randn(npoints) .* σ.R .+ centers.R
 xx = (randn(npoints) .* σ.B .+ centers.B) .- (randn(npoints) .* σ.V .+ centers.V)
 # cov_mult = 1 for y=V and x=B-V, -1 for y=B and x=B-V, 0 for y=R and x=B-V
-# This does work, but try pixel-space kernel below
-# model = GaussianPSFCovariant(centers.B - centers.V, centers.R,
-#                              sqrt(σ.B^2 + σ.V^2), σ.R, 0.0, 1.0, 0.0)
+# Without covariance, σx is the error in the color
+model = GaussianKernel(centers.B - centers.V, centers.R, sqrt(σ.B^2 + σ.V^2), σ.R, 0.0)
 
 fig,axs=plt.subplots(nrows=1, ncols=3, sharex=true, sharey=true, figsize=(15,5))
 axs[1].set_ylabel("R")
@@ -159,13 +158,6 @@ hist1 = fit(Histogram, (xx, yy), (range(extrema(xx)...; length=hist_size[1]),
 hist1_data = hist1.weights
 hist1_data = hist1_data ./ sum(hist1_data)
 hist1_bins = (x = hist1.edges[1], y = hist1.edges[2])
-
-# Pixel-space kernel for no covariance with equivalent σ widths
-model = GaussianPSFAsymmetric(histogram_pix(centers.B - centers.V, hist1_bins.x),
-                              histogram_pix(centers.R, hist1_bins.y),
-                              sqrt(σ.B^2 + σ.V^2) / (hist1_bins.x[2] - hist1_bins.x[1]),
-                              σ.R / (hist1_bins.y[2] - hist1_bins.y[1]),
-                              1.0, 0.0)
 
 # Get centers of the histogram bins
 hist_centers = (x = range(hist1_bins.x[1] + (hist1_bins.x[2] - hist1_bins.x[1])/2,
