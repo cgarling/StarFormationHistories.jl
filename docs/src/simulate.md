@@ -51,6 +51,6 @@ StarFormationHistories.recycling_mass_fraction
 ## Developer Internals
 ```@docs
 StarFormationHistories.ingest_mags
-StarFormationHistories.sort_ingested
+StarFormationHistories.ingest_isochrone
 StarFormationHistories.mass_limits
 ```

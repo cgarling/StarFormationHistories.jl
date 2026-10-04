@@ -47,19 +47,35 @@ end
 ingest_mags(mini_vec, mags) = throw(ArgumentError("There is no `ingest_mags` method for the provided types of `mini_vec` and `mags`. See the documentation for the public functions, (e.g., [generate_stars_mass](@ref)), for information on valid input types.")) # General fallback in case the types are not recognized.
 
 """
-    (new_mini_vec, new_mags) = sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+    (new_mini_vec, new_mags) = ingest_isochrone(mini_vec::AbstractVector, mags::AbstractVector)
 
-Takes `mini_vec` and `mags` and ensures that `mini_vec` is sorted (sometimes in PARSEC isochrones they are not) and calls `Interpolations.deduplicate_knots!` on a copy of `mini_vec` to ensure there are no repeat entries; the arguments are not mutated. Arguments must satisfy `length(mini_vec) == length(mags)`. 
+Prepares the initial masses `mini_vec` and magnitudes `mags` (one element per isochrone point, either a number or a vector of magnitudes in several filters) of an isochrone for interpolation in initial mass. The arguments are not mutated.
+
+Isochrone points should be provided in evolutionary order (e.g., in order of equivalent evolutionary points), as given by isochrone libraries. Initial mass then increases along the isochrone, but interpolated isochrones can have small decreases in initial mass between evolutionary phases (e.g., from the tip of the red giant branch to the horizontal branch). Sorting by initial mass would interleave the points of the two phases, so instead each decrease is removed by shifting the initial masses of all later points up by the size of the decrease. This preserves the differences in initial mass within each phase, which set the relative numbers of stars in each phase. Repeated initial masses are then separated with `Interpolations.deduplicate_knots!`.
+
+Points in evolutionary order trace the isochrone, while points out of order jump across it. If the path through the magnitudes of consecutive points is more than twice as long in the given order as in order of initial mass, the points are assumed not to be in evolutionary order; a warning is issued and they are sorted by initial mass instead.
 """
-function sort_ingested(mini_vec::AbstractVector, mags::AbstractVector)
+function ingest_isochrone(mini_vec::AbstractVector, mags::AbstractVector)
     @argcheck axes(mini_vec) == axes(mags)
+    
+    # Length of the path through consecutive points `v`, each a number or a vector of magnitudes
+    path_length(v::AbstractVector) = sum(sqrt(sum(abs2, v[i+1] - v[i])) for i in firstindex(v):lastindex(v)-1; init=0.0)
+
     idx = sortperm(mini_vec)
-    if idx != eachindex(mini_vec)
-        mini_vec = mini_vec[idx]
-        mags = mags[idx]
+    if idx != eachindex(mini_vec) && path_length(mags) > 2 * path_length(view(mags, idx))
+        @warn "The isochrone points do not appear to be in evolutionary order, so they will be sorted by initial mass. Isochrone points should be provided in evolutionary order, as given by isochrone libraries."
+        mini_vec, mags = mini_vec[idx], mags[idx]
     end
-    mini_vec = deduplicate_knots!(copy(mini_vec); move_knots=true) # Interpolations.jl function; copy so the caller's vector is not mutated
-    return mini_vec, mags
+    m = collect(float(eltype(mini_vec)), mini_vec) # Copy so the caller's vector is not mutated
+    offset = zero(eltype(m))
+    for i in eachindex(m)[begin+1:end]
+        m[i] += offset
+        if m[i] < m[i-1]
+            offset += m[i-1] - m[i]
+            m[i] = m[i-1]
+        end
+    end
+    return deduplicate_knots!(m; move_knots=true), mags
 end
 
 """
@@ -92,7 +108,8 @@ julia> mass_limits([0.05,0.1,0.2,0.3], [[4.0,3.0],[3.0,2.0],[2.0,1.0],[1.0,0.0]]
 function mass_limits(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{T},
                      mag_names::AbstractVector{String}, mag_lim::Number,
                      mag_lim_name::String) where T <: AbstractVector{<:Number}
-    @argcheck axes(mini_vec) == axes(mags) 
+    @argcheck axes(mini_vec) == axes(mags)
+    mini_vec, mags = ingest_isochrone(mini_vec, mags)
     mmin, mmax = extrema(mini_vec)
     # Update mmin respecing `mag_lim`, if provided.
     if !isfinite(mag_lim)
@@ -322,7 +339,7 @@ end
 Generates a random sample of stars from an isochrone defined by the provided initial stellar masses `mini_vec`, absolute magnitudes `mags`, and filter names `mag_names` with total population birth stellar mass `limit` (e.g., 1e5 solar masses). Initial stellar masses are sampled from the provided `imf`. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:Number}` contains the initial masses (in solar masses) for the stars in the isochrone.
+ - `mini_vec::AbstractVector{<:Number}` contains the initial masses (in solar masses) for the stars in the isochrone. The isochrone points must be in evolutionary order (e.g., in order of equivalent evolutionary points), as given by isochrone libraries; see [`StarFormationHistories.ingest_isochrone`](@ref).
  - `mags` contains the absolute magnitudes from the isochrone in the desired filters corresponding to the same stars as provided in `mini_vec`. `mags` is internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). Valid inputs are:
     - `mags::AbstractVector{AbstractVector{<:Number}}`, in which case the length of the outer vector `length(mags)` can either be equal to `length(mini_vec)`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec)`; this is the more common use-case.
     - `mags::AbstractMatrix{<:Number}`, in which case `mags` must be 2-dimensional. Valid shapes are `size(mags) == (length(mini_vec), nfilters)` or `size(mags) == (nfilters, length(mini_vec))`, with `nfilters` being the number of filters you are providing.
@@ -356,7 +373,7 @@ generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
     generate_stars_mass(mini_vec, ingest_mags(mini_vec, mags), args...; kws...)
 function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, limit::Number, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=zero(T), rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3)) where {N, T<:Number}
     mags = [ i .+ dist_mod for i in mags ] # Update mags with the provided distance modulus.
-    mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
+    mini_vec, mags = ingest_isochrone(mini_vec, mags) # Make initial masses increase along the isochrone
     # Construct the sampler object for the provided imf; for some distributions, this will return a Distributions.Sampleable for which rand(imf_sampler) is more efficient than rand(imf).
     imf_sampler = sampler(imf) 
     itp = interpolate((mini_vec,), mags, Gridded(Linear()))
@@ -410,7 +427,7 @@ generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags, args...; kws...) =
 function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVector{SVector{N,T}}, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, imf::Sampleable{Univariate,Continuous}; dist_mod::Number=0, rng::AbstractRNG=default_rng(), mag_lim::Number=Inf, mag_lim_name::String="V", binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3)) where {N, T<:Number}
     # Setup and input ingestion
     mags = [ i .+ dist_mod for i in mags ]         # Update mags with the provided distance modulus.
-    mini_vec, mags = sort_ingested(mini_vec, mags) # Fix non-sorted mini_vec and deduplicate entries.
+    mini_vec, mags = ingest_isochrone(mini_vec, mags) # Make initial masses increase along the isochrone
     # Convert the provided `limit` from absolute magnitudes to apparent magnitudes and then
     # into flux; the conversion to apparent mag here will make it easier to accumulate
     # the flux later in the loop, since `mags` has distance modulus added as well. 
@@ -470,7 +487,7 @@ end
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mass`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total birth stellar mass of the sampled population is given by `limit`. The proportion of this mass allotted to each of the individual isochrones is given by the entries of the `massfrac` vector. This basically just proportions `limit` according to `massfrac` and calls [`generate_stars_mass`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The isochrone points must be in evolutionary order (e.g., in order of equivalent evolutionary points), as given by isochrone libraries; see [`StarFormationHistories.ingest_isochrone`](@ref). The length of `mini_vec` should be equal to the number of isochrones. 
  - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
     - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
@@ -515,7 +532,7 @@ end
 Generates a random sample of stars with a complex star formation history using multiple isochrones. Very similar to [`generate_stars_mag`](@ref) except the isochrone-related arguments `mini_vec` and `mags` should now be vectors of vectors containing the relevant data for the full set of isochrones to be considered. The total absolute magnitude of the sampled population is given by `absmag`. The proportion of the luminosity allotted to each of the individual isochrones is given by the entries of the `frac` vector. This basically just proportions the luminosity according to `frac` and calls [`generate_stars_mag`](@ref) for each of the individual stellar populations; as such it is set up to multi-thread across the multiple stellar populations. 
 
 # Arguments
- - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The length of `mini_vec` should be equal to the number of isochrones. 
+ - `mini_vec::AbstractVector{<:AbstractVector{<:Number}}` contains the initial masses (in solar masses) for the stars in each isochrone. The isochrone points must be in evolutionary order (e.g., in order of equivalent evolutionary points), as given by isochrone libraries; see [`StarFormationHistories.ingest_isochrone`](@ref). The length of `mini_vec` should be equal to the number of isochrones. 
  - `mags` contains the absolute magnitudes from the isochrones in the desired filters corresponding to the same stars as provided in `mini_vec`. The length of `mags` should be equal to the number of isochrones. The individual elements of `mags` are each internally interpreted and converted into a standard format by [`StarFormationHistories.ingest_mags`](@ref). The valid formats for the individual elements of `mags` are:
     - `AbstractVector{AbstractVector{<:Number}}`, in which case the length of the vector `length(mags[i])` can either be equal to `length(mini_vec[i])`, in which case the length of the inner vectors must all be equal to the number of filters you are providing, or the length of the outer vector can be equal to the number of filters you are providing, and the length of the inner vectors must all be equal to `length(mini_vec[i])`; this is the more common use-case.
     - `AbstractMatrix{<:Number}`, in which case `mags[i]` must be 2-dimensional. Valid shapes are `size(mags[i]) == (length(mini_vec[i]), nfilters)` or `size(mags[i]) == (nfilters, length(mini_vec[i]))`, with `nfilters` being the number of filters you are providing.
@@ -568,7 +585,7 @@ end
 """
     luminosity_per_mass(mini_vec::AbstractVector{<:Number}, mags, imf; mean_mass::Number=mean(imf))
 
-Returns the expected present-day luminosity per unit birth stellar mass of the stellar population defined by the isochrone initial masses `mini_vec` and absolute magnitudes `mags` for the provided `imf`, as a `StaticArrays.SVector` with one entry per filter. `mags` accepts the same formats as [`generate_stars_mass`](@ref).
+Returns the expected present-day luminosity per unit birth stellar mass of the stellar population defined by the isochrone initial masses `mini_vec` and absolute magnitudes `mags` for the provided `imf`, as a `StaticArrays.SVector` with one entry per filter. `mags` accepts the same formats as [`generate_stars_mass`](@ref). As there, the isochrone points must be in evolutionary order.
 
 ```math
 \\frac{L_i}{M_*} = \\frac{1}{\\langle m \\rangle} \\int_{m_\\text{min}}^{m_\\text{max}} \\phi(m) \\, 10^{-0.4 \\, M_i(m)} \\, dm
@@ -583,7 +600,7 @@ As in [`partial_cmd_smooth`](@ref), `imf` can be a `Distributions.ContinuousUniv
 The integral is computed with the trapezoidal rule over the isochrone points, so only stars with initial masses in `extrema(mini_vec)` contribute; stars more massive than the end of the isochrone are assumed to be dead. For binary models that pair stars independently drawn from the IMF (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the expected luminosity per unit mass is unchanged by the binary model. For [`BinaryMassRatio`](@ref StarFormationHistories.BinaryMassRatio) this is an approximation.
 """
 function luminosity_per_mass(mini_vec::AbstractVector{<:Number}, mags, imf; mean_mass::Number=mean(imf))
-    mini_vec, mags = sort_ingested(mini_vec, ingest_mags(mini_vec, mags))
+    mini_vec, mags = ingest_isochrone(mini_vec, ingest_mags(mini_vec, mags))
     f = [dispatch_imf(imf, mini_vec[i]) .* mag2flux.(mags[i]) for i in eachindex(mini_vec, mags)]
     return sum((mini_vec[i+1] - mini_vec[i]) .* (f[i] .+ f[i+1]) ./ 2 for i in eachindex(mini_vec)[begin:end-1]) ./ mean_mass
 end
