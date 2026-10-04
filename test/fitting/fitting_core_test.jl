@@ -240,6 +240,16 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test result[2] ≈ T[1, 2//3]
                 @test result[3] ≈ T[1//30, 2//300]
                 @test result[4] ≈ T[-4//3, -4//3]
+                # Bins without star formation keep the mean [M/H] of the nearest older bin with star formation,
+                # or of the nearest younger one when older than all star formation
+                logAge = T[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
+                MH = T[-2, -1, -2, -1, -2, -1, -2, -1, -2, -1]
+                coeffs = T[0, 0, 0, 0, 1, 3, 0, 0, 0, 0]
+                result = SFH.calculate_cum_sfr(coeffs, logAge, MH, 1e-3; sorted=true)
+                @test result[4] ≈ fill(T(-5//4), 5)
+                coeffs = T[0, 0, 3, 1, 0, 0, 1, 1, 0, 0]
+                result = SFH.calculate_cum_sfr(coeffs, logAge, MH, 1e-3; sorted=true)
+                @test result[4] ≈ T[-7//4, -7//4, -3//2, -3//2, -3//2]
             end
         end
     end
