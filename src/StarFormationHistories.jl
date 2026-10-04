@@ -46,7 +46,7 @@ include(joinpath("fitting", "fitting.jl")) # This will include other relevant fi
                                                 new_mini)
     new_mags::Matrix = interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
 
-Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter.
+Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter. The isochrone points should be in evolutionary order; see [`StarFormationHistories.ingest_isochrone`](@ref) for how `m_ini` is prepared for interpolation.
 
 # Examples
 ```jldoctest
@@ -73,20 +73,17 @@ true
 """
 function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number},
                           new_mini::AbstractVector{<:Number})
-    m_ini, mags = sort_ingested(m_ini, mags) # from simulate.jl include'd above
+    m_ini, mags = ingest_isochrone(m_ini, mags) # from simulate.jl include'd above
     return interpolate((m_ini,), mags, Gridded(Linear()))(new_mini)
 end
-# I don't think these two methods are actually used by anything so not going to optimize,
-# although we could use these in partial_cmd_smooth if we wanted. 
-interpolate_mini(m_ini::AbstractVector{<:Number},
-                 mags::AbstractVector{<:AbstractVector{<:Number}},
-                 new_mini::AbstractVector{<:Number}) = 
-                     [interpolate((m_ini,), i, Gridded(Linear()))(new_mini) for i in mags]
-interpolate_mini(m_ini::AbstractVector{<:Number},
-                 mags::AbstractMatrix{<:Number},
-                 new_mini::AbstractVector{<:Number}) =
-    reduce(hcat, interpolate((m_ini,), i,
-                             Gridded(Linear()))(new_mini) for i in eachcol(mags))
+# Filters are ingested together so that every filter is interpolated on the same initial masses
+function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}},
+                          new_mini::AbstractVector{<:Number})
+    m_ini, point_mags = ingest_isochrone(m_ini, [getindex.(mags, i) for i in eachindex(m_ini)])
+    return [interpolate((m_ini,), getindex.(point_mags, k), Gridded(Linear()))(new_mini) for k in eachindex(mags)]
+end
+interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractMatrix{<:Number}, new_mini::AbstractVector{<:Number}) =
+    reduce(hcat, interpolate_mini(m_ini, [collect(i) for i in eachcol(mags)], new_mini))
 
 """
     mini_spacing(m_ini::AbstractVector{<:Number},
@@ -95,7 +92,7 @@ interpolate_mini(m_ini::AbstractVector{<:Number},
                  Δmag,
                  ret_spacing::Bool = false)
 
-Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding y-axis magnitude vector `mags` and x-axis color vector `color` to be used to construct a model Hess diagram. Will compute the new initial mass vector such that the distance between adjacent isochrone points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
+Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding y-axis magnitude vector `mags` and x-axis color vector `color` to be used to construct a model Hess diagram. The isochrone points should be in evolutionary order, and the returned masses are on the scale of the initial masses prepared by [`StarFormationHistories.ingest_isochrone`](@ref). Will compute the new initial mass vector such that the distance between adjacent isochrone points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
 ```julia
 julia> mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16],
@@ -110,12 +107,9 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
                       Δmag,
                       ret_spacing::Bool=false)
     @argcheck axes(m_ini) == axes(mags) == axes(colors)
-    # Sort the input m_ini and mags. This could be optional.
-    idx = sortperm(m_ini)
-    m_ini = m_ini[idx]
-    mags = mags[idx]
-    colors = colors[idx]
-    # Start from the smallest mass, so this must come after sorting
+    # Walk along the isochrone in evolutionary order with initial masses increasing along it
+    m_ini, points = ingest_isochrone(m_ini, SVector.(colors, mags))
+    colors, mags = first.(points), last.(points)
     new_mini = Float64[first(m_ini)]
     # Loop through the indices, testing if adjacent CMD points are
     # different by less than Δm.
@@ -484,6 +478,9 @@ function partial_cmd(m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:N
                      dmod::Number=0, normalize_value::Number=1,
                      mean_mass::Number=mean(imf), edges=nothing, xlim=extrema(colors),
                      ylim=extrema(mags), nbins=nothing, xwidth=nothing, ywidth=nothing)
+    # Ingest once so that resampling and interpolation use the same initial masses
+    m_ini, points = ingest_isochrone(m_ini, SVector.(colors, mags))
+    colors, mags = first.(points), last.(points)
     # Resample the isochrone magnitudes to a denser m_ini array
     new_mini, new_spacing = mini_spacing(m_ini, colors, mags, 0.01, true)
     new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
@@ -553,7 +550,7 @@ end
 Main function for generating template Hess diagrams from a simple stellar population of stars from an isochrone, including photometric error and completeness.
 
 # Arguments
- - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars from the isochrone.
+ - `m_ini::AbstractVector{<:Number}` is a vector containing the initial stellar masses of the stars from the isochrone. The isochrone points must be in evolutionary order (e.g., in order of equivalent evolutionary points), as given by isochrone libraries; see [`StarFormationHistories.ingest_isochrone`](@ref).
  - `mags::AbstractVector{<:AbstractVector{<:Number}}` is a vector of vectors. Each constituent vector with index `i` should have `length(mags[i]) == length(m_ini)`, representing the magnitudes of the isochrone stars in each of the magnitudes considered. In most cases, mags should contain 2 (if y-axis mag is also involved in the x-axis color) or 3 vectors.
  - `mag_err_funcs` computes the 1σ photometric errors for the filters provided in `mags`. It is either a `Vector` or `Tuple` of callables (e.g., a `Function`) with one callable per filter in `mags`, each taking a single *apparent* magnitude and returning a `Number`, or a single joint callable as described in the "Joint Photometric Models" section below.
  - `y_index` gives a valid index (e.g., an `Int` or `CartesianIndex`) into `mags` for the filter you want to have on the y-axis of the Hess diagram. For example, if the `mags` argument contains the B and V band magnitudes as `mags=[B, V]` and you want V on the y-axis, you would set `y_index` as `2`. 
@@ -597,6 +594,9 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
     @argcheck all(checkbounds(Bool, mags, idx) for idx in union(y_index, color_indices))
+    # Ingest once with all filters so that resampling and interpolation use the same initial masses
+    m_ini, point_mags = ingest_isochrone(m_ini, [getindex.(mags, i) for i in eachindex(m_ini)])
+    mags = [getindex.(point_mags, k) for k in eachindex(mags)]
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]

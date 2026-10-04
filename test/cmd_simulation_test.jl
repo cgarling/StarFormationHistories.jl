@@ -37,25 +37,32 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             end
         end
     end
-    @testset "sort_ingested" begin
+    @testset "ingest_isochrone" begin
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]
             @testset "$label" begin
                 T = float_types[i]
-                result = SFH.sort_ingested(T[1,2,3,4], SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]]))
+                # Monotonic input is unchanged
+                result = SFH.ingest_isochrone(T[1,2,3,4], SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]]))
                 @test result[1] == T[1,2,3,4]
                 @test eltype(result[1]) == T
                 @test result[2] == SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]])
                 @test eltype(result[2]) == SVector{2,T}
-                result = SFH.sort_ingested(T[2,3,1,4], SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]]))
-                @test result[1] == T[1,2,3,4]
-                @test eltype(result[1]) == T
-                @test result[2] ==
-                    SFH.ingest_mags(T[1,2,3,4], [T[1,2,3,4], T[1,2,3,4]])[sortperm(T[2,3,1,4])]
-                @test eltype(result[2]) == SVector{2,T}
+                # A decrease in initial mass along the isochrone (e.g., from the tip of the RGB to the HB) is removed by
+                # shifting later masses up, keeping the points in order and the mass differences within each phase
+                m, mags = T[1, 2, 3, 2.5, 2.75, 4], T[1, 2, 3, 4, 5, 6]
+                result = SFH.ingest_isochrone(m, mags)
+                @test issorted(result[1]; lt=<=)
+                @test result[1][[1, 2, 3, 5, 6]] == T[1, 2, 3, 3.25, 4.5]
+                @test result[2] == mags
+                # Points out of evolutionary order are sorted by initial mass, with a warning
+                m = T[3, 1, 4, 2]
+                result = @test_logs (:warn, r"evolutionary order") SFH.ingest_isochrone(m, SFH.ingest_mags(m, [m, m]))
+                @test result[1] == T[1, 2, 3, 4]
+                @test result[2] == SFH.ingest_mags(T[1, 2, 3, 4], [T[1, 2, 3, 4], T[1, 2, 3, 4]])
                 # Deduplication does not mutate the caller's vector
                 dup = T[1,2,2,3]
-                result = SFH.sort_ingested(dup, SFH.ingest_mags(dup, [T[1,2,3,4], T[1,2,3,4]]))
+                result = SFH.ingest_isochrone(dup, SFH.ingest_mags(dup, [T[1,2,3,4], T[1,2,3,4]]))
                 @test allunique(result[1]) && dup == T[1,2,2,3]
             end
         end

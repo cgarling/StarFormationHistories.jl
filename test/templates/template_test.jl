@@ -28,9 +28,9 @@ end
                                    0.1, true)
     @test spacing isa Vector{Float64}
     @test spacing ≈ diff(result)
-    # Unsorted input gives the same result as sorted input
+    # Input out of evolutionary order is sorted by mass, with a warning, giving the same result as sorted input
     p = [3, 1, 5, 2, 4]
-    @test mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], 0.1, true) == (result, spacing)
+    @test (@test_logs (:warn, r"evolutionary order") mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], 0.1, true)) == (result, spacing)
 end
 
 @testset "bin_cmd" begin
@@ -149,6 +149,19 @@ end
         @test nobs ≈ sum(smooth_tmpl) rtol=0.03
         # Per-filter models must have one callable per filter
         @test_throws ArgumentError partial_cmd_smooth(m_ini, filters, err[1:2], 2, (1,2), imf, diag_comp; dmod=distmod, normalize_value=template_norm, edges)
+    end
+
+    @testset "Initial mass decreasing along the isochrone" begin
+        # Shift the masses of the last points down so that they overlap earlier masses, as can happen at the tip of the
+        # RGB in interpolated isochrones. The template should equal that of the isochrone with the decrease removed.
+        filters, err = [F090W, F150W], [F090W_error, F150W_error]
+        r = length(m_ini) - 20
+        m_rev = [m_ini[1:r-1]; m_ini[r:end] .- (m_ini[r] - m_ini[r-10])]
+        m_fixed = [m_ini[1:r-1]; m_ini[r:end] .- (m_ini[r] - m_ini[r-1])]
+        tmpl(m) = partial_cmd_smooth(m, filters, err, 2, (1,2), imf; dmod=distmod, normalize_value=template_norm, edges).weights
+        @test tmpl(m_rev) ≈ tmpl(m_fixed)
+        # Resampling follows the isochrone rather than zigzagging between the overlapping phases
+        @test length(mini_spacing(m_rev, F090W .- F150W, F150W, 0.02)) == length(mini_spacing(m_fixed, F090W .- F150W, F150W, 0.02))
     end
 
     @testset "Templates match mock observations" begin
