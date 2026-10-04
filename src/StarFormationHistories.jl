@@ -154,7 +154,7 @@ dispatch_imf(imf::Distribution{Univariate, Continuous}, m) = pdf(imf, m)
 completeness_values(completeness::Union{Tuple, AbstractVector}, mags::AbstractVector{<:AbstractVector}, idxs=eachindex(mags)) = .*((completeness[k].(mags[k]) for k in idxs)...)
 completeness_values(completeness, mags::AbstractVector{<:AbstractVector}, idxs=nothing) = completeness.(mags...)
 # Errors and biases: returns one vector per filter; a joint model returns one value per filter for each star
-filter_values(f::Union{Tuple, AbstractVector}, mags::AbstractVector{<:AbstractVector}) = [f[k].(mags[k]) for k in eachindex(f, mags)]
+filter_values(f::Union{Tuple, AbstractVector}, mags::AbstractVector{<:AbstractVector}) = (@argcheck length(f) == length(mags); [fk.(m) for (fk, m) in zip(f, mags)])
 filter_values(f, mags::AbstractVector{<:AbstractVector}) = (r = f.(mags...); [getindex.(r, k) for k in eachindex(mags)])
 
 """
