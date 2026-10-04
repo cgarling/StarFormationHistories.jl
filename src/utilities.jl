@@ -219,15 +219,19 @@ exp_photerr(m, a, b, c, d) = a^(b * (m - c)) + d
 
 
 #### Artificial Star Test Utilities
+# Bias and Gaussian-equivalent error of the residuals `out - in`; 1.4826 = 1 / Φ⁻¹(3/4) converts the median absolute deviation to σ
+function bias_error(resid)
+    b = median(resid)
+    return b, 1.482602218505602 * median(abs.(resid .- b))
+end
 """
     process_ASTs(ASTs,
                  inmag::Symbol,
                  outmag::Symbol,
                  bins::AbstractVector{<:Real},
-                 selectfunc;
-                 statistic=StatsBase.median)
+                 selectfunc)
 
-Processes a table of artificial stars to calculate photometric completeness, bias, and error across the provided `bins`. This method has no default implementation and is implemented in package extensions that rely on either `DataFrames.jl` or `TypedTables.jl` being loaded into your Julia session to load the relevant method. This method therefore requires Julia 1.9 or greater to use.
+Processes a table of artificial stars to calculate photometric completeness, bias, and error across the provided `bins`.
 
 # Arguments
  - `ASTs` is the table of artificial stars to be analyzed. This function should support most table types that follow the Tables.jl interface, but we specifically test to ensure `DataFrames.DataFrame` and `TypedTables.Table` will work.
@@ -236,15 +240,12 @@ Processes a table of artificial stars to calculate photometric completeness, bia
  - `bins` give the bin edges to be used when computing the binned statistics.
  - `selectfunc` is a method that takes a single row from `ASTs`, corresponding to a single artificial star, and returns a boolean that is `true` if the star is considered successfully measured.
 
-# Keyword Arguments
- - `statistic` is the method that will be used to determine the bias and error, i.e., `bias = statistic(out .- in)` and `error = statistic(abs.(out .- in))`. By default we use `StatsBase.median`, but you could instead use a simple or sigma-clipped mean if so desired.
-
 # Returns
 This method returns a `result` of type `NTuple{4,Vector{Float64}}`. Each vector is of length `length(bins)-1`. `result` contains the following elements, each of which are computed over the provided `bins` considering only artificial stars for which `selectfunc` returned `true`:
  - `result[1]` contains the mean input magnitude of the stars in each bin.
  - `result[2]` contains the completeness value measured for each bin, defined as the fraction of input stars in each bin for which `selectfunc` returned `true`.
- - `result[3]` contains the photometric bias measured for each bin, defined as `statistic(out .- in)`, where `out` are the measured (output) magnitudes and `in` are the intrinsic (input) magnitudes.
- - `result[4]` contains the photometric error measured for each bin, with the effect of photometric bias removed. This is defined as `statistic(abs.(out .- in .- bias))`, with `out` and `in` defined as above, and `bias` defined as in `result[3]` above. This choice is made to simplify the modeling of the probability distribution for the observed magnitude given an intrinsic magnitude, which we may write as `P(O|I)`. For Gaussian errors, this may be written as `P(O|I) = Normal(I + bias, σ)` where `bias` is the photometric bias as returned by `result[3]`. This definition requires the error σ to be measured with the effect of photometric bias removed, as we implement here.
+ - `result[3]` contains the photometric bias measured for each bin, defined as `median(out .- in)`, where `out` are the measured (output) magnitudes and `in` are the intrinsic (input) magnitudes.
+ - `result[4]` contains the photometric error measured for each bin, with the effect of photometric bias removed. This is defined as `1.4826 * median(abs.(out .- in .- bias))`, with `out` and `in` defined as above, and `bias` defined as in `result[3]` above. The factor 1.4826 converts the median absolute deviation into the standard deviation σ of a Gaussian, so the error can be used directly as a Gaussian σ, while remaining robust to the outliers common in artificial star tests. Removing the bias simplifies the modeling of the probability distribution for the observed magnitude given an intrinsic magnitude, which we may write as `P(O|I)`. For Gaussian errors, this may be written as `P(O|I) = Normal(I + bias, σ)` where `bias` is the photometric bias as returned by `result[3]`. This definition requires the error σ to be measured with the effect of photometric bias removed, as we implement here.
 
 # Examples
 Let
@@ -263,8 +264,7 @@ process_ASTs(Table(input=F606Wi, output=F606Wo, good=flag),
 See also the tests in `test/utilities/process_ASTs_test.jl`.
 """
 function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
-                      bins::AbstractVector{<:Real}, selectfunc;
-                      statistic=median)
+                      bins::AbstractVector{<:Real}, selectfunc)
     @argcheck length(bins) > 1
     !issorted(bins) && sort!(bins)
     dtype = promote_type(typeof.(values(first(ASTs)))...)
@@ -297,10 +297,7 @@ function process_ASTs(ASTs, inmag::Symbol, outmag::Symbol,
         if count(good) > 0
             inmags = getproperty(tmp_asts, inmag)[good]
             outmags = getproperty(tmp_asts, outmag)[good]
-            diff = outmags .- inmags # This makes bias relative to input
-            bias[i] = statistic(diff)
-            # Error should be defined as scatter around ⟨output⟩ - input = (output - bias) - input
-            error[i] = statistic(abs.(diff .- bias[i]))
+            bias[i], error[i] = bias_error(outmags .- inmags) # This makes bias relative to input
             bin_centers[i] = mean(inmags)
         else
             @warn(@sprintf("Completeness measured to be 0 in bin ranging from \
@@ -319,9 +316,11 @@ end
                  outmags::NTuple{2, Symbol},
                  bins::NTuple{2, AbstractVector{<:Real}},
                  selectfunc;
-                 statistic=StatsBase.median)
+                 n0::Real=10)
 
 Processes a table of artificial stars to calculate the joint photometric completeness and the photometric bias and error in two filters on a 2-D grid of input magnitudes. Joint models are needed when detection or selection depends on both filters together; for example, requiring a signal-to-noise ratio above 5 in both filters removes stars along a diagonal line in the Hess diagram, which cannot be represented by the product of single-filter completeness functions. The results can be interpolated (e.g., with `Interpolations.jl`) to construct the joint models accepted by [`partial_cmd_smooth`](@ref) and [`model_cmd`](@ref).
+
+Grid cells containing few artificial stars give noisy statistics, so each cell is combined with the corresponding single-filter (1-D) statistic measured from all artificial stars inside the grid that fall in the same row or column of bins. A cell measured from `n` artificial stars with value `x`, whose 1-D statistic is `f`, is assigned `(n * x + n0 * f) / (n + n0)`; cells with `n = 0` are assigned `f`. Here `n` counts all input stars in the cell for the completeness, and only the stars that pass `selectfunc` for the bias and error.
 
 # Arguments
  - `ASTs` is the table of artificial stars to be analyzed, as in the single-filter method above.
@@ -331,18 +330,19 @@ Processes a table of artificial stars to calculate the joint photometric complet
  - `selectfunc` is a method that takes a single row from `ASTs`, corresponding to a single artificial star, and returns `true` if the star is considered successfully measured. For a joint completeness, this should require detection in both filters along with any other selection criteria (e.g., signal-to-noise cuts) applied to your catalog.
 
 # Keyword Arguments
- - `statistic` is as in the single-filter method above.
+ - `n0::Real = 10` is the number of artificial stars at which a cell's own statistic and the 1-D statistic have equal weight. `n0 = 0` uses each cell's own statistic wherever it is defined and the 1-D statistic only for cells without artificial stars.
 
 # Returns
 `(centers, completeness, bias, error)`, where `completeness` is a `Matrix` of size `(length(bins[1]) - 1, length(bins[2]) - 1)` and `centers`, `bias`, and `error` are 2-tuples with one entry per filter.
  - `centers[k]` contains the midpoints of `bins[k]`. Unlike the single-filter method, these are bin midpoints rather than the mean input magnitude of the stars in each bin, so that the results lie on a regular grid.
- - `completeness[i, j]` is the fraction of input stars in the bin `(i, j)` for which `selectfunc` returned `true`.
- - `bias[k][i, j]` and `error[k][i, j]` are the photometric bias and error in filter `k`, defined as in the single-filter method above, measured from the stars in bin `(i, j)` for which `selectfunc` returned `true`.
-Bins containing no input stars have `NaN` completeness, and bins in which no stars pass `selectfunc` have `NaN` bias and error. These are typically bins outside the region of the Hess diagram covered by the artificial stars, and must be handled (e.g., filled from neighboring bins) before interpolating.
+ - `completeness[i, j]` is the fraction of input stars in the bin `(i, j)` for which `selectfunc` returned `true`. Its 1-D fallback is the smaller of the single-filter completeness values for row `i` and column `j`. This is a heuristic: the single-filter values are averages over the other filter, which a cell can exceed.
+ - `bias[k][i, j]` and `error[k][i, j]` are the photometric bias and error in filter `k`, defined as in the single-filter method above, measured from the stars in bin `(i, j)` for which `selectfunc` returned `true`. Their 1-D fallback is the bias or error in filter `k` measured over row `i` (for `k = 1`) or column `j` (for `k = 2`).
+Values are `NaN` only where the 1-D statistic is also undefined, i.e., for rows or columns of bins that contain no input stars (completeness) or no stars that pass `selectfunc` (bias and error). These lie outside the region covered by the artificial stars and must be handled (e.g., by trimming `bins`) before interpolating.
 """
 function process_ASTs(ASTs, inmags::NTuple{2, Symbol}, outmags::NTuple{2, Symbol},
-                      bins::NTuple{2, AbstractVector{<:Real}}, selectfunc; statistic=median)
+                      bins::NTuple{2, AbstractVector{<:Real}}, selectfunc; n0::Real=10)
     @argcheck all(length(b) > 1 && issorted(b) for b in bins) "Each element of `bins` must be sorted and contain at least two bin edges."
+    @argcheck n0 >= 0 "`n0` must be non-negative."
     dtype = float(promote_type(typeof.(values(first(ASTs)))...))
     input = getproperty.(Ref(ASTs), inmags)
     output = getproperty.(Ref(ASTs), outmags)
@@ -354,22 +354,22 @@ function process_ASTs(ASTs, inmags::NTuple{2, Symbol}, outmags::NTuple{2, Symbol
         i, j = searchsortedlast(bins[1], input[1][s]), searchsortedlast(bins[2], input[2][s])
         (1 <= i <= nbins[1]) && (1 <= j <= nbins[2]) && push!(members[i, j], s)
     end
-    completeness = fill(dtype(NaN), nbins)
-    bias = (fill(dtype(NaN), nbins), fill(dtype(NaN), nbins))
-    error = (fill(dtype(NaN), nbins), fill(dtype(NaN), nbins))
-    for c in eachindex(members)
-        m = members[c]
-        isempty(m) && continue
+    # Completeness, bias, and error of a group of stars, with the counts they are measured from
+    function stats(m)
+        nan = dtype(NaN)
         detected = m[good[m]]
-        completeness[c] = length(detected) / length(m)
-        isempty(detected) && continue
-        for k in 1:2
-            resid = output[k][detected] .- input[k][detected] # This makes bias relative to input
-            bias[k][c] = statistic(resid)
-            # Error should be defined as scatter around ⟨output⟩ - input = (output - bias) - input
-            error[k][c] = statistic(abs.(resid .- bias[k][c]))
-        end
+        c = isempty(m) ? nan : dtype(length(detected) / length(m))
+        be = isempty(detected) ? ((nan, nan), (nan, nan)) : Tuple(dtype.(bias_error(output[k][detected] .- input[k][detected])) for k in 1:2)
+        return (n=length(m), ndet=length(detected), c=c, bias=first.(be), error=last.(be))
     end
+    cells = map(stats, members)
+    rows = [stats(reduce(vcat, members[i, :])) for i in 1:nbins[1]] # 1-D statistics in filter 1
+    cols = [stats(reduce(vcat, members[:, j])) for j in 1:nbins[2]] # 1-D statistics in filter 2
+    blend(x, n, f) = (n == 0 || isnan(x)) ? f : (n * x + n0 * f) / (n + n0)
+    completeness = [blend(cells[i, j].c, cells[i, j].n, min(rows[i].c, cols[j].c)) for i in 1:nbins[1], j in 1:nbins[2]]
+    marginal(k, i, j) = k == 1 ? rows[i] : cols[j]
+    bias = Tuple([blend(cells[i, j].bias[k], cells[i, j].ndet, marginal(k, i, j).bias[k]) for i in 1:nbins[1], j in 1:nbins[2]] for k in 1:2)
+    error = Tuple([blend(cells[i, j].error[k], cells[i, j].ndet, marginal(k, i, j).error[k]) for i in 1:nbins[1], j in 1:nbins[2]] for k in 1:2)
     centers = Tuple(b[begin:end-1] .+ diff(b) ./ 2 for b in bins)
     return centers, completeness, bias, error
 end
