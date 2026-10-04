@@ -358,6 +358,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                     ref = SFH.model_cmd(mm, errfuncs, completefuncs, biasfuncs; rng=StableRNG(seedval), ret_idxs=true)
                     @test SFH.model_cmd(mm, jerr, jcomp, jbias; rng=StableRNG(seedval), ret_idxs=true) == ref
                     @test SFH.model_cmd(mm, errfuncs, jcomp, biasfuncs; rng=StableRNG(seedval), ret_idxs=true) == ref
+                    @test SFH.model_cmd(mm, Tuple(errfuncs), Tuple(completefuncs), Tuple(biasfuncs); rng=StableRNG(seedval), ret_idxs=true) == ref
                 end
                 # A joint completeness that depends on color keeps only the selected stars
                 mean_color = sum(m[1] - m[2] for m in model_mags) / length(model_mags)
