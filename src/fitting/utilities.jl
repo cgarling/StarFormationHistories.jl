@@ -145,7 +145,7 @@ Calculates cumulative star formation history, star formation rates, and mean met
  - `unique_logAge::Vector` is essentially `unique(sort(logAge))` and provides the x-values you would plot the other returned vectors against.
  - `cum_sfh::Vector` is the normalized cumulative SFH implied by the provided `coeffs`. This is ~1 at the most recent time in `logAge` and decreases as `logAge` increases.
  - `sfr::Vector` gives the star formation rate across each bin in `unique_logAge`. If `coeffs .* normalize_value` are in units of solar masses, then `sfr` is in units of solar masses per year.
- - `mean_MH::Vector` gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique_logAge`. 
+ - `mean_MH::Vector` gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique_logAge`. The mean metallicity is undefined in bins without star formation, so these take the value of the nearest older bin with star formation (i.e., the metallicity stays constant after star formation stops), or of the nearest younger bin with star formation if they are older than all star formation.
 """
 function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::AbstractVector, T_max::Number; normalize_value=1, sorted::Bool=false)
     @argcheck axes(coeffs) == axes(logAge) == axes(MH)
@@ -164,6 +164,7 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
     dt = diff( vcat(exp10.(unique_logAge), exp10(max_logAge)) )
     mstar_arr = Vector{eltype(coeffs)}(undef, length(unique_logAge))
     mean_mh_arr = zeros(promote_type(eltype(MH),eltype(coeffs)), length(unique_logAge))
+    nosf = falses(length(unique_logAge)) # Bins without star formation
     for i in eachindex(unique_logAge)
         Mstar_tmp = zero(eltype(mstar_arr))
         mh_tmp = Vector{eltype(MH)}(undef,0)
@@ -178,13 +179,22 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
         mstar_arr[i] = Mstar_tmp
         coeff_sum = sum(coeff_tmp)
         if coeff_sum == 0
-            if i == 1
-                mean_mh_arr[i] = mean(mh_tmp)
-            else
-                mean_mh_arr[i] = mean_mh_arr[i-1]
-            end
+            nosf[i] = true
+            mean_mh_arr[i] = mean(mh_tmp) # Placeholder, replaced below unless no bin forms stars
         else
             mean_mh_arr[i] = sum( mh_tmp .* coeff_tmp ) / sum(coeff_tmp) # mean(mh_tmp)
+        end
+    end
+    # Bins without star formation take the mean [M/H] of the nearest older bin with star formation (unique_logAge is
+    # sorted, so older bins have larger indices), then any bins older than all star formation take the nearest younger value
+    for i in reverse(eachindex(mean_mh_arr))[begin+1:end]
+        if nosf[i] && !nosf[i+1]
+            mean_mh_arr[i], nosf[i] = mean_mh_arr[i+1], false
+        end
+    end
+    for i in eachindex(mean_mh_arr)[begin+1:end]
+        if nosf[i] && !nosf[i-1]
+            mean_mh_arr[i], nosf[i] = mean_mh_arr[i-1], false
         end
     end
     cum_sfr_arr = cumsum(reverse(mstar_arr)) ./ mstar_total
