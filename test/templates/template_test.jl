@@ -6,7 +6,7 @@ import StatsBase: Histogram, fit
 import InitialMassFunctions: Kroupa2001
 using StableRNGs: StableRNG
 import StarFormationHistories
-using StarFormationHistories: bin_cmd, mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, BinaryMassRatio, generate_stars_mass, model_cmd
+using StarFormationHistories: bin_cmd, hess_mask, mini_spacing, midpoints, dispatch_imf, mean, partial_cmd_smooth, Martin2016_complete, exp_photerr, NoBinaries, RandomBinaryPairs, BinaryMassRatio, generate_stars_mass, model_cmd
 
 
 @testset "calculate_weights" begin
@@ -37,6 +37,23 @@ end
     h = bin_cmd([0.1, 0.25, 0.25, 0.9], [20.1, 20.6, 20.6, 21.5]; weights=[1.0, 2.0, 0.5, 1.0], edges=(0.0:0.5:1.0, 20.0:1.0:22.0))
     @test h isa Histogram
     @test h.weights == [3.5 0.0; 0.0 1.0]
+end
+
+@testset "hess_mask" begin
+    edges = (0.0:1.0:4.0, 10.0:1.0:14.0) # bin centers 0.5:3.5, 10.5:13.5
+    square = [(1.0, 11.0), (3.0, 11.0), (3.0, 13.0), (1.0, 13.0)]
+    expected = falses(4, 4); expected[2:3, 2:3] .= true
+    @test hess_mask(edges, [square]) == expected
+    # An explicitly closed polygon and vertices given as vectors give the same mask
+    @test hess_mask(edges, [[collect(v) for v in vcat(square, square[1:1])]]) == expected
+    # Concave L-shaped polygon covering the first column and first row of bins
+    L = [(0.0, 10.0), (4.0, 10.0), (4.0, 11.0), (1.0, 11.0), (1.0, 14.0), (0.0, 14.0)]
+    expected_L = falses(4, 4); expected_L[1, :] .= true; expected_L[:, 1] .= true
+    @test hess_mask(edges, [L]) == expected_L
+    # Union of several polygons, and no polygons
+    @test hess_mask(edges, [square, L]) == expected .| expected_L
+    @test hess_mask(edges, []) == falses(4, 4)
+    @test_throws "at least 3 vertices" hess_mask(edges, [[(0.0, 10.0), (1.0, 11.0)]])
 end
 
 @testset "midpoints" begin
