@@ -66,6 +66,12 @@ Photometric catalogs can be processed into Hess diagrams meeting our formatting 
 StarFormationHistories.bin_cmd
 ```
 
+Regions of the Hess diagram that are poorly modeled or contaminated (e.g., by foreground stars) can be excluded from a fit by removing their bins from both the observed Hess diagram and the templates. [`hess_mask`](@ref StarFormationHistories.hess_mask) returns the bins inside a set of polygons for this purpose.
+
+```@docs
+StarFormationHistories.hess_mask
+```
+
 ## A Note on Array Formatting
 
 It is expected that the user will typically have model templates stored as two-dimensional matrices as these are the obvious choice for representing a binned two-dimensional histogram. We fully support supplying the list of model templates as a list of matrices (e.g., a `Vector{Matrix{<:Number}}`) to the fitting functions discussed below. The important computational kernels [`composite!`](@ref StarFormationHistories.composite!) and [`∇loglikelihood!`](@ref StarFormationHistories.∇loglikelihood!) have custom loops for these input types.

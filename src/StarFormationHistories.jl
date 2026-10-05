@@ -345,6 +345,37 @@ function bin_cmd(colors::AbstractVector{<:Number},
 end
 
 """
+    hess_mask(edges, gates)::BitMatrix
+
+Returns a mask for a Hess diagram with bin edges `edges` (e.g., `(xedges, yedges)` as used by [`bin_cmd`](@ref StarFormationHistories.bin_cmd)) that is `true` for bins whose centers lie inside any of the polygons in `gates`. Each polygon is a vector of `(x, y)` vertices in the coordinates of the Hess diagram (e.g., color and magnitude). Polygons are closed automatically, so the last vertex need not repeat the first, and may be concave.
+
+Removing the masked bins from both the observed Hess diagram and the templates excludes these regions from a fit, as they then contribute nothing to the likelihood. This is equivalent to the "gates" of the MATCH software. With the flattened layout from [`stack_models`](@ref StarFormationHistories.stack_models), this can be done for any of the fitting methods as
+
+```julia
+keep = .!vec(hess_mask(edges, gates))
+fit_templates(stack_models(models)[keep, :], vec(data)[keep])
+```
+"""
+function hess_mask(edges, gates)
+    @argcheck length(edges) == 2
+    @argcheck all(length(g) >= 3 for g in gates) "Each polygon in `gates` must have at least 3 vertices."
+    centers = Tuple((e[begin:end-1] .+ e[begin+1:end]) ./ 2 for e in edges)
+    return BitMatrix([any(inpolygon(x, y, g) for g in gates) for x in centers[1], y in centers[2]])
+end
+# Even-odd rule: (x, y) is inside if a horizontal ray from it crosses the polygon edges an odd number of times
+function inpolygon(x, y, vertices)
+    inside = false
+    xj, yj = vertices[end]
+    for (xi, yi) in vertices
+        if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            inside = !inside
+        end
+        xj, yj = xi, yi
+    end
+    return inside
+end
+
+"""
     result::StatsBase.Histogram =
         bin_cmd_smooth(colors,
                        mags,
@@ -650,7 +681,7 @@ end
 
 # Method exports
 # Exports from StarFormationHistories.jl
-export mean, bin_cmd, bin_cmd_smooth, partial_cmd, partial_cmd_smooth
+export mean, bin_cmd, bin_cmd_smooth, hess_mask, partial_cmd, partial_cmd_smooth
 # Exports from simulate.jl
 export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite,
     generate_stars_mag_composite, model_cmd
