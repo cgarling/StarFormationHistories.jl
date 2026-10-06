@@ -145,6 +145,8 @@ end
  - [`StarFormationHistories.binary_system_fraction`](@ref)
  - [`StarFormationHistories.binary_mass_fraction`](@ref)
  - [`StarFormationHistories.binary_systems`](@ref), used to construct smooth Hess diagram templates
+ - [`StarFormationHistories.with_fraction`](@ref), used to construct Hess diagram templates with a variable binary \
+   fraction (e.g., when fitting the binary fraction with [`SSPModel`](@ref StarFormationHistories.SSPModel))
  - `Base.length`, which should return an integer indicating the number of stars per system that can be sampled by \
    the model; this is equivalent to the length of the mass vector returned by `sample_system`.
 
@@ -161,9 +163,13 @@ Returns the number fraction of *stars* that in binary pairs for the given concre
 binary_number_fraction(model::AbstractBinaryModel) = (b=binary_system_fraction(model); return 2b / (1 + b))
 """
     binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
-Returns the fraction of stellar mass in binary systems for the given concrete subtype `T <: AbstractBinaryModel` and initial mass function `imf`. `imf` must be a properly normalized probability distribution such that the number fraction of stars/systems between mass `m1` and `m2` is given by the integral of `dispatch_imf(imf, x)` from `m1` to `m2`. 
+Returns the fraction of stellar mass in binary systems for the given concrete subtype `T <: AbstractBinaryModel` and initial mass function `imf`. `imf` must be a properly normalized probability distribution such that the number fraction of stars/systems between mass `m1` and `m2` is given by the integral of `dispatch_imf(imf, x)` from `m1` to `m2`.
 """
 binary_mass_fraction(model::T, imf) where T <: AbstractBinaryModel
+"""
+    with_fraction(model::AbstractBinaryModel, fraction::Real)
+Returns a copy of `model` with its binary system fraction (see [`StarFormationHistories.binary_system_fraction`](@ref)) set to `fraction`, keeping any other properties of `model`."""
+function with_fraction end
 
 """
     NoBinaries()
@@ -173,6 +179,7 @@ Base.length(::NoBinaries) = 1
 binary_system_fraction(::NoBinaries) = 0
 binary_number_fraction(::NoBinaries) = 0
 binary_mass_fraction(::NoBinaries, imf) = 0
+with_fraction(::NoBinaries, fraction::Real) = (@argcheck iszero(fraction) "`NoBinaries` cannot have a nonzero binary fraction."; NoBinaries())
 
 """
     RandomBinaryPairs(fraction::Real)
@@ -203,6 +210,7 @@ The `RandomBinaryPairs` model uses a single-star `imf`. If a system is chosen to
 for primary mass ``\\text{M}_P``, secondary mass ``\\text{M}_S``, and single-star IMF ``d\\text{N} / d\\text{M}``. As such, the fraction of total stellar mass in binaries is equal to the number fraction of all *stars* in binary pairs, which is given by [`StarFormationHistories.binary_number_fraction`](@ref).
 """
 binary_mass_fraction(m::RandomBinaryPairs, imf) = binary_number_fraction(m)
+with_fraction(::RandomBinaryPairs, fraction::Real) = RandomBinaryPairs(fraction)
 
 """
     BinaryMassRatio(fraction::Real,
@@ -229,6 +237,7 @@ Base.length(::BinaryMassRatio) = 2
 This binary model requires an `imf` that is defined by stellar system mass. If a system with a randomly sampled mass ``M`` is is a binary, the primary and secondary mass are determined based on a binary mass ratio ``q`` sampled from a user-defined distribution. By definition, the expectation value for the total mass of a binary system is equal to the expectation value for single-star systems. In this case the binary mass fraction is equal the binary system number fraction as given by [`StarFormationHistories.binary_system_fraction`](@ref).
 """
 binary_mass_fraction(m::BinaryMassRatio, imf) = binary_system_fraction(m)
+with_fraction(m::BinaryMassRatio, fraction::Real) = BinaryMassRatio(fraction, m.qdist)
 
 """
     masses = sample_system(imf, rng::AbstractRNG, binarymodel::StarFormationHistories.AbstractBinaryModel)

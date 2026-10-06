@@ -6,4 +6,5 @@ include("mcmc_sample_distance.jl")
 # hierarchical_models.jl will `include` all relevant files from that subdirectory
 include("hierarchical/hierarchical_models.jl")
 include("mdf.jl")
+include("ssp.jl")
 include("utilities.jl")

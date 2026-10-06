@@ -24,6 +24,7 @@ StarFormationHistories.binary_number_fraction
 StarFormationHistories.binary_mass_fraction
 StarFormationHistories.sample_system
 StarFormationHistories.binary_systems
+StarFormationHistories.with_fraction
 ```
 
 ## Notes

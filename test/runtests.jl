@@ -17,6 +17,7 @@ using Logging: with_logger, ConsoleLogger, Error
             @safetestset "Age-Metallicity Relations" include("fitting/amr_test.jl")
             @safetestset "Mass-Metallicity Relations" include("fitting/mzr_test.jl")
             @safetestset "Fixed AMR" include("fitting/fixed_amr_test.jl")
+            @safetestset "Single Stellar Populations" include("fitting/ssp_test.jl")
         end
 
         # Benchmarking

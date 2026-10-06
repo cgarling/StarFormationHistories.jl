@@ -3,7 +3,7 @@ module StarFormationHistories
 using Compat: allequal
 using ArgCheck: @argcheck
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    cdf, quantile, Multivariate, MvNormal, sampler, Uniform
+    cdf, quantile, Multivariate, MvNormal, sampler, Uniform, UnivariateDistribution, Gamma
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
@@ -92,7 +92,7 @@ interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractMatrix{<:Number}
                  Δmag,
                  ret_spacing::Bool = false)
 
-Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding y-axis magnitude vector `mags` and x-axis color vector `color` to be used to construct a model Hess diagram. The isochrone points should be in evolutionary order, and the returned masses are on the scale of the initial masses prepared by [`StarFormationHistories.ingest_isochrone`](@ref). Will compute the new initial mass vector such that the distance between adjacent isochrone points is less than `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
+Returns a new sampling of stellar masses given the initial mass vector `m_ini` from an isochrone and the corresponding y-axis magnitude vector `mags` and x-axis color vector `color` to be used to construct a model Hess diagram. The isochrone points should be in evolutionary order, and the returned masses are on the scale of the initial masses prepared by [`StarFormationHistories.ingest_isochrone`](@ref). Will compute the new initial mass vector such that the distance between adjacent isochrone points is less than `Δmag`. `Δmag` may also be a vector with one maximum distance per isochrone point, in which case each segment between adjacent points uses the smaller of the values at its ends. Decreases in `m_ini` along the isochrone are allowed as in [`StarFormationHistories.ingest_isochrone`](@ref), but the points must be in evolutionary order, because points sorted by initial mass would no longer match their values of `Δmag`. Will return the change in mass between points `diff(new_mini)` if `ret_spacing==true`.
 
 ```julia
 julia> mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16],
@@ -107,8 +107,14 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
                       Δmag,
                       ret_spacing::Bool=false)
     @argcheck axes(m_ini) == axes(mags) == axes(colors)
+    Δmag isa AbstractVector && @argcheck axes(Δmag) == axes(m_ini) "A vector `Δmag` needs one value per isochrone point."
     # Walk along the isochrone in evolutionary order with initial masses increasing along it
-    m_ini, points = ingest_isochrone(m_ini, SVector.(colors, mags))
+    input_points = SVector.(colors, mags)
+    m_ini, points = ingest_isochrone(m_ini, input_points)
+    # ingest_isochrone removes decreases in initial mass without moving points, but sorts points that are not in
+    # evolutionary order by initial mass, which would misalign per-point distances
+    Δmag isa AbstractVector && points !== input_points &&
+        throw(ArgumentError("A vector `Δmag` requires the isochrone points to be in evolutionary order."))
     colors, mags = first.(points), last.(points)
     new_mini = Float64[first(m_ini)]
     # Loop through the indices, testing if adjacent CMD points are
@@ -117,8 +123,9 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
         Δx = colors[i+1] - colors[i]
         Δy = mags[i+1] - mags[i]
         diffi = hypot(Δx, Δy)
-        if diffi > Δmag # Requires interpolation
-            npoints = round(Int, diffi / Δmag, RoundUp)
+        Δmax = Δmag isa AbstractVector ? min(Δmag[i], Δmag[i+1]) : Δmag
+        if diffi > Δmax # Requires interpolation
+            npoints = round(Int, diffi / Δmax, RoundUp)
             Δmass = m_ini[i+1] - m_ini[i]
             mass_step = Δmass / npoints
             for j in 1:npoints
@@ -618,11 +625,64 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
                             mean_mass::Number=mean(imf),
                             edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
                             xwidth=nothing, ywidth=nothing)
+    # Calculate edges from provided kws
+    edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
+    single_star_hist, new_mini, new_iso_mags = single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs,
+                                                                bias_funcs, edges; dmod, normalize_value, mean_mass)
+    bfrac = binary_system_fraction(binary_model)
+    @argcheck bfrac <= 1
+    iszero(bfrac) && return single_star_hist
+    binary_hist = binary_hess(binary_model, new_mini, new_iso_mags, mag_err_funcs, y_index, color_indices, imf,
+                              completeness_funcs, bias_funcs, edges; normalize_value, mean_mass)
+    # Single-star systems hold a fraction 1 - binary_mass_fraction of the stellar mass formed;
+    # binary_hist is already normalized and includes binaries with only one star in the isochrone.
+    result_mat = single_star_hist.weights .* (1 - binary_mass_fraction(binary_model, imf)) .+ binary_hist.weights
+    return Histogram(edges, result_mat, :left, false)
+end
+
+"""
+    (single, binary) = ssp_components(m_ini::AbstractVector{<:Number},
+                                      mags::AbstractVector{<:AbstractVector{<:Number}},
+                                      mag_err_funcs, y_index, color_indices, imf,
+                                      completeness_funcs=[one for i in mags],
+                                      bias_funcs=[zero for i in mags];
+                                      binary_model::AbstractBinaryModel=NoBinaries(),
+                                      dmod::Number=0, normalize_value::Number=1,
+                                      mean_mass::Number=mean(imf),
+                                      edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
+                                      xwidth=nothing, ywidth=nothing)
+
+Returns the Hess diagram of the simple stellar population as two components, both `StatsBase.Histogram`s normalized to `normalize_value` solar masses formed: `single`, for a population of only single stars, and `binary`, for a population of only binary systems under `binary_model` (i.e., [`with_fraction(binary_model, 1)`](@ref StarFormationHistories.with_fraction)). `binary` is `nothing` for `binary_model = NoBinaries()`. Arguments and keyword arguments are as in [`partial_cmd_smooth`](@ref).
+
+The Hess diagram for a binary system fraction `b` is `(1 - φ) .* single.weights .+ φ .* binary.weights` with `φ = binary_mass_fraction(with_fraction(binary_model, b), imf)`, which is equal to the result of [`partial_cmd_smooth`](@ref) for `with_fraction(binary_model, b)`. These components therefore give the Hess diagram for any binary fraction without recomputing them.
+"""
+function ssp_components(m_ini::AbstractVector{<:Number},
+                        mags::AbstractVector{<:AbstractVector{<:Number}},
+                        mag_err_funcs, y_index, color_indices, imf,
+                        completeness_funcs=[one for i in mags],
+                        bias_funcs=[zero for i in mags];
+                        binary_model::AbstractBinaryModel=NoBinaries(),
+                        dmod::Number=0, normalize_value::Number=1,
+                        mean_mass::Number=mean(imf),
+                        edges=nothing, xlim=nothing, ylim=nothing, nbins=nothing,
+                        xwidth=nothing, ywidth=nothing)
+    edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
+    single, new_mini, new_iso_mags = single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs,
+                                                      bias_funcs, edges; dmod, normalize_value, mean_mass)
+    binary_model isa NoBinaries && return single, nothing
+    # With a binary fraction of 1, all of the mass formed is in binary systems
+    binary = binary_hess(with_fraction(binary_model, 1), new_mini, new_iso_mags, mag_err_funcs, y_index, color_indices, imf,
+                         completeness_funcs, bias_funcs, edges; normalize_value, mean_mass)
+    return single, binary
+end
+
+# Single-star Hess diagram shared by partial_cmd_smooth and ssp_components; also returns the densely resampled
+# isochrone (initial masses and apparent magnitudes) used to construct the binary Hess diagram
+function single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, imf, completeness_funcs, bias_funcs, edges;
+                          dmod, normalize_value, mean_mass)
     @argcheck length(color_indices) == 2
     # Per-filter models must have one callable per filter; joint callables are not checked here
     @argcheck all(length(f) == length(mags) for f in (mag_err_funcs, completeness_funcs, bias_funcs) if f isa Union{Tuple, AbstractVector})
-    # Calculate edges from provided kws
-    edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     # Verify that the provided y_index and color_indices are valid
     @argcheck all(checkbounds(Bool, mags, idx) for idx in union(y_index, color_indices))
     # Ingest once with all filters so that resampling and interpolation use the same initial masses
@@ -631,8 +691,14 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]
-    # Use bin spacing to inform necessary spacing of isochrone points
-    Δmag = min(step(edges[1]), step(edges[2]))
+    # Space isochrone points by less than half the narrowest smoothing kernel (and less than the bin width) so the
+    # template is smooth along the isochrone. Kernels narrower than a bin otherwise leave gaps between points that move
+    # across bin edges as the isochrone changes, adding noise to the likelihood. Errors below 0.01 mag, smaller than
+    # typical photometric systematics, are treated as 0.01 mag here to bound the number of points.
+    err = filter_values(mag_err_funcs, [m .+ dmod for m in mags])
+    σx = y_index in color_indices ? err[color_indices[findfirst(!=(y_index), color_indices)]] :
+        hypot.(err[first(color_indices)], err[last(color_indices)])
+    Δmag = min.(step(edges[1]), step(edges[2]), max.(min.(σx, err[y_index]), 0.01) ./ 2)
     new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, Δmag, true)
     # Interpolate only the mag vectors included in color_indices
     new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
@@ -667,16 +733,7 @@ function partial_cmd_smooth(m_ini::AbstractVector{<:Number},
     single_star_hist = bin_cmd_smooth(midpoints(colors), midpoints(bias_iso_mags[y_index]),
                                       midpoints(color_err), midpoints(mag_err[y_index]), cov_mult;
                                       weights=weights, edges=edges)
-
-    bfrac = binary_system_fraction(binary_model)
-    @argcheck bfrac <= 1
-    iszero(bfrac) && return single_star_hist
-    binary_hist = binary_hess(binary_model, new_mini, new_iso_mags, mag_err_funcs, y_index, color_indices, imf,
-                              completeness_funcs, bias_funcs, edges; normalize_value, mean_mass)
-    # Single-star systems hold a fraction 1 - binary_mass_fraction of the stellar mass formed;
-    # binary_hist is already normalized and includes binaries with only one star in the isochrone.
-    result_mat = single_star_hist.weights .* (1 - binary_mass_fraction(binary_model, imf)) .+ binary_hist.weights
-    return Histogram(edges, result_mat, :left, false)
+    return single_star_hist, new_mini, new_iso_mags
 end
 
 # Method exports
@@ -694,7 +751,10 @@ export fit_templates,
     PowerLawMZR,
     fit_sfh,
     sample_sfh,
-    calculate_coeffs
+    calculate_coeffs,
+    SSPModel,
+    fit_ssp,
+    sample_ssp
 
 
 end # module
