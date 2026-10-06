@@ -31,6 +31,8 @@ end
     # Input out of evolutionary order is sorted by mass, with a warning, giving the same result as sorted input
     p = [3, 1, 5, 2, 4]
     @test (@test_logs (:warn, r"evolutionary order") mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], 0.1, true)) == (result, spacing)
+    # Sorting would misalign a per-point Δmag with its points
+    @test_logs (:warn, r"evolutionary order") @test_throws "evolutionary order" mini_spacing([0.08, 0.10, 0.12, 0.14, 0.16][p], [1.0, 0.99, 0.98, 0.97, 0.96][p], [13.545, 12.899, 12.355, 11.459, 10.947][p], fill(0.1, 5))
 end
 
 @testset "bin_cmd" begin
@@ -179,6 +181,8 @@ end
         @test tmpl(m_rev) ≈ tmpl(m_fixed)
         # Resampling follows the isochrone rather than zigzagging between the overlapping phases
         @test length(mini_spacing(m_rev, F090W .- F150W, F150W, 0.02)) == length(mini_spacing(m_fixed, F090W .- F150W, F150W, 0.02))
+        # A per-point Δmag also accepts the decrease, and a constant one matches the scalar
+        @test mini_spacing(m_rev, F090W .- F150W, F150W, fill(0.02, length(m_rev))) == mini_spacing(m_rev, F090W .- F150W, F150W, 0.02)
     end
 
     @testset "Templates match mock observations" begin

@@ -69,6 +69,7 @@ makedocs(
                        "MZRs" =>
                            ["fitting/hierarchical/MZR/MZR.md"],
                        "fitting/hierarchical/dispersion_models.md"],
+                  "fitting/ssp.md",
                   "Internals" => ["fitting/internals.md",
                                   "fitting/kernels.md"]],
              "examples.md",
