@@ -50,7 +50,8 @@ end
     renormalize_x0(data::AbstractVector{<:Number},
                    models::AbstractMatrix{<:Number},
                    x0::AbstractVector{<:Number},
-                   full_coeffs::AbstractVector{<:Number} = x0) -> x0_renormalized
+                   full_coeffs::AbstractVector{<:Number} = x0;
+                   background::Number = 0) -> x0_renormalized
     renormalize_x0(data::AbstractMatrix{<:Number},
                    models::AbstractVector{<:AbstractMatrix{<:Number}},
                    x0::AbstractVector{<:Number}) -> x0_renormalized
@@ -81,6 +82,10 @@ The composite is then computed from `full_coeffs` while `x0` is scaled. In the d
 case `full_coeffs = x0`, which is appropriate when `x0` directly indexes the `models`
 (as in [`fit_templates`](@ref) and similar functions).
 
+The keyword `background` is the expected number of background stars in the model (see
+[`HessBackground`](@ref)), which is held fixed while `x0` is scaled so that the stellar
+model has the remaining ``\\sum_i n_i - b`` stars.
+
 The second call signature accepts `models` as a vector of matrices and `data` as a
 matrix and converts them to the flattened format before dispatching to the primary
 method.
@@ -104,21 +109,22 @@ true
 function renormalize_x0(data::AbstractVector{<:Number},
                         models::AbstractMatrix{<:Number},
                         x0::AbstractVector{<:Number},
-                        full_coeffs::AbstractVector{<:Number} = x0)
+                        full_coeffs::AbstractVector{<:Number} = x0;
+                        background::Number = 0)
     S = promote_type(eltype(data), eltype(models), eltype(full_coeffs))
     composite = Vector{S}(undef, length(data))
     composite!(composite, full_coeffs, models)
     composite_sum = sum(composite)
     iszero(composite_sum) && return copy(x0)  # guard against degenerate case
-    α = sum(data) / composite_sum
+    α = (sum(data) - background) / composite_sum
     return x0 .* α
 end
 # Convenience wrapper for the vector-of-matrices call signature
 renormalize_x0(data::AbstractMatrix{<:Number},
                models::AbstractVector{<:AbstractMatrix{<:Number}},
                x0::AbstractVector{<:Number},
-               full_coeffs::AbstractVector{<:Number} = x0) =
-    renormalize_x0(vec(data), stack_models(models), x0, full_coeffs)
+               full_coeffs::AbstractVector{<:Number} = x0; kws...) =
+    renormalize_x0(vec(data), stack_models(models), x0, full_coeffs; kws...)
 
 """
     (unique_logAge, cum_sfh, sfr, mean_MH) =
@@ -249,22 +255,22 @@ julia> size(result[4], 2) == 10_000
 function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
                            kws...)
-    MH_model, disp_model = result.mle.MH_model, result.mle.disp_model
+    MH_model, disp_model, bg_model = result.mle.MH_model, result.mle.disp_model, result.mle.bg_model
     samples = rand(result, Nsamples)
-    return _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
 end
 function cum_sfr_quantiles(result::BFGSResult, logAge::AbstractVector{<:Number},
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
                            kws...)
-    MH_model, disp_model = result.MH_model, result.disp_model
+    MH_model, disp_model, bg_model = result.MH_model, result.disp_model, result.bg_model
     samples = rand(result, Nsamples)
-    return _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
 end
-function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q; kws...)
+function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
     # Get number of unique time bins
     npar_MH_model = nparams(MH_model)
     npar_disp_model = nparams(disp_model)
-    Nbins = size(samples, 1) - npar_MH_model - npar_disp_model
+    Nbins = size(samples, 1) - nparams(MH_model, disp_model, bg_model)
     Nsamples = size(samples, 2)
     
     # Allocate matrices to accumulate cumulative SFHs, SFRs, and <[M/H]> for
@@ -275,8 +281,8 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, logAge, MH, T_max, q;
     good = fill(true, Nsamples) # Vector to track good samples; bad samples are set to false
     Threads.@threads for i in 1:Nsamples
         r = view(samples, :, i)
-        new_MH_model = update_params(MH_model, @view(r[Nbins+1:end-npar_disp_model]))
-        new_disp_model = update_params(disp_model, @view(r[end-npar_disp_model+1:end]))
+        new_MH_model = update_params(MH_model, @view(r[Nbins+1:Nbins+npar_MH_model]))
+        new_disp_model = update_params(disp_model, @view(r[Nbins+npar_MH_model+1:Nbins+npar_MH_model+npar_disp_model]))
         tmp_coeffs = calculate_coeffs(new_MH_model, new_disp_model, @view(r[begin:Nbins]),
                                       logAge, MH)
         if any(!isfinite, tmp_coeffs)

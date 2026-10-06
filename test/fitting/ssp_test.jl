@@ -6,7 +6,7 @@ import MCMCChains
 import Optim
 using StableRNGs: StableRNG
 using StarFormationHistories: SSPModel, fit_ssp, sample_ssp, ssp_components, ssp_hess, ssp_mass, ssp_logdensity, with_fraction,
-    partial_cmd_smooth, binary_mass_fraction, exp_photerr, Martin2016_complete, NoBinaries, RandomBinaryPairs, BinaryMassRatio
+    partial_cmd_smooth, binary_mass_fraction, exp_photerr, Martin2016_complete, NoBinaries, RandomBinaryPairs, BinaryMassRatio, dθdz, grid_logdensity
 using Test
 
 isochrone, _ = readdlm(joinpath(@__DIR__, "../../data/isochrone.txt"), ' ', Float64, '\n'; header=true)
@@ -73,7 +73,7 @@ end
     @test fit.map.background_fraction ≈ 0.1 atol=0.01
     @test isnothing(fit.grid) # Neither age nor metallicity is free
     # Starting with a fraction at a bound of its prior, far from z = 0 in the unconstrained coordinates
-    @test all(isfinite, StarFormationHistories.dθdz(model, [0.0, 800.0, -800.0]))
+    @test all(isfinite, dθdz(model, [0.0, 800.0, -800.0]))
     fb = fit_ssp(model; x0=[25.0, 0.3, 0.0], restarts=0)
     @test all(isfinite, fb.θ) && isfinite(fb.logdensity)
     chain = sample_ssp(fit, 40; nwalkers=8, rng=StableRNG(3), use_progress_meter=false)
@@ -97,7 +97,7 @@ end
     # can only improve on their prior medians
     x0 = [quantile(gridmodel.params[k], 0.5) for k in gridmodel.free]
     jmix = [findfirst(==(k), gridmodel.free) for k in (:binary_fraction, :background_fraction)]
-    @test gridfit.grid.logdensity == [first(StarFormationHistories.grid_logdensity(gridmodel, [la; mh; x0[3:end]], jmix)) for la in gridfit.grid.logAge, mh in gridfit.grid.MH]
+    @test gridfit.grid.logdensity == [first(grid_logdensity(gridmodel, [la; mh; x0[3:end]], jmix)) for la in gridfit.grid.logAge, mh in gridfit.grid.MH]
     @test all(gridfit.grid.logdensity .>= [first(ssp_logdensity(gridmodel, [la; mh; x0[3:end]])) for la in gridfit.grid.logAge, mh in gridfit.grid.MH])
     @test 1 <= length(gridfit.starts) <= 4
     @test gridfit.logdensity == maximum(s.logdensity for s in gridfit.starts)

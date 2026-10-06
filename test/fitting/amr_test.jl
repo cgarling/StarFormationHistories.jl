@@ -6,6 +6,20 @@ import StarFormationHistories as SFH
 using Random: rand!, randperm
 using Test
 
+# Linear AMR whose slope `a` is constrained to be negative, to test the transformations of negative parameters
+struct NegativeSlopeAMR{T <: Real} <: SFH.AbstractAMR{T}
+    a::T
+    β::T
+    T_max::T
+end
+SFH.nparams(::NegativeSlopeAMR) = 2
+SFH.fittable_params(model::NegativeSlopeAMR) = (a = model.a, β = model.β)
+(model::NegativeSlopeAMR)(logAge::Real) = model.β + model.a * (model.T_max - exp10(logAge - 9))
+SFH.gradient(model::NegativeSlopeAMR, logAge::Real) = (a = model.T_max - exp10(logAge - 9), β = one(model.a))
+SFH.update_params(model::NegativeSlopeAMR, newparams) = NegativeSlopeAMR(newparams..., model.T_max)
+SFH.transforms(::NegativeSlopeAMR) = (-1, 0)
+SFH.free_params(::NegativeSlopeAMR) = (true, true)
+
 
 @testset "AMR Fitting and Sampling" begin
     T = Float64
@@ -81,6 +95,20 @@ using Test
             @test sum(c) ≈ sum(Mstars)
             SFH.fg!(true, Gf, far, disp, vcat(Mstars, SFH.fittable_params(far)..., disp.σ), models, data, C, logAge, MH)
             @test all(isfinite, Gf)
+        end
+        # Log weights, and the defaults for models that only implement the required methods
+        let x = T(-1.3), μ = T(-1), M = Tuple{SFH.AbstractDispersionModel, Real, Real}
+            @test SFH.logweight(disp, x, μ) ≈ log(disp(x, μ)) ≈ invoke(SFH.logweight, M, disp, x, μ)
+            @test all(values(SFH.∇logweight(disp, x, μ)) .≈ values(SFH.gradient(disp, x, μ)) ./ disp(x, μ) .≈
+                      values(invoke(SFH.∇logweight, M, disp, x, μ)))
+        end
+        # Mean metallicities 32-35σ below the metallicity grid, where the unscaled weights are ~1e-220 to 1e-266
+        let far = SFH.LinearAMR(MHmodel.α, T(-9.0), MHmodel.T_max, (true, true)), Gf = similar(G)
+            v = vcat(Mstars, SFH.fittable_params(far)..., disp.σ)
+            f(v) = SFH.fg!(true, nothing, far, disp, v, models, data, C, logAge, MH)
+            SFH.fg!(true, Gf, far, disp, v, models, data, C, logAge, MH)
+            fd = [(f(setindex!(copy(v), v[i] + h, i)) - f(setindex!(copy(v), v[i] - h, i))) / 2h for (i, h) in zip(eachindex(v), 1e-6 .* abs.(v))]
+            @test Gf ≈ fd rtol=1e-5
         end
     end
     
@@ -198,10 +226,33 @@ using Test
         end
     end
 
+    @testset "logdensity_and_gradient negative transformation" begin
+        negmodel = NegativeSlopeAMR(T(-0.05), T(-0.5), MHmodel.T_max)
+        v = vcat(Mstars, SFH.fittable_params(negmodel)..., disp.σ)            # Parameters
+        z = vcat(log.(Mstars), log(-negmodel.a), negmodel.β, log(disp.σ))    # Transformed variables
+        Gn = similar(v)
+        nlogL_n = SFH.fg!(true, Gn, negmodel, disp, v, smodels, sdata, sC, logAge, MH)
+        # x = ±exp(z) gives dx/dz = x, so the gradient with respect to z is G .* x for the transformed variables
+        Gz = vcat(Gn[begin:end-3] .* Mstars, Gn[end-2] * negmodel.a, Gn[end-1], Gn[end] * disp.σ)
+        S = SFH.HierarchicalOptimizer(negmodel, disp, smodels, sdata, logAge, MH, true, similar(z), false)
+        r = SFH.LogDensityProblems.logdensity_and_gradient(S, z)
+        @test r[1] ≈ -nlogL_n
+        @test r[2] ≈ -Gz
+        # With Jacobian corrections, log|dx/dz| = z is added for every transformed variable
+        SJ = SFH.HierarchicalOptimizer(negmodel, disp, smodels, sdata, logAge, MH, true, similar(z), true)
+        rj = SFH.LogDensityProblems.logdensity_and_gradient(SJ, z)
+        @test rj[1] ≈ -nlogL_n + sum(z[begin:end-3]) + z[end-2] + z[end]
+        @test rj[2] ≈ -Gz .+ vcat(ones(length(Mstars)), 1, 0, 1)
+        f(zz) = first(SFH.LogDensityProblems.logdensity_and_gradient(SJ, zz))
+        fd = [(f(setindex!(copy(z), z[i] + 1e-6, i)) - f(setindex!(copy(z), z[i] - 1e-6, i))) / 2e-6 for i in eachindex(z)]
+        @test rj[2] ≈ fd rtol=1e-5
+    end
+
     @testset "fit_sfh" begin
-        # Run fit on perfect, noise-free data
+        # Run fit on perfect, noise-free data. The initial mean metallicity is inside the metallicity grid at every age;
+        # starting above the grid makes the dispersion and AMR run away with these featureless templates
         x0 = Mstars .+ rand(rng, length(Mstars)) .* (Mstars .* 5)
-        result = SFH.fit_sfh(SFH.update_params(MHmodel, (MHmodel.α + 0.5, MHmodel.β + 1.0)),
+        result = SFH.fit_sfh(SFH.update_params(MHmodel, (MHmodel.α + 0.01, MHmodel.β + 0.2)),
                              SFH.update_params(disp, (disp.σ + 0.1,)),
                              smodels, sdata2, logAge, MH,
                              x0=x0)
@@ -212,7 +263,7 @@ using Test
                            atol=result.map.σ[i]) for i in eachindex(true_vals))
         
         # Run fit on noisy data
-        rresult = SFH.fit_sfh(SFH.update_params(MHmodel, (MHmodel.α + 0.5, MHmodel.β + 1.0)),
+        rresult = SFH.fit_sfh(SFH.update_params(MHmodel, (MHmodel.α + 0.01, MHmodel.β + 0.2)),
                               SFH.update_params(disp, (disp.σ + 0.1,)),
                               smodels, sdata, logAge, MH, x0=x0)
         # Test that MLE and MAP results are within 3σ of the true answer for all parameters
@@ -275,6 +326,70 @@ using Test
         # BFGSResult and CompositeBFGSResult are tested in mzr_test.jl
     end
 
+
+    @testset "HessBackground" begin
+        @test_throws "must be positive" SFH.HessBackground(ones(4), 0)
+        @test SFH.HessBackground(ones(4), 0; free=false).free == (false,)
+        @test isnothing(SFH.HessBackground(ones(4)).b)
+        @test_throws "fixed background needs" SFH.HessBackground(ones(4); free=false)
+        @test_throws "must not be negative" SFH.HessBackground([1, -1, 1, 1], 1)
+        @test_throws "between 0 and 1" SFH.HessBackground(ones(4), 1; floor=2)
+        @test SFH.HessBackground([1, 0, 0, 3], 1; floor=0.2).shape ≈ [0.25, 0.05, 0.05, 0.65]
+        flat = SFH.HessBackground(ones(length(sdata)), 1)
+        u = flat.shape
+        @test sum(u) ≈ 1 && allequal(u)
+        b = 0.05 * sum(sdata2) # 5% of the stars are background
+        brng = StableRNG(1) # Separate RNG so later testsets see the same random data
+        bsdata = rand.(brng, Poisson.(sdata2 .+ b .* u))
+        bsdata2 = sdata2 .+ b .* u
+        bg = SFH.update_params(flat, (b,))
+        vals = vcat(true_vals, b)
+        @test SFH.fg!(true, nothing, MHmodel, disp, true_vals, smodels, sdata, sC, logAge, MH, SFH.NoBackground()) ≈ nlogL
+        @testset "fg!" begin
+            f(v) = SFH.fg!(true, nothing, MHmodel, disp, v, smodels, bsdata, sC, logAge, MH, bg)
+            @test f(vals) ≈ -SFH.loglikelihood(smodels * x .+ b .* u, bsdata)
+            Gb = similar(vals)
+            @test SFH.fg!(true, Gb, MHmodel, disp, vals, smodels, bsdata, sC, logAge, MH, bg) ≈ f(vals)
+            # Central finite differences
+            fdb = map(eachindex(vals)) do i
+                h = 1e-6 * abs(vals[i])
+                (f(setindex!(copy(vals), vals[i] + h, i)) - f(setindex!(copy(vals), vals[i] - h, i))) / 2h
+            end
+            @test Gb ≈ fdb rtol=1e-5
+            # Jacobian correction for the log-transformed b
+            S = SFH.HierarchicalOptimizer(MHmodel, disp, smodels, bsdata, logAge, MH, true, similar(vals), true, bg)
+            r = SFH.LogDensityProblems.logdensity_and_gradient(S, vcat(log.(Mstars), log(MHmodel.α), MHmodel.β, log(disp.σ), log(b)))
+            @test r[1] ≈ -f(vals) + sum(log.(Mstars)) + log(MHmodel.α) + log(disp.σ) + log(b)
+            @test r[2][end] ≈ -Gb[end] * b + 1
+        end
+        @testset "fit_sfh" begin
+            x0 = Mstars .+ rand(brng, length(Mstars)) .* (Mstars .* 5)
+            # Same start as the fits above
+            MH0, disp0 = SFH.update_params(MHmodel, (MHmodel.α + 0.01, MHmodel.β + 0.2)), SFH.update_params(disp, (disp.σ + 0.1,))
+            # Noise-free data are fit exactly, starting from the default 1% background
+            result = SFH.fit_sfh(MH0, disp0, smodels, bsdata2, logAge, MH; x0, background=SFH.HessBackground(u))
+            @test result.mle.μ ≈ vals rtol=1e-4
+            @test result.mle.bg_model.b == result.mle.μ[end]
+            # Noisy data
+            rresult = SFH.fit_sfh(MH0, disp0, smodels, bsdata, logAge, MH; x0, background=SFH.HessBackground(u))
+            @test all(isapprox(rresult.mle.μ[i], vals[i]; atol=3 * rresult.map.σ[i]) for i in eachindex(vals))
+            # Fixed background
+            fresult = SFH.fit_sfh(MH0, disp0, smodels, bsdata, logAge, MH; x0, background=SFH.HessBackground(u, b; floor=0, free=false))
+            @test fresult.mle.μ[end] == fresult.map.μ[end] == b
+            @test fresult.map.σ[end] == 0
+            @test all(isapprox(fresult.mle.μ[i], vals[i]; atol=3 * fresult.map.σ[i]) for i in eachindex(vals)[begin:end-1])
+            # Sampling and summaries skip the background parameter
+            @test size(rand(rresult, 5)) == (length(vals), 5)
+            @test all(rand(fresult, 5)[end, :] .== b)
+            @test SFH.calculate_coeffs(rresult, logAge, MH) ≈ SFH.calculate_coeffs(rresult.mle.MH_model, rresult.mle.disp_model, rresult.mle.μ[eachindex(Mstars)], logAge, MH)
+            q = SFH.cum_sfr_quantiles(rresult, logAge, MH, T_max, 100, (0.16, 0.5, 0.84))
+            @test size(q.cum_sfh) == (length(unique_logAge), 3)
+            s = SFH.sample_sfh(rresult, smodels, bsdata, logAge, MH, 5; ϵ=0.2, reporter=NoProgressReport(), show_convergence=false)
+            @test size(s.posterior_matrix) == (length(vals), 5)
+            s = SFH.sample_sfh(fresult, smodels, bsdata, logAge, MH, 5; ϵ=0.2, reporter=NoProgressReport(), show_convergence=false)
+            @test all(s.posterior_matrix[end, :] .== b)
+        end
+    end
 
     # With the majority of functionality validated on LinearAMR,
     # we will test a subset of functionality on the other concrete subtypes.

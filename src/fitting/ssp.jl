@@ -77,12 +77,9 @@ function SSPModel(isofunc, data::AbstractMatrix{<:Number}, edges, mag_err_funcs,
         shape = ones(length(keep))
     else
         @argcheck size(background) == size(data) "`background` must be the same size as `data`."
-        @argcheck all(>=(0), background) "`background` must not be negative."
         shape = Float64.(vec(background))
     end
-    total = sum(view(shape, keep))
-    total > 0 || throw(ArgumentError("`background` is zero in every unmasked bin."))
-    bg = (1 - background_floor) .* shape ./ total .+ background_floor / count(keep)
+    bg = background_shape(shape, background_floor, keep)
     d = vec(data)
     idx = [i for i in eachindex(d, keep) if keep[i] && d[i] > 0]
     free = [k for k in SSP_PARAMETERS if params[k] isa UnivariateDistribution]

@@ -81,7 +81,8 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
              data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
              composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
              logAge::AbstractVector{<:Number},
-             metallicities::AbstractVector{<:Number}) where {T, U}
+             metallicities::AbstractVector{<:Number},
+             bgmodel0::AbstractBackground=NoBackground()) where {T, U}
 
     @argcheck axes(data) == axes(composite)
     S = promote_type(eltype(variables), eltype(eltype(models)), eltype(eltype(data)),
@@ -93,24 +94,28 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
     # Number of fittable parameters in metallicity dispersion model;
     # in G, these come after the MHmodel parameters
     disppar = nparams(dispmodel0)
+    # Index of the last dispersion model parameter; background parameters come after it
+    Nlast = lastindex(variables) - nparams(bgmodel0)
 
     # Construct new instance of MHmodel0 with updated parameters
-    MHmodel = update_params(MHmodel0, @view(variables[end-(Zpar+disppar)+1:(end-disppar)]))
+    MHmodel = update_params(MHmodel0, @view(variables[Nlast-(Zpar+disppar)+1:(Nlast-disppar)]))
     # Get indices of free parameters in MZR model
     Zfree = BitVector(free_params(MHmodel))
     # Construct new instance of dispmodel0 with updated parameters
-    dispmodel = update_params(dispmodel0, @view(variables[end-(disppar)+1:end]))
+    dispmodel = update_params(dispmodel0, @view(variables[Nlast-disppar+1:Nlast]))
     # Get indices of free parameters in metallicity dispersion model
     dispfree = BitVector(free_params(dispmodel))
+    bgmodel = update_params(bgmodel0, @view(variables[Nlast+1:end]))
     # Calculate all coefficients r_{j,k} for each template
     coeffs = calculate_coeffs(MHmodel, dispmodel,
-                              @view(variables[begin:end-(Zpar+disppar)]),
+                              @view(variables[begin:Nlast-(Zpar+disppar)]),
                               logAge, metallicities)
 
     # Fill the composite array with the equivalent of sum( coeffs .* models )
     # composite = sum( coeffs .* models )
     # return -loglikelihood(composite, data)
     composite!(composite, coeffs, models)
+    add_background!(composite, bgmodel)
     # Need to do compute logL before ∇loglikelihood! because it will overwrite composite
     logL = loglikelihood(composite, data)
 
@@ -143,8 +148,8 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
             # Gradient of MHmodel with respect to parameters
             gradμ = values(gradient(MHmodel, la))
             # Gradient of the dispersion model with respect to parameters
-            # and mean metallicity μ_j
-            grad_disp = tups_to_mat(values.(gradient.(dispmodel, tmp_mh, μ)))
+            # and mean metallicity μ_j, on the same scale as the weights
+            grad_disp = tups_to_mat(dispersion_gradient.(dispmodel, tmp_mh, μ, tmp_coeffs))
             # \frac{\partial A_{j,k}}{\partial \mu_j}
             dAjk_dμj = grad_disp[end,:]
             
@@ -153,7 +158,7 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
             psum = -sum( fullG[idxs[j]] * variables[i] / A *
                 (dAjk_dμj[j] - tmp_coeffs[j] / A * ksum_dAjk_dμj) for j in eachindex(idxs))
             for par in (1:Zpar)[Zfree]
-                G[end-(Zpar+disppar-par)] += psum * gradμ[par]
+                G[Nlast-(Zpar+disppar-par)] += psum * gradμ[par]
             end
 
             # Partial derivatives with respect to dispmodel parameters
@@ -162,10 +167,11 @@ function fg!(F, G, MHmodel0::AbstractAMR{T}, dispmodel0::AbstractDispersionModel
                 # with respect to parameter P
                 dAjk_dP = grad_disp[par,:]
                 ksum_dAjk_dP = sum(dAjk_dP)
-                G[end-(disppar-par)] -= sum( fullG[idxs[j]] * variables[i] / A *
+                G[Nlast-(disppar-par)] -= sum( fullG[idxs[j]] * variables[i] / A *
                     (dAjk_dP[j] - tmp_coeffs[j] / A * ksum_dAjk_dP) for j in eachindex(idxs))
             end
         end
+        background_gradient!(G, bgmodel, composite)
     end
     if !isnothing(F) # Optim.optimize wants objective returned
         return -logL

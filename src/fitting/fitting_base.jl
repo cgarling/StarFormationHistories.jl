@@ -73,7 +73,7 @@ Returns the logarithm of the Poisson likelihood ratio given by equation 10 in [D
 \\text{ln} \\, \\mathscr{L} = \\sum_i -m_i + n_i \\times \\left( 1 - \\text{ln} \\, \\left( \\frac{n_i}{m_i} \\right) \\right)
 ```
 
-with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormationHistories.composite!`](@ref)) and `data` being the observed Hess diagram ``n_i``.
+with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormationHistories.composite!`](@ref)) and `data` being the observed Hess diagram ``n_i``. A negligible offset, `eps` of the element type, is added to every ``m_i``, so that observed stars in bins where the model is 0 give a finite log likelihood; the gradient functions ([`StarFormationHistories.∇loglikelihood`](@ref)) include the same offset.
 
 # Performance Notes
  - ~18.57 μs for `composite=Matrix{Float64}(undef,99,99)` and `data=similar(composite)`.
@@ -86,13 +86,13 @@ with `composite` being the complex Hess model diagram ``m_i`` (see [`StarFormati
     T = promote_type(eltype(composite), eltype(data))
     result = zero(T) 
     @turbo thread=false for idx in eachindex(composite, data) # LoopVectorization.@turbo gives 2x speedup here
-        # Setting eps() as minimum of composite greatly improves stability of convergence
-        @inbounds ci = max( composite[idx], eps(T) ) 
+        # eps(T) is added to the model in every bin, a negligible uniform background, so that observed stars in bins
+        # where the model is 0 give a finite log likelihood whose gradient (∇loglikelihood) is consistent with it
+        @inbounds ci = composite[idx] + eps(T)
         @inbounds ni = data[idx]
         result += ifelse(ni > zero(T), ni - ci - ni * log(ni / ci), -ci)
     end
-    # Penalizing result==0 here improves stability of convergence
-    result != zero(T) ? (return result) : (return -typemax(T))
+    return result
 end
 """
     loglikelihood(coeffs::AbstractVector{<:Number},
@@ -149,9 +149,8 @@ where ``n_i`` is bin ``i`` of the observed Hess diagram `data`.
     result = zero(T)
     # ~4x speedup from LoopVectorization.@turbo here
     @turbo thread=false for idx in eachindex(model, composite, data) 
-        # Setting eps() as minimum of composite greatly improves stability of convergence
-        # and prevents divide by zero errors.
-        @inbounds ci = max(composite[idx], eps(T))
+        # The same offset as in loglikelihood, which also prevents division by zero
+        @inbounds ci = composite[idx] + eps(T)
         @inbounds mi = model[idx]
         @inbounds ni = data[idx]
         result += -mi * (one(T) - ni/ci)
@@ -216,7 +215,7 @@ end
                      models::AbstractVector{S},
                      data::AbstractMatrix{<:Number}) where S <: AbstractMatrix{<:Number}
 
-Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient. This will overwrite `composite` with the result of `1 .- (data ./ composite)` so it shouldn't be reused after being passed to this function. 
+Efficiently computes the gradient of [`StarFormationHistories.loglikelihood`](@ref) with respect to all coefficients by updating `G` with the gradient. This will overwrite `composite` with the result of `1 .- (data ./ (composite .+ eps))`, with the offset described in [`StarFormationHistories.loglikelihood`](@ref), so it shouldn't be reused after being passed to this function. 
 
 # Arguments
  - `G::AbstractVector` is the vector that  will be mutated in-place with the computed gradient values.
@@ -236,9 +235,8 @@ function ∇loglikelihood!(G::AbstractVector,
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
     # so that we don't have to repeatedly calculate it in the next loop below
     @turbo for idx in eachindex(composite, data)
-        # Setting eps() as minimum of composite greatly improves stability of convergence
-        # and prevents divide by zero errors.
-        @inbounds ci = max(composite[idx], eps(C))
+        # The same offset as in loglikelihood, which also prevents division by zero
+        @inbounds ci = composite[idx] + eps(C)
         @inbounds ni = data[idx]
         @inbounds composite[idx] = one(C) - convert(C, ni/ci)
     end
@@ -272,9 +270,8 @@ function ∇loglikelihood!(G::AbstractVector,
     @argcheck axes(models,1) == axes(data,1) == axes(composite,1)
     # Build the (1 .- data ./ composite) matrix which is all we need for this method
     @turbo for idx in eachindex(composite, data)
-        # Setting eps() as minimum of composite greatly improves stability of convergence
-        # and prevents divide by zero errors.
-        @inbounds ci = max(composite[idx], eps(C))
+        # The same offset as in loglikelihood, which also prevents division by zero
+        @inbounds ci = composite[idx] + eps(C)
         @inbounds ni = data[idx]
         @inbounds composite[idx] = one(C) - convert(C, ni/ci)
     end

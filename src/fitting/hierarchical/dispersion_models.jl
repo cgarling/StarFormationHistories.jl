@@ -5,7 +5,9 @@
  - `gradient(model::T, x::Real, μ::Real)` should return a tuple that contains the partial derivative of the ``A_{j,k}`` with respect to each fittable model parameter, plus the partial derivative with respect to `μ` as the final element.
  - `update_params(model::T, newparams)` should return a new instance of `T` with the fittable parameters contained in `newparams` (which is typically a vector or tuple) and non-fittable parameters inherited from the provided `model`.
  - `transforms(model::T)` should return a tuple of length `nparams(model)` which indicates how the fittable variables should be transformed for optimization, if at all. Elements should be `1` for parameters that are constrained to always be positive, `0` for parameters that can be positive or negative, and `-1` for parameters that are constrained to always be negative.
- - `free_params(model::T)` should return an `NTuple{nparams(model), Bool}` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization. """
+ - `free_params(model::T)` should return an `NTuple{nparams(model), Bool}` that is `true` for fittable parameters that you want to optimize and `false` for fittable parameters that you want to stay fixed during optimization.
+
+Models should also implement [`logweight`](@ref StarFormationHistories.logweight) and [`∇logweight`](@ref StarFormationHistories.∇logweight), the logarithm of the relative weight and its derivatives. These have defaults computed from the methods above, but implementing them directly keeps fits accurate when the mean metallicity is far outside the metallicity grid, where the relative weights underflow. """
 abstract type AbstractDispersionModel{T <: Real} end
 Base.Broadcast.broadcastable(m::AbstractDispersionModel) = Ref(m)
 
@@ -41,23 +43,45 @@ Returns an tuple of length `nparams(model)` that is `true` for fittable paramete
 free_params(model::AbstractDispersionModel)
 
 """
+    logweight(model::AbstractDispersionModel, x::Real, μ::Real)
+Returns the logarithm of the relative weight ``A_{j,k}`` = `model(x, μ)` of metallicity `x` when the mean metallicity is `μ`. The default is `log(model(x, μ))`; models should implement it directly so that it stays finite where the weight underflows to 0, e.g., for mean metallicities far outside the metallicity grid.
+"""
+logweight(model::AbstractDispersionModel, x::Real, μ::Real) = log(model(x, μ))
+"""
+    ∇logweight(model::AbstractDispersionModel, x::Real, μ::Real)
+Returns the partial derivatives of [`logweight`](@ref StarFormationHistories.logweight) with respect to each fittable parameter, plus the partial derivative with respect to `μ` as the final element, in the same form as [`gradient`](@ref StarFormationHistories.gradient(::StarFormationHistories.AbstractDispersionModel, ::Real, ::Real)). The default is `gradient(model, x, μ) ./ model(x, μ)`; models should implement it directly so that it stays finite where the weight underflows to 0.
+"""
+∇logweight(model::AbstractDispersionModel, x::Real, μ::Real) = (A = model(x, μ); map(g -> g / A, gradient(model, x, μ)))
+
+"""
     (weights, A) = dispersion_weights(model::AbstractDispersionModel, metallicities::AbstractVector, μ)
 Returns the relative weights ``A_{j,k}`` of the `metallicities` in one age bin with mean metallicity `μ`
-under the dispersion `model`, and their sum ``A = \\sum_k A_{j,k}``, so that `weights ./ A` are the
-normalized weights. If no metallicity has nonzero weight (e.g., `μ` is so far from every metallicity that
-all weights underflow to 0), all weight is placed on the metallicity nearest `μ`, which is the limit of
-the normalized weights for dispersion models whose weights decrease with distance from `μ`.
+under the dispersion `model`, scaled so that the largest is 1, and their sum ``A = \\sum_k A_{j,k}``, so
+that `weights ./ A` are the normalized weights. The weights are computed from
+[`logweight`](@ref StarFormationHistories.logweight) relative to the largest, so the normalized weights stay
+accurate when `μ` is far from every metallicity, where the unscaled weights underflow. If no metallicity has
+nonzero weight (e.g., for infinite `μ`), all weight is placed on the metallicity nearest `μ`, which is the
+limit of the normalized weights for dispersion models whose weights decrease with distance from `μ`.
 """
 function dispersion_weights(model::AbstractDispersionModel, metallicities::AbstractVector, μ)
-    weights = [model(x, μ) for x in metallicities]
-    A = sum(weights)
-    if iszero(A)
+    logw = [logweight(model, x, μ) for x in metallicities]
+    m = maximum(logw)
+    weights = exp.(logw .- m)
+    if !isfinite(m)
         # For infinite μ every distance is infinite, so take the extreme metallicity on that side
         k = isfinite(μ) ? argmin(abs.(metallicities .- μ)) : (μ < 0 ? argmin(metallicities) : argmax(metallicities))
+        weights .= zero(eltype(weights))
         weights[k] = one(eltype(weights))
-        A = one(A)
     end
-    return weights, A
+    return weights, sum(weights)
+end
+
+# Partial derivatives of a weight returned by dispersion_weights with respect to the fittable parameters and μ (as
+# in `gradient`), on the same scale as the weight; the derivative of a weight is the weight times the derivative of its
+# logarithm. Zero for weights that underflowed and for infinite μ, where the normalized weights are constant.
+function dispersion_gradient(model::AbstractDispersionModel, x::Real, μ::Real, weight::Real)
+    g = values(∇logweight(model, x, μ))
+    return isfinite(μ) && weight > 0 ? map(gi -> weight * gi, g) : map(gi -> zero(weight * gi), g)
 end
 
 
@@ -110,6 +134,8 @@ nparams(model::GaussianDispersion) = 1
 fittable_params(model::GaussianDispersion) = (σ = model.σ,)
 # Make struct callable to compute relative weights
 (model::GaussianDispersion)(x::Real, μ::Real) = exp(-((x-μ)/model.σ)^2/2)
+logweight(model::GaussianDispersion, x::Real, μ::Real) = -((x - μ) / model.σ)^2 / 2
+∇logweight(model::GaussianDispersion, x::Real, μ::Real) = (σ = (x - μ)^2 / model.σ^3, μ = (x - μ) / model.σ^2)
 # `gradient` for `AbstractDispersionModel` subtypes is partial derivative with respect
 # to each fittable model parameter, and at the end, partial derivative with respect to μ
 function gradient(model::GaussianDispersion, x::Real, μ::Real)
