@@ -204,6 +204,7 @@ end
             metallicities::AbstractVector{<:Number};
             x0::AbstractVector{<:Number} = <...>,
             background::AbstractBackground = NoBackground(),
+            iterations::Integer = 500,
             kws...)
     fit_sfh(MH_model0::AbstractMetallicityModel,
             disp_model0::AbstractDispersionModel,
@@ -213,6 +214,7 @@ end
             metallicities::AbstractVector{<:Number};
             x0::AbstractVector{<:Number} = <...>,
             background::AbstractBackground = NoBackground(),
+            iterations::Integer = 500,
             kws...)
 
 
@@ -234,6 +236,7 @@ The primary method signature uses flattened formats for `models` and `data`. See
 # Keyword Arguments
  - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`. We try to set reasonable defaults, but in most cases users should be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare `x0` assuming a constant star formation rate and total stellar mass, which is typically a good initial guess.
  - `background` is the background model, [`NoBackground`](@ref) (the default) or [`HessBackground`](@ref), whose expected number of background stars is fit after the metallicity dispersion model parameters. If the `HessBackground` was constructed without an initial number of stars, the fit starts from 1% of the stars in `data`. With a background, `x0` is renormalized so that the initial model, including the initial background, has as many stars as the `data`.
+ - `iterations` is the maximum number of BFGS iterations for each of the MAP and MLE optimizations; converged fits typically take 100-200.
  - `kws...` are passed to `Optim.Options` and can be used to control tolerances for convergence.
 
 # Returns
@@ -246,6 +249,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                  metallicities::AbstractVector{<:Number};
                  x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
                  background::AbstractBackground = NoBackground(),
+                 iterations::Integer = 500,
                  allow_f_increases::Bool = true,
                  store_trace::Bool = true,
                  extended_trace::Bool = true,
@@ -305,7 +309,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                              linesearch=LineSearches.HagerZhang())
     # The extended trace will contain the BFGS estimate of the inverse Hessian, aka the
     # covariance matrix, which we can use to make parameter uncertainty estimates
-    bfgs_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)
+    bfgs_options = Optim.Options(; iterations, allow_f_increases, store_trace, extended_trace, kws...)
     function fg_map!(F, G, X)
         # Creating structs doesn't copy data so this should be free
         tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, true, background)
