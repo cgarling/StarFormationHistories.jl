@@ -271,6 +271,12 @@ SFH.free_params(::NegativeSlopeAMR) = (true, true)
                            atol=3 * rresult.mle.σ[i]) for i in eachindex(true_vals))
         @test all(isapprox(rresult.map.μ[i], true_vals[i];
                            atol=3 * rresult.map.σ[i]) for i in eachindex(true_vals))
+        @test SFH.Optim.iterations(rresult.map.result) < 500 # Converged within the default iteration limit
+        # The iteration limit of each optimization can be lowered
+        sresult = SFH.fit_sfh(SFH.update_params(MHmodel, (MHmodel.α + 0.01, MHmodel.β + 0.2)),
+                              SFH.update_params(disp, (disp.σ + 0.1,)),
+                              smodels, sdata, logAge, MH; x0, iterations=3)
+        @test SFH.Optim.iterations(sresult.map.result) == SFH.Optim.iterations(sresult.mle.result) == 3
 
         # Run with fixed α, to check that free parameter indexing is working properly #35fe6c2
         fαresult = SFH.fit_sfh(SFH.LinearAMR(MHmodel.α, MHmodel.β, MHmodel.T_max, (false, true)),
