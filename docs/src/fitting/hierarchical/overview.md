@@ -60,3 +60,13 @@ We can calculate ``\tau`` statistics with `StarFormationHistories.tau` -- for ex
 StarFormationHistories.tau
 StarFormationHistories.tau_interp
 ```
+
+## [Backgrounds](@id sfh_background)
+
+Observed stars that the stellar population templates cannot explain, such as unresolved background galaxies or foreground stars, bias the fit. [`fit_sfh`](@ref) can fit a background alongside the stellar populations through its `background` keyword, with the expected number of background stars as an additional parameter. A uniform background removes most of the bias from contamination spread across the Hess diagram and goes to zero when there is no contamination. Contamination concentrated in part of the Hess diagram, such as faint background galaxies, should be given its own shape, e.g., the Hess diagram of a nearby control field.
+
+```@docs
+StarFormationHistories.AbstractBackground
+NoBackground
+HessBackground
+```

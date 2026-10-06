@@ -124,6 +124,33 @@ end
         end
     end
 
+    @testset "fg! far outside the metallicity grid" begin
+        # A steep MZR puts the mean metallicities of the oldest bins ~30σ below the metallicity grid, where the unscaled
+        # dispersion weights underflow to ~1e-200 or less, and those of the youngest bins far above it
+        steep = SFH.PowerLawMZR(T(25), T(-1), T(6), (true, true))
+        v = vcat(Mstars, SFH.fittable_params(steep)..., SFH.fittable_params(disp)...)
+        f(v) = SFH.fg!(true, nothing, steep, disp, v, smodels, sdata, sC, logAge, MH)
+        Gs = similar(v)
+        SFH.fg!(true, Gs, steep, disp, v, smodels, sdata, sC, logAge, MH)
+        fd = [(f(setindex!(copy(v), v[i] + h, i)) - f(setindex!(copy(v), v[i] - h, i))) / 2h for (i, h) in zip(eachindex(v), 1e-6 .* abs.(v))]
+        @test all(isfinite, Gs)
+        @test Gs ≈ fd rtol=1e-5
+    end
+
+    @testset "fg! with HessBackground" begin
+        bg = SFH.HessBackground(rand(StableRNG(1), length(sdata)), 0.05 * sum(sdata))
+        vals = vcat(true_vals, bg.b)
+        f(v) = SFH.fg!(true, nothing, MHmodel, disp, v, smodels, sdata, sC, logAge, MH, bg)
+        Gb = similar(vals)
+        @test SFH.fg!(true, Gb, MHmodel, disp, vals, smodels, sdata, sC, logAge, MH, bg) ≈ f(vals)
+        # Central finite differences
+        fdb = map(eachindex(vals)) do i
+            h = 1e-6 * abs(vals[i])
+            (f(setindex!(copy(vals), vals[i] + h, i)) - f(setindex!(copy(vals), vals[i] - h, i))) / 2h
+        end
+        @test Gb ≈ fdb rtol=1e-5
+    end
+
     @testset "logdensity_and_gradient all free" begin
         transformed_vals = vcat(log.(Mstars), log(MHmodel.α), MHmodel.MH0, log(disp.σ))
         # Gradient of objective with respect to transformed variables

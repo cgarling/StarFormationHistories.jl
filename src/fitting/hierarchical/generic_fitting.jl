@@ -41,7 +41,7 @@ function calculate_coeffs end
 # to reuse for BFGS optimization with Optim.jl rather
 # than rewriting the closure
 
-struct HierarchicalOptimizer{A,B,C,D,E,F,G,H}
+struct HierarchicalOptimizer{A,B,C,D,E,F,G,H,I}
     MH_model0::A
     disp_model0::B
     models::C
@@ -51,7 +51,10 @@ struct HierarchicalOptimizer{A,B,C,D,E,F,G,H}
     F::G
     G::H
     jacobian_corrections::Bool # Whether or not to apply Jacobian corrections for variable transformations
+    bg_model0::I
 end
+HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, jacobian_corrections) =
+    HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, jacobian_corrections, NoBackground())
 
 # This model will return loglikelihood and gradient
 LogDensityProblems.capabilities(::Type{<:HierarchicalOptimizer}) = LogDensityProblems.LogDensityOrder{1}()
@@ -66,7 +69,8 @@ LogDensityProblems.dimension(problem::HierarchicalOptimizer) = length(problem.G)
         data::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
         composite::Union{AbstractVector{<:Number}, AbstractMatrix{<:Number}},
         logAge::AbstractVector{<:Number},
-        metallicities::AbstractVector{<:Number})
+        metallicities::AbstractVector{<:Number},
+        bgmodel0::AbstractBackground=NoBackground())
 
 Main function that differs between AMR and MZR models that accounts for the difference in the gradient formulations between models. `F` and `G` mirror the [Optim.jl](https://julianlsolvers.github.io/Optim.jl/stable/user/tipsandtricks/#Avoid-repeating-computations) interface for computing the objective and gradient in a single function to make use of common intermediate computations.
 
@@ -75,12 +79,13 @@ Main function that differs between AMR and MZR models that accounts for the diff
  - `G` controls whether the gradient of the objective with respect to the `variables` is being requested. If `!isnothing(G)`, `G` will be updated in-place with the gradient of the negative log likelihood with respect to the fitting parameters `variables`.
  - `MH_model0` is an instance of a concrete subtype of `AbstractMetallicityModel` (e.g., [`PowerLawMZR`](@ref)) that specifies the metallicity evolution model to use. The parameters contained in `MH_model0` are used as initial parameters to begin the optimization in [`fit_sfh`](@ref), but are not used internally in `fg!` -- new instances are constructed from `variables` instead.
  - `disp_model0` is an instance of a concrete subtype of `AbstractDispersionModel` (e.g., [`GaussianDispersion`](@ref)) that specifies the PDF of the metallicities of stars forming at fixed time. The parameters contained in `disp_model0` are used as initial parameters to begin the optimization in [`fit_sfh`](@ref), but are not used internally in `fg!` -- new instances are constructed from `variables` instead.
- - `variables` are the fitting parameters, including *free and fixed* parameters. This vector is split into stellar mass coefficients `R_j`, metallicity model parameters, and dispersion model parameters, and so must contain all relevant fittable parameters, even those that are to be fixed during the solve.
+ - `variables` are the fitting parameters, including *free and fixed* parameters. This vector is split into stellar mass coefficients `R_j`, metallicity model parameters, dispersion model parameters, and background model parameters, and so must contain all relevant fittable parameters, even those that are to be fixed during the solve.
  - `models` are the template Hess diagrams for the SSPs that compose the observed Hess diagram.
  - `data` is the Hess diagram for the observed data.
  - `composite` is the pre-allocated array in which to store the complex Hess diagram model. Must have same shape as `data`.
  - `logAge::AbstractVector{<:Number}` is the vector containing the effective ages of the stellar populations used to create the templates in `models`, in units of `log10(age [yr])`. For example, if a population has an age of 1 Myr, its entry in `logAge` should be `log10(10^6) = 6.0`.
  - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. These should be logarithmic abundances like [M/H] or [Fe/H]. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful.
+ - `bgmodel0` is the [background model](@ref StarFormationHistories.AbstractBackground), whose parameters are taken from `variables` like those of `MH_model0` and `disp_model0`.
 
 # Returns
  - Negative log likelihood if `!isnothing(F)`.
@@ -91,6 +96,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     # Unpack struct
     MH_model0 = problem.MH_model0
     disp_model0 = problem.disp_model0
+    bg_model0 = problem.bg_model0
     models = problem.models
     data = problem.data
     # composite = problem.composite
@@ -110,11 +116,12 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     
     zpar = nparams(MH_model0)
     disppar = nparams(disp_model0)
-    tf = SVector(transforms(MH_model0)..., transforms(disp_model0)...)
-    free = SVector(free_params(MH_model0)..., free_params(disp_model0)...)
+    bgpar = nparams(bg_model0)
+    tf = SVector(transforms(MH_model0)..., transforms(disp_model0)..., transforms(bg_model0)...)
+    free = SVector(free_params(MH_model0)..., free_params(disp_model0)..., free_params(bg_model0)...)
     Nfixed = count(~, free)
-    # Calculate number of age bins from length of xvec and number of MH_model, disp parameters
-    Nbins = lastindex(xvec) - zpar - disppar
+    # Calculate number of age bins from length of xvec and number of MH_model, disp, background parameters
+    Nbins = lastindex(xvec) - zpar - disppar - bgpar
     # Subtract off fixed parameters that do not appear in xvec
     Nbins += Nfixed # Gives count of false entries
     # Extract MH_model and disp parameters from xvec
@@ -123,7 +130,7 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     # All stellar mass coefficients are transformed as they must be > 0,
     # but MH_model and dispersion model coefficients may or may not be similarly constrained.
     # Use the transforms() function to determine which parameters should be transformed.
-    x = similar(xvec, Nbins + zpar + disppar)
+    x = similar(xvec, Nbins + zpar + disppar + bgpar)
     # These are the stellar mass coefficients
     for i in eachindex(xvec)[begin:Nbins]; x[i] = exp(xvec[i]); end
     # Apply logarithmic transformations
@@ -131,41 +138,31 @@ function LogDensityProblems.logdensity_and_gradient(problem::HierarchicalOptimiz
     # Concatenate transformed stellar mass coefficients and MH_model / disp parameters
     x[(Nbins+1:lastindex(x))[free]] .= x_zdisp
     # Write fixed parameters into x
-    init_par = SVector(fittable_params(MH_model0)..., fittable_params(disp_model0)...)
+    init_par = SVector(fittable_params(MH_model0)..., fittable_params(disp_model0)..., fittable_params(bg_model0)...)
     fixed = .~free
     x[(Nbins+1:lastindex(x))[fixed]] .= init_par[fixed]
 
     # If we need to calculate and return gradient, allocate extended gradient vector
     ret_G ? G2 = similar(x) : G2 = nothing
-    nlogL = fg!(F, G2, MH_model0, disp_model0, x, models, data, composite, logAge, metallicities)
+    nlogL = fg!(F, G2, MH_model0, disp_model0, x, models, data, composite, logAge, metallicities, bg_model0)
     # Add Jacobian corrections for transformed variables if jacobian_corrections == true
     # fg! returns -logL and fills G with -∇logL, so remember to invert signs in Jacobian corrections
-    ptf = findall(==(1), tf)  # Find indices of variables constrained to always be positive
-    ptf = ptf[free[ptf]]      # Only keep indices for variables that we are fitting
-    ptf_idx = ptf .+ Nbins
-    ntf = findall(==(-1), tf) # Find indices of variables constrained to always be negative
-    ntf = ntf[free[ntf]]      # Only keep indices for variables that we are fitting
-    if jacobian_corrections
-        # For positive-constrained parameters, including stellar mass coefficients
-        for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
-            if ret_F; nlogL -= log(x[i]); end
+    # Free variables constrained to be positive (x = exp(z)), including the stellar mass coefficients, or negative
+    # (x = -exp(z)). Either way dx/dz = x and log|dx/dz| = z, the transformed variable in xvec, so the corrections are
+    # the same; z is used directly because log(x) is -Inf where exp(z) underflows.
+    etf = findall(!=(0), tf)
+    etf = etf[free[etf]]
+    # Indices of the transformed variables in x and in xvec, which omits the fixed parameters
+    x_idx = vcat(eachindex(x)[begin:Nbins], etf .+ Nbins)
+    xvec_idx = vcat(eachindex(x)[begin:Nbins], [Nbins + count(view(free, 1:p)) for p in etf])
+    for (i, j) in zip(x_idx, xvec_idx)
+        if jacobian_corrections
+            if ret_F; nlogL -= xvec[j]; end
             if ret_G; G2[i] = G2[i] * x[i] - 1; end
-        end
-        for i in ntf
-            @warn "Negative transformations have not yet been validated."
-            i += Nbins
-            if ret_F; nlogL += log(x[i]); end
-            if ret_G; G2[i] = -G2[i] * x[i] + 1; end
-        end
-    else
-        # Still have to correct gradient for transform, even if not adding Jacobian correction to logL
-        for i in vcat(eachindex(x)[begin:Nbins], ptf_idx)
+        else
+            # Still have to correct gradient for transform, even if not adding Jacobian correction to logL
             if ret_G; G2[i] = G2[i] * x[i]; end
         end
-        for i in ntf
-            @warn "Negative transformations have not yet been validated."
-            if ret_G; G2[i] = -G2[i] * x[i]; end
-        end        
     end
 
     # Return if gradient is not requested
@@ -205,7 +202,8 @@ end
             data::AbstractVector{<:Number},
             logAge::AbstractVector{<:Number},
             metallicities::AbstractVector{<:Number};
-            x0::AbstractVector{<:Number} = <...>
+            x0::AbstractVector{<:Number} = <...>,
+            background::AbstractBackground = NoBackground(),
             kws...)
     fit_sfh(MH_model0::AbstractMetallicityModel,
             disp_model0::AbstractDispersionModel,
@@ -213,7 +211,8 @@ end
             data::AbstractMatrix{<:Number},
             logAge::AbstractVector{<:Number},
             metallicities::AbstractVector{<:Number};
-            x0::AbstractVector{<:Number} = <...>
+            x0::AbstractVector{<:Number} = <...>,
+            background::AbstractBackground = NoBackground(),
             kws...)
 
 
@@ -234,6 +233,7 @@ The primary method signature uses flattened formats for `models` and `data`. See
  - `metallicities::AbstractVector{<:Number}` is the vector containing the effective metallicities of the stellar populations used to create the templates in `models`. These should be logarithmic abundances like [M/H] or [Fe/H]. There are some notes on the [Wikipedia](https://en.wikipedia.org/wiki/Metallicity) that might be useful.
 # Keyword Arguments
  - `x0` is the vector of initial guesses for the stellar mass coefficients per *unique* entry in `logAge`. We try to set reasonable defaults, but in most cases users should be calculating and passing this keyword argument. We provide [`StarFormationHistories.construct_x0_mdf`](@ref) to prepare `x0` assuming a constant star formation rate and total stellar mass, which is typically a good initial guess.
+ - `background` is the background model, [`NoBackground`](@ref) (the default) or [`HessBackground`](@ref), whose expected number of background stars is fit after the metallicity dispersion model parameters. If the `HessBackground` was constructed without an initial number of stars, the fit starts from 1% of the stars in `data`. With a background, `x0` is renormalized so that the initial model, including the initial background, has as many stars as the `data`.
  - `kws...` are passed to `Optim.Options` and can be used to control tolerances for convergence.
 
 # Returns
@@ -245,6 +245,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                  logAge::AbstractVector{<:Number},
                  metallicities::AbstractVector{<:Number};
                  x0::AbstractVector{<:Number} = construct_x0_mdf(logAge, convert(S, 13.7); normalize_value=1e6),
+                 background::AbstractBackground = NoBackground(),
                  allow_f_increases::Bool = true,
                  store_trace::Bool = true,
                  extended_trace::Bool = true,
@@ -256,6 +257,10 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     @argcheck length(x0) == length(unique_logAge) "length(x0) != length(unique(logAge))"
     @argcheck size(models, 1) == length(data)
     @argcheck size(models, 2) == length(logAge) == length(metallicities)
+    background isa HessBackground && @argcheck length(background.shape) == length(data) "The background shape must have one entry per Hess diagram bin of `data`."
+    background = initialize_background(background, data)
+    nbg = background_stars(background)
+    @argcheck nbg < sum(data) "The initial expected number of background stars must be less than the number of observed stars."
 
     # Renormalize x0 to better match total counts in data before optimizing
     let _full_x0 = calculate_coeffs(MH_model0, disp_model0, x0, logAge, metallicities)
@@ -267,7 +272,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                  @warn "Initial `x0` provided to `fit_sfh` produced NaN coefficients. Attempting to renormalize `x0` by replicating across metallicity bins. If warnings persist after this attempt, try calculating a more informed initial guess for `x0` using `construct_x0_mdf` or by adjusting the parameters of `MH_model0` (particularly the mass normalization) and `disp_model0`."
             end
             _full_x0 = repeat(x0, length(unique_MH))
-            x0 = renormalize_x0(data, models, x0, _full_x0)
+            x0 = renormalize_x0(data, models, x0, _full_x0; background=nbg)
             # Now compute coeffs properly again and iterate to improve normalization
             for i in 1:5
                 _full_x0 = calculate_coeffs(MH_model0, disp_model0, x0, logAge, metallicities)
@@ -275,22 +280,22 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
                     @warn "Renormalization of x0 failed to produce valid coefficients after $i iterations. Returning last valid x0." i
                     break
                 end
-                x0 = renormalize_x0(data, models, x0, _full_x0)
+                x0 = renormalize_x0(data, models, x0, _full_x0; background=nbg)
             end
         else
-            x0 = renormalize_x0(data, models, x0, _full_x0)
+            x0 = renormalize_x0(data, models, x0, _full_x0; background=nbg)
         end
     end
 
     # Perform logarithmic transformation on the provided x0 (stellar mass coefficients)
     x0 = map(log, x0) # Does not modify x0 in place
     # Perform logarithmic transformation on MZR and dispersion parameters
-    par = (values(fittable_params(MH_model0))..., values(fittable_params(disp_model0))...)
-    tf = (transforms(MH_model0)..., transforms(disp_model0)...)
-    free = SVector(free_params(MH_model0)..., free_params(disp_model0)...)
+    par = (values(fittable_params(MH_model0))..., values(fittable_params(disp_model0))..., values(fittable_params(background))...)
+    tf = (transforms(MH_model0)..., transforms(disp_model0)..., transforms(background)...)
+    free = SVector(free_params(MH_model0)..., free_params(disp_model0)..., free_params(background)...)
     # Apply logarithmic transformations
     x0_mzrdisp = logtransform(par, tf)
-    # Concatenate transformed stellar mass coefficients and *free* MZR / disp parameters
+    # Concatenate transformed stellar mass coefficients and *free* MZR / disp / background parameters
     x0 = vcat(x0, x0_mzrdisp[free])
 
     # Set up options for the optimization
@@ -303,7 +308,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     bfgs_options = Optim.Options(; allow_f_increases, store_trace, extended_trace, kws...)
     function fg_map!(F, G, X)
         # Creating structs doesn't copy data so this should be free
-        tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, true)
+        tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, true, background)
         lg = LogDensityProblems.logdensity_and_gradient(tmpstruct, X)
         # logdensity_and_gradient makes a copy of G and returns gradient of logL,
         # but Optim expects G mutated in-place with gradient of -logL
@@ -314,7 +319,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     end
     function fg_mle!(F, G, X)
         # Creating structs doesn't copy data so this should be free
-        tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, false)
+        tmpstruct = HierarchicalOptimizer(MH_model0, disp_model0, models, data, logAge, metallicities, F, G, false, background)
         lg = LogDensityProblems.logdensity_and_gradient(tmpstruct, X)
         # logdensity_and_gradient makes a copy of G and returns gradient of logL,
         # but Optim expects G mutated in-place with gradient of -logL
@@ -350,7 +355,7 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     end
     # Allocate vectors to hold best-fit values μ and standard errors σ for all parameters,
     # including fixed parameters
-    μ_map = similar(Optim.minimizer(result_map), Nbins + nparams(MH_model0) + nparams(disp_model0))
+    μ_map = similar(Optim.minimizer(result_map), Nbins + nparams(MH_model0, disp_model0, background))
     μ_mle = similar(μ_map)
     σ_map = similar(invH_map, length(μ_map))
     σ_mle = similar(σ_map)
@@ -377,8 +382,8 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
             if tfi == 1
                 μ_map[i] = exp(μ_map_tmp[j])
                 μ_mle[i] = exp(μ_mle_tmp[j])
-                σ_map[i] = μ_map[j] * σ_map_tmp[j]
-                σ_mle[i] = μ_map[j] * σ_mle_tmp[j]
+                σ_map[i] = μ_map[i] * σ_map_tmp[j]
+                σ_mle[i] = μ_mle[i] * σ_mle_tmp[j]
             elseif tfi == 0
                 μ_map[i] = μ_map_tmp[j]
                 μ_mle[i] = μ_mle_tmp[j]
@@ -387,8 +392,8 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
             elseif tfi == -1
                 μ_map[i] = -exp(μ_map_tmp[j])
                 μ_mle[i] = -exp(μ_mle_tmp[j])
-                σ_map[i] = -μ_map[j] * σ_map_tmp[j]
-                σ_mle[i] = -μ_map[j] * σ_mle_tmp[j]
+                σ_map[i] = -μ_map[i] * σ_map_tmp[j]
+                σ_mle[i] = -μ_mle[i] * σ_mle_tmp[j]
             end
         else # Parameter is fixed; no transformation applied
             μ_map[i] = par[i-Nbins]
@@ -399,12 +404,14 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         end
     end
     
-    return CompositeBFGSResult( BFGSResult(μ_map, σ_map, invH_map, result_map,
-                                           update_params(MH_model0, @view(μ_map[Nbins+1:Nbins+nparams(MH_model0)])),
-                                           update_params(disp_model0, @view(μ_map[Nbins+nparams(MH_model0)+1:end]))),
-                                BFGSResult(μ_mle, σ_mle, invH_mle, result_mle,
-                                           update_params(MH_model0, @view(μ_mle[Nbins+1:Nbins+nparams(MH_model0)])),
-                                           update_params(disp_model0, @view(μ_mle[Nbins+nparams(MH_model0)+1:end]))) )
+    # Ranges of the metallicity, dispersion, and background model parameters in μ
+    zr = Nbins+1:Nbins+nparams(MH_model0)
+    dr = last(zr)+1:last(zr)+nparams(disp_model0)
+    br = last(dr)+1:lastindex(μ_map)
+    return CompositeBFGSResult( BFGSResult(μ_map, σ_map, invH_map, result_map, update_params(MH_model0, @view(μ_map[zr])),
+                                           update_params(disp_model0, @view(μ_map[dr])), update_params(background, @view(μ_map[br]))),
+                                BFGSResult(μ_mle, σ_mle, invH_mle, result_mle, update_params(MH_model0, @view(μ_mle[zr])),
+                                           update_params(disp_model0, @view(μ_mle[dr])), update_params(background, @view(μ_mle[br]))) )
     
 end
 # For models, data that do not follow the stacked data layout (see stack_models in fitting/utilities.jl)
@@ -472,14 +479,14 @@ function sample_sfh(bfgs_result::CompositeBFGSResult,
     x0 = Optim.minimizer(MLE.result)
     # Best-fit all parameters (fixed included)
     μ = MLE.μ
-    MH_model, disp_model = MLE.MH_model, MLE.disp_model
+    MH_model, disp_model, bg_model = MLE.MH_model, MLE.disp_model, MLE.bg_model
     
     # Get transformation parameters
-    tf = (transforms(MH_model)..., transforms(disp_model)...)
-    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)..., transforms(bg_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)..., free_params(bg_model)...)
     # Setup structs to pass to DynamicHMC.mcmc
     instance = HierarchicalOptimizer(MH_model, disp_model, models, data, logAge, metallicities,
-                            true, similar(x0), true)
+                            true, similar(x0), true, bg_model)
     # The call signature for the kinetic energy is κ = DynamicHMC.GaussianKineticEnergy(M⁻¹),
     # where M is the mass matrix (e.g., equation 5.5 in "Handbook of Markov Chain Monte Carlo").
     # As explained in section 5.4.1 of that text, on pg 134, if you have an estimate for the covariance
@@ -505,7 +512,7 @@ function sample_sfh(bfgs_result::CompositeBFGSResult,
     end
 
     # Transform samples
-    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model)
+    Nbins = length(μ) - nparams(MH_model, disp_model, bg_model)
     # Get indices into μ corresponding to free parameters
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     exptransform_samples!(result.posterior_matrix, μ[row_idxs], tf[free], free[free])
@@ -515,7 +522,7 @@ function sample_sfh(bfgs_result::CompositeBFGSResult,
         samples = similar(result.posterior_matrix, (length(μ), Nsteps))
         samples[row_idxs, :] .= result.posterior_matrix
         # Now write in fixed parameters
-        par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
+        par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))..., values(fittable_params(bg_model))...)
         for i in 1:length(free)
             if ~free[i] # if parameter is fixed,
                 samples[Nbins+i, :] .= par[i]
@@ -582,11 +589,11 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     μ = MLE.μ
     # MvNormal model, for drawing random starting positions
     sampler = MvNormal(x0, MAP.invH)
-    MH_model, disp_model = MLE.MH_model, MLE.disp_model
+    MH_model, disp_model, bg_model = MLE.MH_model, MLE.disp_model, MLE.bg_model
     
     # Get transformation parameters
-    tf = (transforms(MH_model)..., transforms(disp_model)...)
-    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)..., transforms(bg_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)..., free_params(bg_model)...)
 
     # Disable BLAS threading
     bthreads = BLAS.get_num_threads()
@@ -596,7 +603,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     # Chunking work with one shared HierarchicalOptimizer. This object contains
     # no caches that will be overwritten during computation, so it is thread-safe.
     instance = HierarchicalOptimizer(MH_model, disp_model, models, data, logAge, metallicities,
-                                     true, similar(x0), true)
+                                     true, similar(x0), true, bg_model)
     # The call signature for the kinetic energy is κ = DynamicHMC.GaussianKineticEnergy(M⁻¹),
     # where M is the mass matrix (e.g., equation 5.5 in "Handbook of Markov Chain Monte Carlo").
     # As explained in section 5.4.1 of that text, on pg 134, if you have an estimate for the covariance
@@ -643,7 +650,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
     end
 
     # Transform samples
-    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model)
+    Nbins = length(μ) - nparams(MH_model, disp_model, bg_model)
     # Get indices into μ corresponding to free parameters
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
     exptransform_samples!(result.posterior_matrix, μ[row_idxs], tf[free], free[free])
@@ -653,7 +660,7 @@ function tsample_sfh(bfgs_result::CompositeBFGSResult,
         samples = similar(result.posterior_matrix, (length(μ), Nsteps))
         samples[row_idxs, :] .= result.posterior_matrix
         # Now write in fixed parameters
-        par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
+        par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))..., values(fittable_params(bg_model))...)
         for i in 1:length(free)
             if ~free[i] # if parameter is fixed,
                 samples[Nbins+i, :] .= par[i]

@@ -19,6 +19,7 @@ nparams(models...) = mapreduce(nparams, +, models)
 include("construct_x0_mdf.jl")  # utility function to set initial guess x0
 include("transformations.jl")   # Variable transformations
 include("dispersion_models.jl") # AbstractDispersionModel and subtypes
+include("background.jl")        # Background models: NoBackground and HessBackground
 include("bfgs_result.jl")       # BFGSResult and CompositeBFGSResult types
 include("fixed_amr.jl")         # Fit under a fixed AMR -- deprecate?
 include("amr.jl")               # Age-metallicity relations

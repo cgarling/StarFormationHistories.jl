@@ -4,7 +4,8 @@
                invH::AbstractMatrix{<:Number},
                result,
                MH_model::AbstractMetallicityModel,
-               disp_model::AbstractDispersionModel)
+               disp_model::AbstractDispersionModel,
+               bg_model::AbstractBackground = NoBackground())
 
 Type for containing the maximum likelihood estimate (MLE) *or* maximum a posteriori (MAP) results from BFGS optimizations that use Optim.jl. Fields are as follows:
 
@@ -14,6 +15,7 @@ Type for containing the maximum likelihood estimate (MLE) *or* maximum a posteri
  - `result` is the full result object returned by Optim.jl.
  - `MH_model` is the best-fit metallicity model.
  - `disp_model` is the best-fit metallicity dispersion model.
+ - `bg_model` is the best-fit background model (see [`HessBackground`](@ref)), whose parameters are the last elements of `μ`.
 
 This type is implemented as a subtype of `Distributions.Sampleable{Multivariate, Continuous}` to enable sampling from an estimate of the likelihood / posterior distribution constructed from the `invH`. You can obtain `N::Integer` samples from the distribution with `rand(R, N)` where `R` is an instance of this type. This will return a size `length(μ) x N` matrix.
 
@@ -27,14 +29,17 @@ struct BFGSResult{A <: AbstractVector{<:Number},
                   C <: AbstractMatrix{<:Number},
                   D,
                   E <: AbstractMetallicityModel,
-                  F <: AbstractDispersionModel} <: Sampleable{Multivariate, Continuous}
+                  F <: AbstractDispersionModel,
+                  G <: AbstractBackground} <: Sampleable{Multivariate, Continuous}
     μ::A
     σ::B
     invH::C
     result::D
     MH_model::E
     disp_model::F
+    bg_model::G
 end
+BFGSResult(μ, σ, invH, result, MH_model, disp_model) = BFGSResult(μ, σ, invH, result, MH_model, disp_model, NoBackground())
 Base.length(result::BFGSResult) = length(result.μ)
 mode(result::BFGSResult) = result.μ
 median(result::BFGSResult) = result.μ
@@ -42,13 +47,13 @@ std(result::BFGSResult) = result.σ
 function _rand!(rng::AbstractRNG, result::BFGSResult,
                 samples::Union{AbstractVector{S}, DenseMatrix{S}}) where {S <: Real}
     
-    MH_model, disp_model = result.MH_model, result.disp_model
+    MH_model, disp_model, bg_model = result.MH_model, result.disp_model, result.bg_model
     μ = result.μ
-    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model) # Number of SFR parameters
+    Nbins = length(μ) - nparams(MH_model, disp_model, bg_model) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(result.result), result.invH)
     # Construct view into samples to get rows corresponding to free parameters
-    tf = (transforms(MH_model)..., transforms(disp_model)...)
-    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)..., transforms(bg_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)..., free_params(bg_model)...)
     # Now sure why but this vcat causes _rand! to make an allocation for each sample
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
@@ -62,7 +67,7 @@ function _rand!(rng::AbstractRNG, result::BFGSResult,
     exptransform_samples!(tmpsample, μ, tf[free], free[free])
     samples[row_idxs, :] .= tmpsample
     # Now write in fixed parameters
-    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
+    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))..., values(fittable_params(bg_model))...)
     for i in 1:length(free)
         if ~free[i] # if parameter is fixed,
             samples[Nbins+i, :] .= par[i]
@@ -83,7 +88,7 @@ function calculate_coeffs(result::BFGSResult,
                           metallicities::AbstractVector{<:Number})
     MH_model, disp_model, μ = result.MH_model, result.disp_model, result.μ
     # Get number of stellar mass coefficients
-    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model)
+    Nbins = length(μ) - nparams(MH_model, disp_model, result.bg_model)
     return calculate_coeffs(result.MH_model, result.disp_model,
                             @view(μ[begin:Nbins]), logAge,
                             metallicities)
@@ -114,13 +119,13 @@ function _rand!(rng::AbstractRNG,
                 samples::Union{AbstractVector{S}, DenseMatrix{S}}) where {S <: Real}
 
     MLE, MAP = result.mle, result.map
-    MH_model, disp_model = MLE.MH_model, MLE.disp_model
+    MH_model, disp_model, bg_model = MLE.MH_model, MLE.disp_model, MLE.bg_model
     μ = MLE.μ
-    Nbins = length(μ) - nparams(MH_model) - nparams(disp_model) # Number of SFR parameters
+    Nbins = length(μ) - nparams(MH_model, disp_model, bg_model) # Number of SFR parameters
     dist = MvNormal(Optim.minimizer(MLE.result), MAP.invH)
     # Construct view into samples to get rows corresponding to free parameters
-    tf = (transforms(MH_model)..., transforms(disp_model)...)
-    free = SVector(free_params(MH_model)..., free_params(disp_model)...)
+    tf = (transforms(MH_model)..., transforms(disp_model)..., transforms(bg_model)...)
+    free = SVector(free_params(MH_model)..., free_params(disp_model)..., free_params(bg_model)...)
     # Now sure why but this vcat causes _rand! to make an allocation for each sample
     # Still somehow faster than using a LazyArrays.Vcat ...
     row_idxs = vcat(1:Nbins, (Nbins+1:Nbins+length(free))[free])
@@ -134,7 +139,7 @@ function _rand!(rng::AbstractRNG,
     exptransform_samples!(tmpsample, μ, tf[free], free[free])
     samples[row_idxs, :] .= tmpsample
     # Now write in fixed parameters
-    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))...)
+    par = (values(fittable_params(MH_model))..., values(fittable_params(disp_model))..., values(fittable_params(bg_model))...)
     for i in 1:length(free)
         if ~free[i] # if parameter is fixed,
             samples[Nbins+i, :] .= par[i]

@@ -35,3 +35,10 @@ StarFormationHistories.update_params(::StarFormationHistories.AbstractDispersion
 StarFormationHistories.transforms(::StarFormationHistories.AbstractDispersionModel)
 StarFormationHistories.free_params(::StarFormationHistories.AbstractDispersionModel)
 ```
+
+The following methods have defaults computed from the methods above, but should be implemented directly so that fits remain accurate when the mean metallicity is far outside the metallicity grid. There the relative weights ``A_{j,k}`` underflow, so the fitting methods work with their logarithms, normalized to the largest weight in each age bin.
+
+```@docs
+StarFormationHistories.logweight
+StarFormationHistories.∇logweight
+```
