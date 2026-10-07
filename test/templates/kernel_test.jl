@@ -54,7 +54,9 @@ end
     # Narrow color bins and tall magnitude bins as in typical Hess diagrams, including σy much smaller than the bin height
     xe, ye = range(0.0, 1.0; step=0.02), range(19.0, 21.0; step=0.1)
     newhist() = Histogram((xe, ye), zeros(length(xe) - 1, length(ye) - 1), :left, false)
-    for (σx, σy, c) in ((0.02, 0.01, 1), (0.02, 0.02, -1), (0.03, 0.05, 1), (0.05, 0.2, -1), (0.02, 0.01, 0), (0.05, 0.2, 0)), y0 in (20.0, 20.037, 20.081)
+    # Non-integer c occurs for kernels smeared along reddening vectors
+    for (σx, σy, c) in ((0.02, 0.01, 1), (0.02, 0.02, -1), (0.03, 0.05, 1), (0.05, 0.2, -1), (0.02, 0.01, 0), (0.05, 0.2, 0),
+                      (0.03, 0.05, 0.4), (0.02, 0.1, -2.5)), y0 in (20.0, 20.037, 20.081)
         h = newhist()
         addstar!(h, GaussianKernel(0.5, y0, σx, σy, c))
         # Reference only for rows within 6σy of the kernel, where it is nonzero to within the test tolerance
@@ -75,5 +77,5 @@ end
              for i in 1:length(xe)-1, j in 1:length(ye)-1]
     within = [abs((xe[i] + xe[i+1]) / 2 - 0.5013) < 3 * 0.03 && abs((ye[j] + ye[j+1]) / 2 - 20.037) < 3 * 0.05 for i in 1:length(xe)-1, j in 1:length(ye)-1]
     @test h.weights[within] ≈ exact[within] rtol=1e-12
-    @test_throws ArgumentError GaussianKernel(0.5, 20.0, 0.02, 0.02, 0.5)
+    @test_throws ArgumentError GaussianKernel(0.5, 20.0, 0.02, 0.02, Inf)
 end

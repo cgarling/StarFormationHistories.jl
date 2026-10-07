@@ -11,6 +11,7 @@ using Logging: with_logger, ConsoleLogger, Error
         @safetestset "Core Fitting Functions" include("fitting/fitting_core_test.jl")
         @safetestset "Template Kernels" include("templates/kernel_test.jl")
         @safetestset "Template Construction" include("templates/template_test.jl")
+        @safetestset "Templates with Extinction" include("templates/extinction_test.jl")
 
         @testset verbose=true "Solving + Sampling" begin
             @safetestset "Basic Linear Combinations" include("fitting/basic_linear_combinations.jl")

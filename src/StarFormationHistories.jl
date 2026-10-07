@@ -3,7 +3,9 @@ module StarFormationHistories
 using Compat: allequal
 using ArgCheck: @argcheck
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
-    cdf, quantile, Multivariate, MvNormal, sampler, Uniform, UnivariateDistribution, Gamma
+    cdf, quantile, Multivariate, MvNormal, sampler, Uniform, UnivariateDistribution, Gamma,
+    ContinuousUnivariateDistribution, truncated
+import Distributions # Extending pdf, cdf, mean, var for UniformSum in extinction.jl
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
@@ -179,7 +181,8 @@ mean(imf::Distribution{Univariate, Continuous}; kws...) =
 # Gaussian kernel for a star in a Hess diagram with x-axis color and y-axis magnitude, in data units. y is Gaussian with
 # standard deviation σy about y0, and the color given y is Gaussian with standard deviation σx about
 # x0 - cov_mult * (y - y0). `cov_mult` is 1 for y=V and x=B-V, -1 for y=B and x=B-V (the y-axis filter also enters the
-# color), and 0 for y=R and x=B-V (no covariance, in which case σx is the error in the color). `A` is the total weight.
+# color), and 0 for y=R and x=B-V (no covariance, in which case σx is the error in the color). Other values describe a
+# general bivariate Gaussian, such as one broadened along a reddening vector (see extinction.jl). `A` is the total weight.
 struct GaussianKernel{T <: Real}
     x0::T
     y0::T
@@ -188,7 +191,7 @@ struct GaussianKernel{T <: Real}
     cov_mult::T
     A::T
     function GaussianKernel{T}(x0, y0, σx, σy, cov_mult, A=1) where T <: Real
-        @argcheck cov_mult in (-1, 0, 1)
+        @argcheck isfinite(cov_mult)
         new{T}(x0, y0, σx, σy, cov_mult, A)
     end
 end
@@ -201,8 +204,8 @@ GaussianKernel(x0::Real, y0::Real, σx::Real, σy::Real, cov_mult::Real, A::Real
 # mean color shifts by at most σx, and within each sub-row the color distribution is approximated as a Gaussian with
 # the mean and variance of the color over the sub-row, which is integrated exactly over each pixel in color. Without
 # covariance there is one sub-row per row and the integral is exact. The total weight added is exactly A when the
-# kernel lies within `image`.
-function addstar!(image::Histogram, obj::GaussianKernel; k::Real=4)
+# kernel lies within `image`. `erfs` is a work buffer with at least one more element than the number of columns.
+function addstar!(image::Histogram, obj::GaussianKernel; k::Real=4, erfs=similar(image.weights, size(image.weights, 1) + 1))
     data, (xe, ye) = image.weights, image.edges
     Base.require_one_based_indexing(data)
     all(Base.Fix2(isa, AbstractRange), image.edges) || throw(ArgumentError("The `image::Histogram` provided to `addstar!` must have bin edges `image.edges` that are subtypes of `AbstractRange`."))
@@ -214,7 +217,7 @@ function addstar!(image::Histogram, obj::GaussianKernel; k::Real=4)
     jhi = min(size(data, 2), floor(Int, (y0 + k * σy - y1) / Δy) + 1)
     # The mean color shifts by |c| Δy / nsub across one sub-row
     nsub = iszero(c) ? 1 : clamp(ceil(Int, abs(c) * Δy / σx), 1, 16)
-    erfs = similar(data, size(data, 1) + 1) # erf at the color bin edges of the current sub-row
+    # erfs holds erf at the color bin edges of the current sub-row
     # Column range and erf values are recomputed only when the color distribution changes, which without covariance
     # happens only for the first row
     xprev, σprev, ilo, ihi = oftype(float(x0), NaN), oftype(float(σx), NaN), 1, 0
@@ -736,9 +739,14 @@ function single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, im
     return single_star_hist, new_mini, new_iso_mags
 end
 
+# Templates with distributions of extinction
+include("extinction.jl")
+
 # Method exports
 # Exports from StarFormationHistories.jl
 export mean, bin_cmd, bin_cmd_smooth, hess_mask, partial_cmd, partial_cmd_smooth
+# Exports from extinction.jl
+export match_extinction, UniformSum
 # Exports from simulate.jl
 export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite,
     generate_stars_mag_composite, model_cmd
