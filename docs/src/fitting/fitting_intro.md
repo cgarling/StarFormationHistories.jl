@@ -58,6 +58,28 @@ partial_cmd_smooth
 
 The user-provided functions returning magnitude errors (`mag_err_funcs`) and completeness values (`completness_functions`) given a star's intrinsic apparent magnitude are important for deriving good templates. These are typically derived from catalogs of artificial star tests. Some helper functions for constructing these are provided [here](@ref phot_helpers).
 
+### Differential extinction
+
+The stars of a population often have a range of extinctions rather than a single value, for example in star-forming regions of dusty galaxies. The method of [`partial_cmd_smooth`](@ref) that takes isochrone magnitudes at several extinctions (`knots`) and a distribution of V-band extinctions builds the template for such a population directly. Each isochrone point is moved along its reddening path through the Hess diagram in steps short enough that it moves by at most `max_shift` times the larger of its photometric error and the bin width, and each step is deposited as a Gaussian kernel broadened by the spread of extinction along it, with the photometric errors, completeness, and bias evaluated at the step's mean extinction. Magnitudes are interpolated linearly in extinction between knots, so the knots should include every extinction at which the magnitudes are not linear in extinction, such as the extinction nodes of the bolometric correction grid (`BolometricCorrections.Av_nodes`). For example, with an isochrone function `iso(A)` returning the initial masses and F475W and F814W magnitudes at extinction `A`,
+
+```julia
+using BolometricCorrections: Av_nodes
+using Distributions: Uniform
+extinction = Uniform(0.2, 1.2) # A_V uniformly distributed from 0.2 to 1.2 mag
+knots = [0.2; filter(a -> 0.2 < a < 1.2, Av_nodes(bc_grid)); 1.2]
+mags = [iso(a).mags for a in knots] # mags[n] = [F475W, F814W] at knots[n]
+template = partial_cmd_smooth(iso(0.2).m_ini, mags, knots, extinction, mag_err_funcs, 2, (1, 2), imf,
+                              completeness_funcs; dmod=dmod, edges=edges)
+```
+
+The model of differential extinction in MATCH [Dolphin2002](@citep), in which all stars have extinctions distributed uniformly between ``A_V`` and ``A_V + dA_V`` and young stars have an additional spread [Dolphin2003](@citep), is provided by [`match_extinction`](@ref). Any other continuous distribution from Distributions.jl can also be used; [`prepare_extinction`](@ref StarFormationHistories.prepare_extinction) describes how unbounded distributions are truncated.
+
+```@docs
+match_extinction
+UniformSum
+StarFormationHistories.prepare_extinction
+```
+
 We note that in many cases it can also be helpful to add in a foreground/background template that models contamination of the Hess diagram from stars not in your population of interest -- this is often done using observations of parallel fields though there are several other possible methods.
 
 Photometric catalogs can be processed into Hess diagrams meeting our formatting requirements with the method [`bin_cmd`](@ref StarFormationHistories.bin_cmd).
