@@ -21,8 +21,8 @@ the support is truncated at zero, as negative extinctions are unphysical. `dist`
 is needed.
 
 ```jldoctest; setup = :(using StarFormationHistories: prepare_extinction; using Distributions: Normal, Uniform)
-julia> prepare_extinction(Uniform(0.2, 1.2))
-Uniform{Float64}(a=0.2, b=1.2)
+julia> prepare_extinction(Uniform(0.2, 1.2)) == Uniform(0.2, 1.2)
+true
 
 julia> round.(extrema(prepare_extinction(Normal(0.7, 0.15))); digits=6)
 (0.25, 1.15)
@@ -85,9 +85,9 @@ uniformly from 0 to `w(t) dAvy`, where `w(t)` is 1 for ages below `t1` and decre
 [Dolphin2003](@citep). Returns a `Distributions.Uniform` when only one of the two terms is nonzero, and a
 [`UniformSum`](@ref) otherwise. Requires `dAv + w(t) dAvy > 0`.
 
-```jldoctest; setup = :(using StarFormationHistories: match_extinction)
-julia> match_extinction(0.2, 0.6, 0.5, 9.0) # older than t2; only dAv applies
-Uniform{Float64}(a=0.2, b=0.8)
+```jldoctest; setup = :(using StarFormationHistories: match_extinction; using Distributions: Uniform)
+julia> match_extinction(0.2, 0.6, 0.5, 9.0) == Uniform(0.2, 0.8) # older than t2; only dAv applies
+true
 
 julia> round.(extrema(match_extinction(0.2, 0.6, 0.5, 7.0)); digits=6) # younger than t1; both apply
 (0.2, 1.3)
