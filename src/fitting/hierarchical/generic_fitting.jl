@@ -332,6 +332,23 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
         end
         return -lg[1]
     end
+    # Staged start: fit the stellar mass coefficients (and background) with the metallicity and dispersion parameters held
+    # at their initial values, then free everything from there. From a poor initial x0 the gradients in the metallicity
+    # parameters are large, and the first BFGS steps can push the mean metallicities beyond the metallicity grid, where
+    # the likelihood no longer depends on them and the optimization cannot recover.
+    nzd = count(free[1:nparams(MH_model0)+nparams(disp_model0)]) # Free metallicity and dispersion parameters
+    if nzd > 0
+        idx = vcat(1:Nbins, Nbins+nzd+1:lastindex(x0)) # Mass coefficients and free background parameters
+        xs, Gs = copy(x0), similar(x0)
+        function fg_stage!(F, G, X)
+            xs[idx] .= X
+            f = fg_map!(F, isnothing(G) ? nothing : Gs, xs)
+            isnothing(G) || (G .= view(Gs, idx))
+            return f
+        end
+        stage = Optim.optimize(NLSolversBase.only_fg!(fg_stage!), x0[idx], bfgs_struct, Optim.Options(; iterations, allow_f_increases, kws...))
+        x0[idx] .= Optim.minimizer(stage)
+    end
     result_map = Optim.optimize(NLSolversBase.only_fg!(fg_map!), x0, bfgs_struct, bfgs_options)
     result_mle = Optim.optimize(NLSolversBase.only_fg!(fg_mle!), Optim.minimizer(result_map), bfgs_struct, bfgs_options)
     
@@ -350,7 +367,18 @@ function fit_sfh(MH_model0::AbstractMetallicityModel{T}, disp_model0::AbstractDi
     # nearly-Hermitian invH, so we just use Hermitian here.
     # invH_map = PDMat(hermitianpart(Optim.trace(result_map)[end].metadata["~inv(H)"]))
     # invH_mle = hermitianpart(Optim.trace(result_mle)[end].metadata["~inv(H)"])
-    invH_map = PDMat(Hermitian(Optim.trace(result_map)[end].metadata["~inv(H)"]))
+    invH_map = Hermitian(Optim.trace(result_map)[end].metadata["~inv(H)"])
+    invH_map = try
+        PDMat(invH_map)
+    catch e
+        e isa PosDefException || rethrow()
+        # BFGS keeps invH positive definite in exact arithmetic, so a failed factorization is roundoff along a direction
+        # of near-zero curvature, e.g., when the optimization stopped without converging. A diagonal jitter at the
+        # roundoff level of the factorization restores it.
+        jitter = size(invH_map, 1) * eps(eltype(invH_map)) * maximum(diag(invH_map))
+        @debug "Inverse Hessian matrix of MAP estimate is not positive definite; adding $jitter to its diagonal" invH_map
+        PDMat(Hermitian(invH_map + jitter * I))
+    end
     invH_mle = Hermitian(Optim.trace(result_mle)[end].metadata["~inv(H)"])
     try
         invH_mle = PDMat(invH_mle)
