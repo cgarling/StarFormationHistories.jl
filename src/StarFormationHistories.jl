@@ -8,6 +8,7 @@ using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logp
 import Distributions # Extending pdf, cdf, mean, var for UniformSum in extinction.jl
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
+using InitialMassFunctions: partial_mean
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
 using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
@@ -26,7 +27,6 @@ using Random: AbstractRNG, default_rng, seed!
 using Roots: find_zero # For mass_limits in simulate.jl
 import Tables # For Tables.rows, process_ASTs
 using TaskLocalValues: TaskLocalValue # For threadsafe buffers
-import Trapz: trapz
 using SpecialFunctions: erf
 using StaticArrays: SVector, sacollect
 using StatsBase: fit, Histogram, Weights

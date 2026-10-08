@@ -216,14 +216,14 @@ with_fraction(::RandomBinaryPairs, fraction::Real) = RandomBinaryPairs(fraction)
     BinaryMassRatio(fraction::Real,
                     qdist::Distributions.ContinuousUnivariateDistribution =
                         Distributions.Uniform(0.1, 1.0))
-The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`. Users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin2013](@cite)).
+The `BinaryMassRatio` type takes two arguments; the number fraction of stellar systems that are binaries `0 <= fraction::Real <= 1` and a continuous univariate distribution `qdist` from which to sample binary mass ratios, defined as the ratio of the secondary mass to the primary mass: ``q = \\text{M}_S / \\text{M}_P``. The provided `qdist` must have the proper support of `(minimum(qdist) >= 0) & (maximum(qdist) <= 1)`. Users may find the [`Distributions.truncated`](https://juliastats.org/Distributions.jl/stable/truncate/#Distributions.truncated) method useful for enforcing this support on more general distributions. The default `qdist` is a uniform distribution from 0.1 to 1 with the floating-point type of `fraction`, which appears to give reasonably good agreement to observations (see, e.g., [Goodwin2013](@cite)).
 """
 struct BinaryMassRatio{T <: Real, S <: Distribution{Univariate, Continuous}} <: AbstractBinaryModel
     fraction::T
     qdist::S
     # Outer-only constructor to guarantee support
     # See https://docs.julialang.org/en/v1/manual/constructors/#Outer-only-constructors
-    function BinaryMassRatio(fraction::T, qdist::S=Uniform(0.1, 1.0)) where {T <: Real, S <: Distribution{Univariate, Continuous}}
+    function BinaryMassRatio(fraction::T, qdist::S=Uniform(float(T)(1//10), one(float(T)))) where {T <: Real, S <: Distribution{Univariate, Continuous}}
         V = eltype(qdist)
         @argcheck (fraction >= zero(T)) && (fraction <= one(T))
         @argcheck (minimum(qdist) >= zero(V)) && (maximum(qdist) <= one(V))
@@ -365,7 +365,7 @@ Generates a random sample of stars from an isochrone defined by the provided ini
 
 # Returns
 `(sampled_masses, sampled_mags)` defined as
- - `sampled_masses::Vector{SVector{N,eltype(imf)}}` is a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems). 
+ - `sampled_masses::Vector{SVector{N,eltype(imf)}}` is a vector containing the initial stellar masses of the stars sampled by [`sample_system`](@ref); see that method's documentation for details on format. In short, each `StaticArrays.SVector` represents one stellar system and each entry in each `StaticArrays.SVector` is one star in that system. Entries will be 0 when companions could have been sampled but were not (i.e., when using a `binary_model` that supports multi-star systems) and for stars that have died (i.e., with initial masses above `maximum(mini_vec)`), so that summing the entries gives the birth mass of the returned stars that are still alive. A system is returned only when at least one of its stars has a mass within `extrema(mini_vec)` and the combined system is brighter than `mag_lim`. Stars with initial masses below `minimum(mini_vec)` keep their masses if they are returned at all (e.g., if they are a secondary of a living primary), but contribute no light. Stars keep their positions in each system, so the entry for a primary that has died is 0 while its companion's is not.
  - `sampled_mags::Vector{SVector{N,<:Number}}` is a vector containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. To get the magnitude of star `i` in band `j`, you index as `sampled_mags[i][j]`. This can be reinterpreted as a 2-dimensional `Matrix` with `reduce(hcat,sampled_mags)`. 
 
 # Notes
@@ -409,13 +409,14 @@ function generate_stars_mass(mini_vec::AbstractVector{<:Number}, mags::AbstractV
         end
         flux = zero(eltype(mags))
         for mass in masses
-            if (mass > mmin1) & (mass < mmax) # Mass is in valid interpolation range
+            if mmin1 <= mass <= mmax # Mass is in valid interpolation range
                 flux += mag2flux.( itp(mass) ) # Think this works for SVectors? not sure
             end
         end
         # Possible that first(masses) > mmax and no valid companions either, meaning sum(flux) == 0
         if (sum(flux) > 0) & (!isfinite(mag_lim) || flux2mag(flux[sourceidx]) < mag_lim)
-            push!(mass_vec, masses)
+            # Stars that have died (initial mass above the isochrone) are recorded with zero mass
+            push!(mass_vec, map(m -> m <= mmax ? m : zero(m), masses))
             push!(mag_vec, flux2mag.(flux))
         end
     end
@@ -468,9 +469,7 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
         flux = zero(eltype(mags)) # Accumulator to hold per-filter luminosities
         for mass in masses
             # Continue loop if sampled mass is outside of valid isochrone range
-            if (mass < mmin1) | (mass > mmax)
-                continue
-            end
+            mmin1 <= mass <= mmax || continue
             flux += mag2flux.( itp(mass) )
         end
         # Keep the system that crosses `limit` with probability (limit - total) / m so that the
@@ -479,7 +478,8 @@ function generate_stars_mag(mini_vec::AbstractVector{<:Number}, mags::AbstractVe
         total += flux[idxlim] # Add the luminosity in the correct filter to the `total` accumulator
         # If the source is bright enough, or `mag_lim` is infinite, add it to output
         if (sum(flux) > 0) & (!isfinite(mag_lim) || flux2mag(flux[sourceidx]) < mag_lim) 
-            push!(mass_vec, masses)
+            # Stars that have died (initial mass above the isochrone) are recorded with zero mass
+            push!(mass_vec, map(m -> m <= mmax ? m : zero(m), masses))
             push!(mag_vec, flux2mag.(flux))
         end
     end
@@ -510,7 +510,7 @@ Generates a random sample of stars with a complex star formation history using m
 All other keyword arguments `kws...` are passed to [`generate_stars_mass`](@ref); you should refer to that method's documentation for more information.
 
 # Returns
- - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details.
+ - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref), except that stars that have died are recorded with zero mass as in [`generate_stars_mass`](@ref); see those methods' documentation for more details.
  - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`.
 """
 function generate_stars_mass_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, limit::Number, massfrac::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), rng::AbstractRNG=default_rng(), kws...) where T <: AbstractVector{<:Number}
@@ -557,7 +557,7 @@ Generates a random sample of stars with a complex star formation history using m
 All other keyword arguments `kws...` are passed to [`generate_stars_mag`](@ref); you should refer to that method's documentation for more information.
 
 # Returns
- - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref); see that method's documentation for more details. 
+ - `sampled_masses::Vector{Vector{SVector{N,eltype(imf)}}}` is a vector of vectors containing the initial stellar masses of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e., all of `sampled_masses[1]` were sampled from `mini_vec[1]` and so on. These can be concatenated into a single vector with `reduce(vcat,sampled_masses)`. The format of the contained `StaticArrays.SVector`s are as output from [`sample_system`](@ref), except that stars that have died are recorded with zero mass as in [`generate_stars_mass`](@ref); see those methods' documentation for more details. 
  - `sampled_mags::Vector{Vector{SVector{N,<:Number}}}` is a vector of vectors containing `StaticArrays.SVectors` with the multi-band magnitudes of the sampled stars. The outer vectors are separated by the isochrone the stars were generated from; i.e. all of `sampled_mags[1]` were sampled from `mags[1]` and so on. To get the magnitude of star `i` in band `j` sampled from isochrone `k`, you would do `sampled_mags[k][i][j]`. This can be concatenated into a `Vector{SVector}` with `reduce(vcat,sampled_mags)` and a 2-D `Matrix` with `reduce(hcat,reduce(vcat,sampled_mags))`. 
 """
 function generate_stars_mag_composite(mini_vec::AbstractVector{T}, mags::AbstractVector, mag_names::AbstractVector{String}, absmag::Number, absmag_name::String, fracs::AbstractVector{<:Number}, imf::Sampleable{Univariate,Continuous}; frac_type::Symbol=:lum, binary_model::AbstractBinaryModel=RandomBinaryPairs(0.3), rng::AbstractRNG=default_rng(), kws...) where T <: AbstractVector{<:Number}
@@ -659,7 +659,7 @@ julia> add_metadata(starcat, filters, logAge = ages, MH = MH)
 ```
 
 # Initial Masses
-The initial masses of each sampled system are split into scalar fields. `mini` is always the initial mass of the primary star. When `starcat` was sampled with a binary model (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the companion initial mass is given in `mini2`, which is zero for systems without a companion, so `mini + mini2` is the initial mass of the system.
+The initial masses of each sampled system are split into scalar fields. `mini` is always the initial mass of the primary star. When `starcat` was sampled with a binary model (e.g., [`RandomBinaryPairs`](@ref StarFormationHistories.RandomBinaryPairs)), the companion initial mass is given in `mini2`, which is zero for systems without a companion. Stars that have died are recorded with zero initial mass (see [`generate_stars_mass`](@ref)), so `mini` is zero for a primary that has died while its companion is alive, and `mini + mini2` is the initial mass of the living stars in the system.
 """
 function add_metadata(starcat, mag_symbols::NTuple{N, Symbol}; kws...) where N
     @argcheck length(starcat[1]) == length(starcat[2]) "Length of `starcat[1]` not equal to length of `starcat[2]`."
@@ -816,45 +816,72 @@ function _model_cmd_loop(rng, ret_mags::AbstractVector{SVector{N, T}}, err, bias
 end
 
 """
-    surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of stars that were born that are still undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes).
+    surviving_fraction(mmax::Number, imf, binary_model::StarFormationHistories.AbstractBinaryModel=NoBinaries())
+Returns the fraction of the stars born in a simple stellar population that are still alive (i.e., that have not yet ended their lives as white dwarfs, neutron stars, or black holes), given the initial mass `mmax` of the most massive living star (e.g., `maximum` of the initial masses of an isochrone). Stars with initial masses below `mmax` are alive. Each star in a binary system is counted separately, so this is not the fraction of stellar systems that are still alive.
 
-# Arguments
- - `massvec::AbstractVector{<:AbstractVector}`: a vector of vectors containing the initial masses (in solar masses) of the stars in each stellar population. *This must contain stellar masses for stars that have not yet died -- remnants must have been removed.* The length of `massvec` should be equal to the number of stellar populations.
- - `coeffs::AbstractVector`: a vector of coefficients giving the relative contribution of each stellar population to the total. The length of `coeffs` must be equal to the length of `massvec`.
- - `imf`: a `Distributions.Sampleable{Distributions.Univariate, Distributions.Continuous}` implementing a stellar initial mass function with a defined `cdf` methods. Implementations of commonly used IMFs are available in InitialMassFunctions.jl.
+`imf` is a `Distributions.ContinuousUnivariateDistribution` with a defined `cdf`, and `binary_model` is as in [`generate_stars_mass`](@ref). With [`NoBinaries`](@ref) or [`RandomBinaryPairs`](@ref), each star is drawn independently from `imf`, so the result is `cdf(imf, mmax)`. With [`BinaryMassRatio`](@ref), `imf` is the distribution of system masses, and a binary system can lose its primary while its secondary is still alive. A system of mass ``M`` and mass ratio ``q`` has a primary that is alive for ``M \\leq m_\\text{max} (1 + q)`` and a secondary that is alive for ``M \\leq m_\\text{max} (1 + q) / q``, so for a binary system fraction ``b`` ([`StarFormationHistories.binary_system_fraction`](@ref)) and mass ratio distribution ``g(q)`` the result is
+
+```math
+\\frac{1}{1 + b} \\left[ (1 - b) \\, F(m_\\text{max}) + b \\int g(q) \\left( F \\left( m_\\text{max} (1 + q) \\right) + F \\left( \\frac{m_\\text{max} (1 + q)}{q} \\right) \\right) dq \\right]
+```
+
+where ``F`` is the `cdf` of `imf` and ``1 + b`` is the mean number of stars per system.
+
+    surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf, binary_model::StarFormationHistories.AbstractBinaryModel=NoBinaries())
+Returns the fraction of the stars born in a complex stellar population that are still alive. `massvec` contains the initial masses of the living stars in each simple stellar population (e.g., their isochrones, which must not include remnants), and `coeffs` gives the birth stellar mass of each population (up to a common normalization), which is proportional to the number of stars born as all populations share `imf` and `binary_model`. The result is the average of `surviving_fraction(maximum(massvec[i]), imf, binary_model)` over the populations weighted by `coeffs`, so only the most massive star of each population is used.
 """
-function surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+surviving_fraction(mmax::Number, imf, binary_model::Union{NoBinaries, RandomBinaryPairs}=NoBinaries()) = cdf(imf, mmax)
+function surviving_fraction(mmax::Number, imf, binary_model::BinaryMassRatio)
+    b = binary_system_fraction(binary_model)
+    qdist = binary_model.qdist
+    binary = quadgk(q -> pdf(qdist, q) * (cdf(imf, mmax * (1 + q)) + cdf(imf, mmax * (1 + q) / q)), minimum(qdist), maximum(qdist))[1]
+    return ((1 - b) * cdf(imf, mmax) + b * binary) / (1 + b)
+end
+function surviving_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf, binary_model::AbstractBinaryModel=NoBinaries())
     @argcheck length(massvec) == length(coeffs) "Length of `massvec` and `coeffs` must be equal."
-    tot = sum(coeffs)
-    surviving = zero(eltype(coeffs))
-    for i in eachindex(massvec, coeffs)
-        ext = extrema(massvec[i])
-        frac = cdf(imf, ext[2]) - cdf(imf, ext[1])
-        surviving += coeffs[i] * frac
-    end
-    return surviving / tot
+    return sum(coeffs[i] * surviving_fraction(maximum(massvec[i]), imf, binary_model) for i in eachindex(massvec, coeffs)) / sum(coeffs)
 end
 """
-    recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of stars that were born that have ended fusion (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction). By definition this is equal to `1 - surviving_fraction(args...)`.
+    recycling_fraction(args...)
+Returns the fraction of the stars that were born that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in either method of [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction). By definition this is equal to `1 - surviving_fraction(args...)`.
 """
-recycling_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_fraction(massvec, coeffs, imf)
+recycling_fraction(args...) = 1 - surviving_fraction(args...)
 """
-    surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of the birth stellar mass in stars that are still undergoing fusion (i.e., have not yet ended their lives as white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction).
+    surviving_mass_fraction(mmax::Number, imf, binary_model::StarFormationHistories.AbstractBinaryModel=NoBinaries(); mean_mass::Number=mean(imf))
+Returns the fraction of the birth stellar mass of a simple stellar population that is in stars that are still alive (i.e., that have not yet ended their lives as white dwarfs, neutron stars, or black holes), given the initial mass `mmax` of the most massive living star (e.g., `maximum` of the initial masses of an isochrone). Stars with initial masses below `mmax` are alive. The mass counted is the initial (birth) mass of the living stars, without mass lost during their evolution or the mass of remnants.
+
+`imf` is a `Distributions.ContinuousUnivariateDistribution`, whose partial mean is computed with `InitialMassFunctions.partial_mean` (in closed form for the IMFs of InitialMassFunctions.jl and by numerical integration otherwise), and `mean_mass` is its mean, as in [`partial_cmd_smooth`](@ref). `binary_model` is as in [`generate_stars_mass`](@ref). With [`NoBinaries`](@ref) or [`RandomBinaryPairs`](@ref), each star is drawn independently from `imf`, so the result is
+
+```math
+\\frac{1}{\\langle m \\rangle} \\int_{m_\\text{min}}^{m_\\text{max}} m \\, \\phi(m) \\, dm
+```
+
+where ``\\phi(m)`` is the IMF probability density and ``\\langle m \\rangle`` is `mean_mass`. With [`BinaryMassRatio`](@ref), `imf` is the distribution of system masses, and a binary system can lose its primary while its secondary is still alive, so the fraction of the stellar mass in binary systems ([`StarFormationHistories.binary_mass_fraction`](@ref)) is integrated over the distribution of mass ratios with the primary and secondary counted separately. This is the expected fraction of the mass in the stars sampled by [`generate_stars_mass`](@ref) that are still alive, including those not returned because they are below the isochrone.
+
+    surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf, binary_model::StarFormationHistories.AbstractBinaryModel=NoBinaries(); mean_mass::Number=mean(imf))
+Returns the fraction of the birth stellar mass of a complex stellar population that is in stars that are still alive. `massvec` contains the initial masses of the living stars in each simple stellar population (e.g., their isochrones, which must not include remnants), and `coeffs` gives the birth stellar mass of each population (up to a common normalization). The result is the average of `surviving_mass_fraction(maximum(massvec[i]), imf, binary_model; mean_mass)` over the populations weighted by `coeffs`, so only the most massive star of each population is used.
 """
-function surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
+surviving_mass_fraction(mmax::Number, imf, binary_model::Union{NoBinaries, RandomBinaryPairs}=NoBinaries(); mean_mass::Number=mean(imf)) = partial_mean(imf, mmax) / mean_mass
+function surviving_mass_fraction(mmax::Number, imf, binary_model::BinaryMassRatio; mean_mass::Number=mean(imf))
+    single = surviving_mass_fraction(mmax, imf; mean_mass)
+    # A system of mass M and mass ratio q has primary M / (1 + q) and secondary q M / (1 + q), which are alive
+    # for M below mmax (1 + q) and mmax (1 + q) / q, respectively
+    qdist = binary_model.qdist
+    binary = quadgk(minimum(qdist), maximum(qdist)) do q
+        pdf(qdist, q) * (surviving_mass_fraction(mmax * (1 + q), imf; mean_mass) + q * surviving_mass_fraction(mmax * (1 + q) / q, imf; mean_mass)) / (1 + q)
+    end[1]
+    φ = binary_mass_fraction(binary_model, imf)
+    return (1 - φ) * single + φ * binary
+end
+function surviving_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf, binary_model::AbstractBinaryModel=NoBinaries(); mean_mass::Number=mean(imf))
     @argcheck length(massvec) == length(coeffs) "Length of `massvec` and `coeffs` must be equal."
-    # Basically just compute mean mass of surviving stars and divide by mean birth mass of stars
-    # to get mass fraction surviving. Multiply by coeffs[i] and sum over i and compare to sum(coeffs).
-    return sum(trapz(massvec[i], massvec[i] .* pdf.(Ref(imf), massvec[i])) * coeffs[i] for i in eachindex(massvec, coeffs)) / sum(coeffs) / mean(imf)
+    return sum(coeffs[i] * surviving_mass_fraction(maximum(massvec[i]), imf, binary_model; mean_mass) for i in eachindex(massvec, coeffs)) / sum(coeffs)
 end
 """
-    recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf)
-Returns the fraction of the birth stellar mass that was in stars that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in [`surviving_fraction`](@ref StarFormationHistories.surviving_fraction). By definition this is equal to `1 - surviving_mass_fraction(args...)`.
+    recycling_mass_fraction(args...; kws...)
+Returns the fraction of the birth stellar mass that was in stars that have ended their lives (i.e., have become white dwarfs, neutron stars, or black holes). Arguments are as in either method of [`surviving_mass_fraction`](@ref StarFormationHistories.surviving_mass_fraction). By definition this is equal to `1 - surviving_mass_fraction(args...; kws...)`.
 """
-recycling_mass_fraction(massvec::AbstractVector{<:AbstractVector}, coeffs::AbstractVector, imf) = 1 - surviving_mass_fraction(massvec, coeffs, imf)
+recycling_mass_fraction(args...; kws...) = 1 - surviving_mass_fraction(args...; kws...)
 # In Julia 1.9 we should just be able to do stack(v). 
 # eltocols(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), dim, :)
 # eltorows(v::Vector{SVector{dim, T}}) where {dim, T} = reshape(reinterpret(T, v), :, dim)
