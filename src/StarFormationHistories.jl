@@ -13,7 +13,7 @@ using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
 # Need mul! for composite!, ∇loglikelihood!;
-using LinearAlgebra: BLAS, diag, dot, Hermitian, mul! # hermitianpart
+using LinearAlgebra: BLAS, diag, dot, Hermitian, I, mul!, PosDefException # hermitianpart
 import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
 import Optim
