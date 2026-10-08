@@ -1,6 +1,6 @@
 import StarFormationHistories as SFH
 using InitialMassFunctions: Salpeter1955, Kroupa2001
-using Distributions: Uniform, pdf
+using Distributions: Uniform, pdf, cdf
 using StableRNGs: StableRNG
 using StaticArrays: SVector
 using QuadGK: quadgk
@@ -103,6 +103,8 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test length(SFH.BinaryMassRatio(T(4//10), Uniform(T(0), T(1)))) == 2
                 @test SFH.binary_system_fraction(SFH.BinaryMassRatio(T(4//10))) == T(4//10)
                 @test SFH.binary_mass_fraction(SFH.BinaryMassRatio(T(4//10)), one) isa T
+                @test SFH.BinaryMassRatio(T(4//10)).qdist == Uniform(T(1//10), T(1))
+                @test SFH.BinaryMassRatio(0).qdist isa Uniform{Float64}
             end
         end
     end
@@ -154,22 +156,32 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test length(result[1]) == length(result[2])
                 # Test total mass of the returned stars
                 # There will be less random variance with higher `total_mass`.
-                @test reduce(+,reduce(+,result[1])) ≈ total_mass * mass_frac rtol=5e-2
+                @test reduce(+,reduce(+,result[1])) ≈ total_mass * mass_frac rtol=2e-2
                 
                 # Test with RandomBinaryPairs() model
                 result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.RandomBinaryPairs(T(4//10)))
                 @test result[1] isa Vector{SVector{2,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
-                # println((reduce(+,reduce(+,result[1])) .- total_mass * mass_frac * 14//10) / total_mass / mass_frac / 14//10)
-                @test reduce(+,reduce(+,result[1])) ≈ total_mass * mass_frac * 14//10 rtol=5e-2
+                # Stars are drawn independently from `imf`, which starts at minimum(m_ini), so every living star is in a
+                # returned system and the returned (living) masses sum to the birth mass of the living stars
+                @test reduce(+,reduce(+,result[1])) ≈ total_mass * SFH.surviving_mass_fraction(maximum(m_ini), imf, SFH.RandomBinaryPairs(T(4//10))) rtol=2e-2
 
                 # Test with BinaryMassRatio() model
-                result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1))))
+                bmr = SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1)))
+                result = SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(Inf), mag_lim_name=mag_names[2], binary_model=bmr)
                 @test result[1] isa Vector{SVector{2,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
-                @test reduce(+,reduce(+,result[1])) ≈ total_mass * mass_frac rtol=5e-2
+                # Stars that have died are recorded with zero mass, including primaries with living secondaries
+                @test all(s -> all(<=(maximum(m_ini)), s), result[1])
+                @test any(s -> iszero(s[1]) && !iszero(s[2]), result[1])
+                # Secondaries below minimum(m_ini) whose primaries have died are not returned, so the expected total
+                # applies the rules of generate_stars_mass to systems drawn with sample_system
+                bmr_rng = StableRNG(seedval)
+                draws = [SFH.sample_system(imf, bmr_rng, bmr) for _ in 1:10^6]
+                bmr_frac = sum(sum(m for m in s if m <= maximum(m_ini)) for s in draws if any(m -> minimum(m_ini) <= m <= maximum(m_ini), s)) / sum(sum, draws)
+                @test reduce(+,reduce(+,result[1])) ≈ total_mass * bmr_frac rtol=2e-2
 
                 # Test errors
                 @test_throws ArgumentError SFH.generate_stars_mass(m_ini, mags, mag_names, total_mass, imf; dist_mod=dmod, rng=rng, mag_lim=T(25), mag_lim_name="V", binary_model=SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1))))
@@ -209,6 +221,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test result[1] isa Vector{SVector{2,S}}
                 @test result[2] isa Vector{SVector{2,T}}
                 @test length(result[1]) == length(result[2])
+                @test all(s -> all(<=(maximum(m_ini)), s), result[1]) # Stars that have died are recorded with zero mass
                 # Test that total magnitude of sampled population is close to the requested absmaglim
                 apparent_mag = SFH.flux2mag(sum(map(x->SFH.mag2flux(x[2]), result[2])))
                 abs_mag = apparent_mag - dmod
@@ -266,7 +279,7 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 b_am = SFH.add_metadata(bresult, (:F606W, :F814W))
                 @test keys(first(b_am)) == (:mini, :mini2, :F606W, :F814W)
                 @test [(a.mini, a.mini2) for a in b_am] == [(m[1], m[2]) for m in reduce(vcat, bresult[1])]
-                @test all(a.mini >= a.mini2 for a in b_am)
+                @test all(a.mini >= a.mini2 || iszero(a.mini) for a in b_am) # Primaries that have died are recorded as 0
                 @test any(a.mini2 == 0 for a in b_am) && any(a.mini2 > 0 for a in b_am)
                 @test_throws ArgumentError SFH.add_metadata((result[1][1:1], result[2]), (:F606W, :F814W); logAge=[6.6,6.7], MH=[1.0, 1.0])
 
@@ -367,19 +380,54 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
                 @test idxs == findall(m -> jcut(m...), model_mags)
 
                 ################
-                # Test surviving_fraction and friends
-                s = SFH.surviving_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                # Test surviving_fraction, surviving_mass_fraction, and friends
+                mmax = maximum(m_ini)
+                # Number fraction of stars with initial masses up to mmax, counting each star in a binary
+                n = SFH.surviving_fraction(mmax, imf)
+                @test n isa T
+                @test n == cdf(imf, mmax)
+                @test SFH.surviving_fraction(T(1//20), imf) == 0
+                @test SFH.recycling_fraction(mmax, imf) ≈ 1 - n rtol=rtols[i]
+                @test SFH.surviving_fraction(mmax, imf, SFH.RandomBinaryPairs(T(4//10))) == n
+                @test SFH.surviving_fraction(mmax, imf, SFH.BinaryMassRatio(T(0))) ≈ n rtol=rtols[i]
+                @test SFH.surviving_fraction(mmax, imf, SFH.BinaryMassRatio(T(4//10))) isa T
+                # Birth mass fraction in stars with initial masses up to mmax, which includes those below the isochrone
+                alive(mmax) = quadgk(x -> x * pdf(imf, x), minimum(imf), mmax)[1] / quadgk(x -> x * pdf(imf, x), extrema(imf)...)[1]
+                s = SFH.surviving_mass_fraction(mmax, imf)
                 @test s isa T
-                @test s ≈ 0.9337494000577464 rtol=rtols[i]
-                r = SFH.recycling_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
-                @test r isa T
-                @test r ≈ 1 - s rtol=rtols[i]
-                s = SFH.surviving_mass_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
+                @test s ≈ alive(mmax) rtol=rtols[i]
+                @test SFH.surviving_mass_fraction(T(1//20), imf) == 0
+                @test SFH.surviving_mass_fraction(T(200), imf) ≈ 1 rtol=rtols[i]
+                @test SFH.recycling_mass_fraction(mmax, imf) ≈ 1 - s rtol=rtols[i]
+                # Stars are drawn independently from `imf`, so random pairs do not change the result
+                @test SFH.surviving_mass_fraction(mmax, imf, SFH.RandomBinaryPairs(T(4//10))) == s
+                @test SFH.surviving_mass_fraction(mmax, imf, SFH.BinaryMassRatio(T(0))) ≈ s rtol=rtols[i]
+                @test SFH.surviving_mass_fraction(mmax, imf, SFH.BinaryMassRatio(T(4//10))) isa T
+                # Number and mass fractions of the stars that are still alive among systems drawn with sample_system
+                for bm in (SFH.NoBinaries(), SFH.RandomBinaryPairs(T(4//10)), SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1))))
+                    srng = StableRNG(seedval)
+                    draws = [SFH.sample_system(imf, srng, bm) for _ in 1:10^6]
+                    mc_number = sum(count(m -> 0 < m <= mmax, d) for d in draws) / sum(count(>(0), d) for d in draws)
+                    @test SFH.surviving_fraction(mmax, imf, bm) ≈ mc_number rtol=1e-2
+                    mc_mass = sum(sum(m for m in d if m <= mmax; init=zero(S)) for d in draws) / sum(sum, draws)
+                    @test SFH.surviving_mass_fraction(mmax, imf, bm) ≈ mc_mass rtol=1e-2
+                end
+                # Complex populations average over their isochrones, weighted by birth mass; isochrones that start above
+                # minimum(imf) still count the living stars below them
+                massvec = [m_ini, m_ini[1:end-1] .+ T(1//10)]
+                bmr = SFH.BinaryMassRatio(T(4//10), Uniform(T(1//10), T(1)))
+                n = SFH.surviving_fraction(massvec, T[1//4, 3//4], imf)
+                @test n isa T
+                @test n ≈ (cdf(imf, maximum(massvec[1])) + 3 * cdf(imf, maximum(massvec[2]))) / 4 rtol=rtols[i]
+                @test SFH.recycling_fraction(massvec, T[1//4, 3//4], imf) ≈ 1 - n rtol=rtols[i]
+                @test SFH.surviving_fraction(massvec, T[1//4, 3//4], imf, bmr) ≈ (SFH.surviving_fraction(maximum(massvec[1]), imf, bmr) + 3 * SFH.surviving_fraction(maximum(massvec[2]), imf, bmr)) / 4 rtol=rtols[i]
+                @test_throws "Length of `massvec` and `coeffs` must be equal." SFH.surviving_fraction(massvec, T[1], imf)
+                s = SFH.surviving_mass_fraction(massvec, T[1//4, 3//4], imf)
                 @test s isa T
-                @test s ≈ 0.5937806939236231 rtol=rtols[i]
-                r = SFH.recycling_mass_fraction([m_ini, m_ini[1:end-1]], T[1//2, 1//2], imf)
-                @test r isa T
-                @test r ≈ 1 - s rtol=rtols[i]
+                @test s ≈ (alive(maximum(massvec[1])) + 3 * alive(maximum(massvec[2]))) / 4 rtol=rtols[i]
+                @test SFH.recycling_mass_fraction(massvec, T[1//4, 3//4], imf) ≈ 1 - s rtol=rtols[i]
+                @test SFH.surviving_mass_fraction(massvec, T[1//4, 3//4], imf, bmr) ≈ (SFH.surviving_mass_fraction(maximum(massvec[1]), imf, bmr) + 3 * SFH.surviving_mass_fraction(maximum(massvec[2]), imf, bmr)) / 4 rtol=rtols[i]
+                @test_throws "Length of `massvec` and `coeffs` must be equal." SFH.surviving_mass_fraction(massvec, T[1], imf)
             end
         end
     end
