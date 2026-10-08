@@ -1,4 +1,4 @@
-using Distributions: Poisson
+using Distributions: Poisson, quantile
 using DynamicHMC: NoProgressReport
 using StableRNGs: StableRNG
 import StarFormationHistories as SFH
@@ -390,6 +390,16 @@ SFH.free_params(::NegativeSlopeAMR) = (true, true)
             @test SFH.calculate_coeffs(rresult, logAge, MH) ≈ SFH.calculate_coeffs(rresult.mle.MH_model, rresult.mle.disp_model, rresult.mle.μ[eachindex(Mstars)], logAge, MH)
             q = SFH.cum_sfr_quantiles(rresult, logAge, MH, T_max, 100, (0.16, 0.5, 0.84))
             @test size(q.cum_sfh) == (length(unique_logAge), 3)
+            # Quantiles of the total birth mass of each sampled history, whose coefficients in each time bin sum to the
+            # stellar mass of that bin
+            @test q.mstar ≈ quantile(vec(sum(q.samples[eachindex(Mstars), :]; dims=1)), [0.16, 0.5, 0.84])
+            @test isnothing(q.mstar_present)
+            # Present-day mass of each sampled history is at most its birth mass, and equal when all stars survive
+            qf = SFH.cum_sfr_quantiles(rresult, logAge, MH, T_max, 100, (0.16, 0.5, 0.84); surviving_fractions=range(0.5, 1; length=length(logAge)))
+            @test all(qf.mstar_present .< qf.mstar)
+            qf = SFH.cum_sfr_quantiles(rresult, logAge, MH, T_max, 100, (0.16, 0.5, 0.84); surviving_fractions=ones(length(logAge)))
+            @test qf.mstar_present ≈ qf.mstar
+            @test_throws "`surviving_fractions` must have one entry per stellar population, the same length as `logAge`." SFH.cum_sfr_quantiles(rresult, logAge, MH, T_max, 10, (0.16, 0.5, 0.84); surviving_fractions=ones(2))
             s = SFH.sample_sfh(rresult, smodels, bsdata, logAge, MH, 5; ϵ=0.2, reporter=NoProgressReport(), show_convergence=false)
             @test size(s.posterior_matrix) == (length(vals), 5)
             s = SFH.sample_sfh(fresult, smodels, bsdata, logAge, MH, 5; ϵ=0.2, reporter=NoProgressReport(), show_convergence=false)

@@ -209,13 +209,13 @@ function calculate_cum_sfr(coeffs::AbstractVector, logAge::AbstractVector, MH::A
 end
 
 """
-    (cum_sfh, sfr, mean_MH, samples) = 
+    (cum_sfh, sfr, mean_MH, samples, mstar, mstar_present) = 
         cum_sfr_quantiles(result::Union{CompositeBFGSResult,BFGSResult},
                           logAge::AbstractVector{<:Number},
                           MH::AbstractVector{<:Number}, T_max::Number,
-                          Nsamples::Integer, q; kws...)
+                          Nsamples::Integer, q; surviving_fractions=nothing, kws...)
 
-Draws `Nsamples` independent star formation histories from the solution `result` and calculates quantiles `q` across the samples in each unique time bin (i.e., `unique(logAge)`) for the cumulative star formation histories, star formation rates, and mean metallicities. Also returns the drawn samples.
+Draws `Nsamples` independent star formation histories from the solution `result` and calculates quantiles `q` across the samples in each unique time bin (i.e., `unique(logAge)`) for the cumulative star formation histories, star formation rates, and mean metallicities. Also calculates quantiles of the total birth stellar mass and, optionally, the present-day stellar mass of the sampled histories, and returns the drawn samples.
 
 # Arguments
  - `result::Union{CompositeBFGSResult,BFGSResult}` is a BFGS result object as returned by [`fit_sfh`](@ref), for example, whose contents will be used to sample random, independent star formation histories. If this is a `CompositeBFGSResult` containing both the MLE and MAP solutions, then the MLE solution is used for the best-fit values (SFRs and metallicity parameters) and the MAP solution is used for the uncertainty estimate.
@@ -226,6 +226,7 @@ Draws `Nsamples` independent star formation histories from the solution `result`
   - `q` are the quantiles you wish to have calculated. Can be one number (i.e., `0.5` for median), or most iterable types (e.g., `(0.16, 0.5, 0.84)` for median and 1-σ range).
 
 # Keyword Arguments
+ - `surviving_fractions` is `nothing` or a vector with one entry per stellar population (the same length as `logAge`) giving the fraction of its birth stellar mass in stars that are still alive, e.g., from [`surviving_mass_fraction`](@ref StarFormationHistories.surviving_mass_fraction). If provided, quantiles of the present-day stellar mass are returned as `mstar_present`.
  - `kws...` are passed to [`calculate_cum_sfr`](@ref StarFormationHistories.calculate_cum_sfr), see that method's documentation for more information.
 
 # Returns
@@ -233,6 +234,8 @@ Draws `Nsamples` independent star formation histories from the solution `result`
  - `sfr::Matrix` has size `(length(unique(logAge)), length(q))` and gives the star formation rate across each bin in `unique(logAge)`.
  - `mean_MH::Matrix` has size `(length(unique(logAge)), length(q))` and gives the stellar-mass-weighted mean metallicity of the stellar population as a function of `unique(logAge)`.
  - `samples::Matrix` has size `(length(unique(logAge)), Nsamples)` and contains the unique samples drawn from `result` that were used to derive the quantiles.
+ - `mstar::Vector` has length `length(q)` and gives the quantiles of the total birth stellar mass of the sampled star formation histories, in the units of the stellar mass coefficients of `result`. These are quantiles of the total mass of each sampled history, which differ from the sums of the quantiles of the individual time bins because the time bins are correlated.
+ - `mstar_present` is `nothing` if `surviving_fractions` is `nothing`, and otherwise has length `length(q)` and gives the quantiles of the present-day stellar mass (the sum over stellar populations of their stellar mass coefficients times `surviving_fractions`) of the same sampled star formation histories.
 
 # Examples
 ```julia-repl
@@ -243,7 +246,7 @@ julia> q = (0.16, 0.5, 0.84) # quantiles we want
 
 julia> result = cum_sfr_quantiles(result, logAge, MH, 13.7, 10_000, q);
 
-julia> length(result) == 4
+julia> length(result) == 6
 true
 
 julia> all(size(result[i]) == (length(unique(logAge)), length(q)) for i in 1:3)
@@ -254,19 +257,20 @@ julia> size(result[4], 2) == 10_000
 """
 function cum_sfr_quantiles(result::CompositeBFGSResult, logAge::AbstractVector{<:Number},
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
-                           kws...)
+                           surviving_fractions=nothing, kws...)
     MH_model, disp_model, bg_model = result.mle.MH_model, result.mle.disp_model, result.mle.bg_model
     samples = rand(result, Nsamples)
-    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; surviving_fractions, kws...)
 end
 function cum_sfr_quantiles(result::BFGSResult, logAge::AbstractVector{<:Number},
                            MH::AbstractVector{<:Number}, T_max::Number, Nsamples::Integer, q;
-                           kws...)
+                           surviving_fractions=nothing, kws...)
     MH_model, disp_model, bg_model = result.MH_model, result.disp_model, result.bg_model
     samples = rand(result, Nsamples)
-    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
+    return _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; surviving_fractions, kws...)
 end
-function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; kws...)
+function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH, T_max, q; surviving_fractions=nothing, kws...)
+    isnothing(surviving_fractions) || @argcheck length(surviving_fractions) == length(logAge) "`surviving_fractions` must have one entry per stellar population, the same length as `logAge`."
     # Get number of unique time bins
     npar_MH_model = nparams(MH_model)
     npar_disp_model = nparams(disp_model)
@@ -278,6 +282,8 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH,
     cum_sfh_mat = Matrix{Float64}(undef, Nsamples, Nbins)
     sfrs_mat = similar(cum_sfh_mat)
     mean_mh_mat = similar(cum_sfh_mat)
+    mstar_vec = Vector{Float64}(undef, Nsamples)   # Total birth stellar mass of each sample
+    present_vec = similar(mstar_vec)               # Total present-day stellar mass of each sample
     good = fill(true, Nsamples) # Vector to track good samples; bad samples are set to false
     Threads.@threads for i in 1:Nsamples
         r = view(samples, :, i)
@@ -295,6 +301,8 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH,
         cum_sfh_mat[i,:] .= mdf_1
         sfrs_mat[i,:] .= mdf_2
         mean_mh_mat[i,:] .= mdf_3
+        mstar_vec[i] = sum(tmp_coeffs)
+        isnothing(surviving_fractions) || (present_vec[i] = dot(tmp_coeffs, surviving_fractions))
     end
     if count(good) != Nsamples
         @info "$(count(good)) / $Nsamples samples were valid."
@@ -314,7 +322,10 @@ function _cum_sfr_quantiles(samples, MH_model, disp_model, bg_model, logAge, MH,
     # cum_sfh_quantiles = [SVector(quantile(row, q)) for row in eachrow(cum_sfh)]
     # cum_sfh_quantiles = tups_to_mat([quantile(row, q) for row in eachrow(cum_sfh)])
     # return cum_sfh_quantiles
-    return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples)
+    # Quantiles of the total masses of the sampled histories, not sums of the per-bin quantiles, as the bins are correlated
+    mstar_q = [quantile(view(mstar_vec, good), q)...]
+    present_q = isnothing(surviving_fractions) ? nothing : [quantile(view(present_vec, good), q)...]
+    return (cum_sfh = cum_sfh_q, sfrs = sfrs_q, mean_mh = mean_mh_q, samples = samples, mstar = mstar_q, mstar_present = present_q)
 end
 
 
