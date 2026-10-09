@@ -67,6 +67,29 @@ const rtols = (1e-3, 1e-7) # Relative tolerance levels to use for the above floa
             end
         end
     end
+    @testset "ingest_isochrone_filters" begin
+        # Magnitudes given as one vector per filter are ingested exactly as the same points given one per isochrone point
+        per_point(m, mags) = SFH.ingest_isochrone(m, [getindex.(mags, i) for i in eachindex(m)])
+        by_filter(points, nf) = [getindex.(points, k) for k in 1:nf]
+        for T in float_types
+            # Sorted masses, a decrease in mass along the isochrone, and repeated masses
+            for (m, mags) in ((T[1, 2, 3, 4], [T[1, 2, 3, 4], T[2, 3, 4, 5]]),
+                              (T[1, 2, 3, 2.5, 2.75, 4], [T[1, 2, 3, 4, 5, 6], T[2, 3, 4, 5, 6, 7]]),
+                              (T[1, 2, 2, 3], [T[1, 2, 3, 4], T[1, 2, 3, 4]]))
+                m1, p1 = per_point(m, mags)
+                m2, f2 = SFH.ingest_isochrone_filters(m, mags)
+                @test m2 == m1 && f2 == by_filter(p1, length(mags))
+                @test f2 === mags # filter vectors are not copied when the points are not reordered
+            end
+            # Points out of evolutionary order are sorted by initial mass, with a warning
+            m = T[3, 1, 4, 2]
+            mags = [m, 2 .* m]
+            m1, p1 = @test_logs (:warn, r"evolutionary order") per_point(m, mags)
+            m2, f2 = @test_logs (:warn, r"evolutionary order") SFH.ingest_isochrone_filters(m, mags)
+            @test m2 == m1 && f2 == by_filter(p1, length(mags))
+            @test_throws ArgumentError SFH.ingest_isochrone_filters(m, [T[1, 2, 3]])
+        end
+    end
     @testset "mass_limits" begin
         for i in eachindex(float_types, float_type_labels)
             label = float_type_labels[i]

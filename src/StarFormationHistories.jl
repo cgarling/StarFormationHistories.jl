@@ -663,8 +663,7 @@ function single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, im
     # Verify that the provided y_index and color_indices are valid
     @argcheck all(checkbounds(Bool, mags, idx) for idx in union(y_index, color_indices))
     # Ingest once with all filters so that resampling and interpolation use the same initial masses
-    m_ini, point_mags = ingest_isochrone(m_ini, [getindex.(mags, i) for i in eachindex(m_ini)])
-    mags = [getindex.(point_mags, k) for k in eachindex(mags)]
+    m_ini, mags = ingest_isochrone_filters(m_ini, mags)
     # Resample the isochrone magnitudes to a denser m_ini array
     ymags = mags[y_index]
     colors = mags[first(color_indices)] .- mags[last(color_indices)]
