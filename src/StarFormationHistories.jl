@@ -42,50 +42,20 @@ include(joinpath("fitting", "fitting.jl")) # This will include other relevant fi
 ##################################
 # Isochrone utilities
 
-"""
-    new_mags::Vector = interpolate_mini(m_ini, mags::Vector{<:Real}, new_mini)
-    new_mags::Vector{Vector} = interpolate_mini(m_ini, mags::Vector{Vector{<:Real}},
-                                                new_mini)
-    new_mags::Matrix = interpolate_mini(m_ini, mags::AbstractMatrix, new_mini)
-
-Function to interpolate `mags` as a function of initial mass vector `m_ini` onto a new initial mass vector `new_mini`. `mags` can either be a vector of equal length to `m_ini`, designating magnitudes in a single filter, or a vector of vectors, designating multiple filters, or a matrix with each column designating a different filter. The isochrone points should be in evolutionary order; see [`StarFormationHistories.ingest_isochrone`](@ref) for how `m_ini` is prepared for interpolation.
-
-# Examples
-```jldoctest
-julia> m_ini = [0.08, 0.10, 0.12, 0.14, 0.16];
-
-julia> mags = [13.545, 12.899, 12.355, 11.459, 10.947];
-
-julia> new_mini = 0.08:0.01:0.16;
-
-julia> result = [13.545, 13.222, 12.899, 12.626999999999999, 12.355, 11.907,
-                 11.459, 11.203, 10.947];
-
-julia> StarFormationHistories.interpolate_mini(m_ini, mags, new_mini) ≈ result
-true
-
-julia> StarFormationHistories.interpolate_mini(m_ini, [mags, mags], new_mini) ≈
-           [result, result] # Vector{Vector{<:Real}}
-true
-
-julia> StarFormationHistories.interpolate_mini(m_ini, [mags mags], new_mini) ≈
-           [result result] # Matrix{<:Real}
-true
-```
-"""
-function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:Number},
-                          new_mini::AbstractVector{<:Number})
-    m_ini, mags = ingest_isochrone(m_ini, mags) # from simulate.jl include'd above
-    return interpolate((m_ini,), mags, Gridded(Linear()))(new_mini)
+# Linear interpolation of `y` from the strictly increasing knots `x` (initial masses prepared by ingest_isochrone) to
+# `xnew`, plus `add`. `xnew` must lie within the knots, as the masses from mini_spacing on the same knots do.
+function interpolate_ingested(x::AbstractVector, y::AbstractVector, xnew::AbstractVector, add::Number=false)
+    if !isempty(xnew)
+        lo, hi = extrema(xnew)
+        first(x) <= lo && hi <= last(x) || throw(ArgumentError("The initial masses to interpolate, from $lo to $hi, must lie within the initial masses of the isochrone, from $(first(x)) to $(last(x))."))
+    end
+    out = similar(xnew, typeof(first(y) + zero(eltype(xnew)) * first(y) + add))
+    for j in eachindex(out, xnew)
+        i = clamp(searchsortedlast(x, xnew[j]), firstindex(x), lastindex(x) - 1)
+        out[j] = y[i] + (xnew[j] - x[i]) / (x[i+1] - x[i]) * (y[i+1] - y[i]) + add
+    end
+    return out
 end
-# Filters are ingested together so that every filter is interpolated on the same initial masses
-function interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractVector{<:AbstractVector{<:Number}},
-                          new_mini::AbstractVector{<:Number})
-    m_ini, point_mags = ingest_isochrone(m_ini, [getindex.(mags, i) for i in eachindex(m_ini)])
-    return [interpolate((m_ini,), getindex.(point_mags, k), Gridded(Linear()))(new_mini) for k in eachindex(mags)]
-end
-interpolate_mini(m_ini::AbstractVector{<:Number}, mags::AbstractMatrix{<:Number}, new_mini::AbstractVector{<:Number}) =
-    reduce(hcat, interpolate_mini(m_ini, [collect(i) for i in eachcol(mags)], new_mini))
 
 """
     mini_spacing(m_ini::AbstractVector{<:Number},
@@ -117,28 +87,31 @@ function mini_spacing(m_ini::AbstractVector{<:Number},
     # evolutionary order by initial mass, which would misalign per-point distances
     Δmag isa AbstractVector && points !== input_points &&
         throw(ArgumentError("A vector `Δmag` requires the isochrone points to be in evolutionary order."))
-    colors, mags = first.(points), last.(points)
-    new_mini = Float64[first(m_ini)]
-    # Loop through the indices, testing if adjacent CMD points are
-    # different by less than Δm.
-    for i in eachindex(m_ini, mags, colors)[begin:end-1]
-        Δx = colors[i+1] - colors[i]
-        Δy = mags[i+1] - mags[i]
-        diffi = hypot(Δx, Δy)
+    # Number of new points in the segment from point i to i + 1, which is interpolated if the points are farther apart
+    # in the Hess diagram than Δmag
+    function segment(i)
+        diffi = hypot((points[i+1] - points[i])...)
         Δmax = Δmag isa AbstractVector ? min(Δmag[i], Δmag[i+1]) : Δmag
-        if diffi > Δmax # Requires interpolation
-            npoints = round(Int, diffi / Δmax, RoundUp)
-            Δmass = m_ini[i+1] - m_ini[i]
-            mass_step = Δmass / npoints
+        return diffi > Δmax ? (true, round(Int, diffi / Δmax, RoundUp)) : (false, 1)
+    end
+    segs = eachindex(m_ini, points)[begin:end-1]
+    new_mini = Vector{Float64}(undef, 1 + sum(i -> last(segment(i)), segs; init=0))
+    new_mini[begin] = first(m_ini)
+    k = firstindex(new_mini)
+    for i in segs
+        interp, npoints = segment(i)
+        if interp
+            mass_step = (m_ini[i+1] - m_ini[i]) / npoints
+            # The segment ends exactly on the next knot, so rounding cannot place points beyond the last knot
             for j in 1:npoints
-                push!(new_mini, m_ini[i] + mass_step*j)
+                new_mini[k += 1] = j == npoints ? m_ini[i+1] : m_ini[i] + mass_step*j
             end
-        else # Does not require interpolation
-            push!(new_mini, m_ini[i+1])
+        else
+            new_mini[k += 1] = m_ini[i+1]
         end
     end
-    # Return only unique entries from new_mini
-    new_mini = unique(new_mini)
+    # Return only unique entries from new_mini; unique! drops repeats without hashing when new_mini is sorted
+    unique!(new_mini)
     if !ret_spacing
         return new_mini
     else
@@ -414,8 +387,9 @@ function bin_cmd_smooth(colors, mags, color_err, mag_err, cov_mult::Int=0;
     # Calculate edges from provided kws
     edges = calculate_edges(edges, xlim, ylim, nbins, xwidth, ywidth)
     hist = Histogram(edges, zeros(Float64, length(edges[1]) - 1, length(edges[2]) - 1), :left, false)
+    erfs = similar(hist.weights, size(hist.weights, 1) + 1) # work buffer of addstar!, shared by all kernels
     for i in eachindex(colors, mags, color_err, mag_err, weights)
-        addstar!(hist, GaussianKernel(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i]))
+        addstar!(hist, GaussianKernel(colors[i], mags[i], color_err[i], mag_err[i], cov_mult, weights[i]); erfs)
     end
     return hist
 end
@@ -524,8 +498,8 @@ function partial_cmd(m_ini::AbstractVector{<:Number}, colors::AbstractVector{<:N
     colors, mags = first.(points), last.(points)
     # Resample the isochrone magnitudes to a denser m_ini array
     new_mini, new_spacing = mini_spacing(m_ini, colors, mags, 0.01, true)
-    new_iso_colors = interpolate_mini(m_ini, colors, new_mini)
-    new_iso_mags = interpolate_mini(m_ini, mags, new_mini) .+ dmod
+    new_iso_colors = interpolate_ingested(m_ini, colors, new_mini)
+    new_iso_mags = interpolate_ingested(m_ini, mags, new_mini, dmod)
     # Approximate the IMF weights on each star in the isochrone as
     # the trapezoidal rule integral across the bin.
     # This is ~equivalent to the difference in the CDF across the bin as long as imf is
@@ -703,8 +677,8 @@ function single_star_hess(m_ini, mags, mag_err_funcs, y_index, color_indices, im
         hypot.(err[first(color_indices)], err[last(color_indices)])
     Δmag = min.(step(edges[1]), step(edges[2]), max.(min.(σx, err[y_index]), 0.01) ./ 2)
     new_mini, new_spacing = mini_spacing(m_ini, colors, ymags, Δmag, true)
-    # Interpolate only the mag vectors included in color_indices
-    new_iso_mags = [interpolate_mini(m_ini, i, new_mini) .+ dmod for i in mags]
+    # m_ini is already ingested, so interpolate without ingesting it again
+    new_iso_mags = [interpolate_ingested(m_ini, i, new_mini, dmod) for i in mags]
     mag_err = filter_values(mag_err_funcs, new_iso_mags)
     if y_index in color_indices # x-axis color is dependent on y-axis magnitude
         # This case will use GaussianKernel, which expects the color_err
