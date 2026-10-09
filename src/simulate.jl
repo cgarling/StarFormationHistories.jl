@@ -57,17 +57,40 @@ Points in evolutionary order trace the isochrone, while points out of order jump
 """
 function ingest_isochrone(mini_vec::AbstractVector, mags::AbstractVector)
     @argcheck axes(mini_vec) == axes(mags)
-    
-    # Length of the path through consecutive points `v`, each a number or a vector of magnitudes
-    # Differences taken element by element so that vector points do not allocate
-    path_length(v::AbstractVector) = sum(sqrt(sum(abs2(a - b) for (a, b) in zip(v[i+1], v[i]))) for i in firstindex(v):lastindex(v)-1; init=0.0)
+    # Length of the path through the points `mags[order]`, each a number or a vector of magnitudes; differences are
+    # taken element by element so that vector points do not allocate
+    path_length(order) = sum(sqrt(sum(abs2(a - b) for (a, b) in zip(mags[order[i+1]], mags[order[i]])))
+                             for i in firstindex(order):lastindex(order)-1; init=0.0)
+    idx = isochrone_order(mini_vec, path_length)
+    return isnothing(idx) ? (ingest_masses(mini_vec), mags) : (ingest_masses(mini_vec[idx]), mags[idx])
+end
 
+# As ingest_isochrone, for magnitudes given as one vector per filter (`mags[k][i]` is the magnitude of point i in filter
+# k), so that callers holding filter vectors do not build one small vector per point. The filter vectors are returned
+# without copying unless the points are sorted by initial mass.
+function ingest_isochrone_filters(mini_vec::AbstractVector, mags::AbstractVector{<:AbstractVector})
+    @argcheck !isempty(mags) && all(m -> axes(m) == axes(mini_vec), mags)
+    path_length(order) = sum(sqrt(sum(abs2(m[order[i+1]] - m[order[i]]) for m in mags))
+                             for i in firstindex(order):lastindex(order)-1; init=0.0)
+    idx = isochrone_order(mini_vec, path_length)
+    return isnothing(idx) ? (ingest_masses(mini_vec), mags) : (ingest_masses(mini_vec[idx]), [m[idx] for m in mags])
+end
+
+# The permutation that sorts the initial masses `mini_vec` if the isochrone points do not appear to be in evolutionary
+# order (with a warning), or `nothing`. `path_length(order)` is the length of the path through the points in the order
+# `order`. Sorted masses return early, as sortperm would return the identity for them.
+function isochrone_order(mini_vec::AbstractVector, path_length)
+    issorted(mini_vec) && return nothing
     idx = sortperm(mini_vec)
-    if idx != eachindex(mini_vec) && path_length(mags) > 2 * path_length(view(mags, idx))
-        @warn "The isochrone points do not appear to be in evolutionary order, so they will be sorted by initial mass. Isochrone points should be provided in evolutionary order, as given by isochrone libraries."
-        mini_vec, mags = mini_vec[idx], mags[idx]
-    end
-    m = collect(float(eltype(mini_vec)), mini_vec) # Copy so the caller's vector is not mutated
+    path_length(eachindex(mini_vec)) > 2 * path_length(idx) || return nothing
+    @warn "The isochrone points do not appear to be in evolutionary order, so they will be sorted by initial mass. Isochrone points should be provided in evolutionary order, as given by isochrone libraries."
+    return idx
+end
+
+# Copy of the initial masses with each decrease along the isochrone removed by shifting all later masses up by its size,
+# and repeated masses separated
+function ingest_masses(mini_vec::AbstractVector)
+    m = collect(float(eltype(mini_vec)), mini_vec)
     offset = zero(eltype(m))
     for i in eachindex(m)[begin+1:end]
         m[i] += offset
@@ -76,7 +99,7 @@ function ingest_isochrone(mini_vec::AbstractVector, mags::AbstractVector)
             m[i] = m[i-1]
         end
     end
-    return deduplicate_knots!(m; move_knots=true), mags
+    return deduplicate_knots!(m; move_knots=true)
 end
 
 """

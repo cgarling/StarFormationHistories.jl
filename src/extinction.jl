@@ -240,8 +240,8 @@ function reddened_hess(::Val{NF}, m_ini, mags, knots, dist, errs, y_index, color
     xi = y_index == i1 ? i2 : i1
     third = !(y_index in color_indices)
     # Ingest all knots and filters together so that every knot is interpolated on the same initial masses
-    mi, pts = ingest_isochrone(m_ini, [[mags[n][f][j] for n in 1:nk for f in 1:NF] for j in eachindex(m_ini)])
-    col(n, f) = [p[(n-1)*NF+f] for p in pts]
+    mi, cols = ingest_isochrone_filters(m_ini, [mags[n][f] for n in 1:nk for f in 1:NF])
+    col(n, f) = cols[(n-1)*NF+f]
     # Densify once, with the spacing rule of the method without extinction applied to the least extincted magnitudes,
     # which have the smallest errors
     m0 = [col(1, f) for f in 1:NF]
