@@ -59,7 +59,8 @@ function ingest_isochrone(mini_vec::AbstractVector, mags::AbstractVector)
     @argcheck axes(mini_vec) == axes(mags)
     
     # Length of the path through consecutive points `v`, each a number or a vector of magnitudes
-    path_length(v::AbstractVector) = sum(sqrt(sum(abs2, v[i+1] - v[i])) for i in firstindex(v):lastindex(v)-1; init=0.0)
+    # Differences taken element by element so that vector points do not allocate
+    path_length(v::AbstractVector) = sum(sqrt(sum(abs2(a - b) for (a, b) in zip(v[i+1], v[i]))) for i in firstindex(v):lastindex(v)-1; init=0.0)
 
     idx = sortperm(mini_vec)
     if idx != eachindex(mini_vec) && path_length(mags) > 2 * path_length(view(mags, idx))

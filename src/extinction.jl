@@ -249,7 +249,7 @@ function reddened_hess(::Val{NF}, m_ini, mags, knots, dist, errs, y_index, color
     σx0 = third ? hypot.(err[i1], err[i2]) : err[xi]
     Δmag = min.(step(edges[1]), step(edges[2]), max.(min.(σx0, err[y_index]), 0.01) ./ 2)
     new_mini, spacing = mini_spacing(mi, m0[i1] .- m0[i2], m0[y_index], Δmag, true)
-    dense = [[interpolate_mini(mi, col(n, f), new_mini) .+ dmod for f in 1:NF] for n in 1:nk] # [knot][filter][point]
+    dense = [[interpolate_ingested(mi, col(n, f), new_mini, dmod) for f in 1:NF] for n in 1:nk] # [knot][filter][point]
     pmags = [[SVector{NF}(ntuple(f -> dense[n][f][j], Val(NF))) for j in eachindex(new_mini)] for n in 1:nk]
     imfw = [dispatch_imf(imf, m) * normalize_value / mean_mass for m in new_mini]
     # Single stars: each densified interval, with its two end points averaged as in the method without extinction
