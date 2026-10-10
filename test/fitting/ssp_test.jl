@@ -74,10 +74,12 @@ end
     # The free distance modulus, whose normal prior is unbounded, is searched between the 0.001 and 0.999 quantiles of its
     # prior, beyond the 0.02 and 0.98 quantiles
     @test all(θ -> 25 - 0.928 < θ[1] < 25 + 0.928, fit.candidates.θ) && any(θ -> abs(θ[1] - 25) > 0.617, fit.candidates.θ)
-    # Starting with a fraction at a bound of its prior, far from z = 0 in the unconstrained coordinates
+    # Starting with both fractions at bounds of their priors, far from z = 0 in the unconstrained coordinates, the local
+    # optimization still leaves the bounds and reaches the MAP
     @test all(isfinite, dθdz(model, [0.0, 800.0, -800.0]))
-    fb = fit_ssp(model; x0=[25.0, 0.3, 0.0], restarts=0)
-    @test all(isfinite, fb.θ) && isfinite(fb.logdensity)
+    fb = fit_ssp(model; x0=[25.0, 1.0, 0.0], restarts=0)
+    @test fb.map.binary_fraction ≈ fit.map.binary_fraction atol=0.03
+    @test fb.logdensity ≈ fit.logdensity atol=2
     @test isnothing(fb.candidates)
     # Settings far too small for reliable estimates, so the precision warning is expected
     s = @test_logs (:warn, r"effective samples") match_mode=:any sample_ssp(fit; pilot_steps=40, pilot_walkers=8, is_rounds=3,
