@@ -188,7 +188,10 @@ end
 # most 1 in z for bounded parameters, which already spans most of their range), restarted from its solution with a fresh
 # simplex until the log density improves by less than `restart_tol`
 function local_optimize(model::SSPModel, θ0; options, restarts, restart_tol)
-    z = to_z(model, θ0)
+    # the starting point is moved a tenth of a prior standard deviation inside the bounds
+    # to prevent Nelder-Mead from stalling at the boundary
+    δ = prior_scales(model) ./ 10
+    z = to_z(model, clamp.(θ0, minimum.(model.params[k] for k in model.free) .+ δ, maximum.(model.params[k] for k in model.free) .- δ))
     bounded = [isfinite(minimum(model.params[k])) for k in model.free]
     logdensity, results = -Inf, []
     for _ in 1:restarts + 1
