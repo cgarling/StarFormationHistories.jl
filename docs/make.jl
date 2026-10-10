@@ -31,7 +31,9 @@ linkcheck_ignore = [
     # We'll ignore the links to tags in CHANGELOG.md, since when you tag
     # a release, the release link does not exist yet, and this will cause the linkcheck
     # CI job to fail on the PR that tags a new release.
-    r"https://github.com/JuliaDocs/Documenter.jl/releases/tag/v\d+.\d+.\d+",
+    r"https://github.com/cgarling/StarFormationHistories.jl/releases/tag/v\d+.\d+.\d+",
+    # The original of Roberts (2018), which is no longer online; refs.bib links to an archived copy as well
+    "https://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/",
 ]
 
 ###########################################################

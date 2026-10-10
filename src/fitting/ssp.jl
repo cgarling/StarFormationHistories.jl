@@ -163,8 +163,8 @@ end
 
 # Log posterior density at θ with the free binary and background fractions (indices `jmix` into θ) maximized while the
 # template parts `single` and `binary` (computed for the other parameters of θ) are held fixed; returns the log density
-# and θ with the maximizing fractions. Mixing the fixed parts is cheap, so this profiles out the fractions on the
-# starting grid without recomputing templates.
+# and θ with the maximizing fractions. Mixing the fixed parts is cheap, so this profiles out the fractions at the
+# candidate starting points of fit_ssp without recomputing templates.
 function profile_fractions(model::SSPModel, θ, single, binary, jmix)
     function f(θm)
         lp = ssp_logprior(model, θm)
@@ -178,9 +178,8 @@ function profile_fractions(model::SSPModel, θ, single, binary, jmix)
     result = Optim.optimize(u -> -f(θof(u)), z0[jmix], Optim.NelderMead(), Optim.Options(iterations=500))
     return -Optim.minimum(result), θof(Optim.minimizer(result))
 end
-# Starting-grid log density at θ: templates for the age and metallicity of θ, with the binary and background fractions
-# profiled out
-function grid_logdensity(model::SSPModel, θ, jmix)
+# Log density at θ with the binary and background fractions profiled out
+function profiled_logdensity(model::SSPModel, θ, jmix)
     isfinite(ssp_logprior(model, θ)) || return -Inf, θ
     return profile_fractions(model, θ, ssp_parts(model, ssp_params(model, θ))..., jmix)
 end
@@ -207,13 +206,31 @@ function local_optimize(model::SSPModel, θ0; options, restarts, restart_tol)
     return to_θ(model, z), logdensity, results
 end
 
-# Indices of the local maxima of the grid of log densities `L` (at least their neighbors along each axis, including
-# diagonals), best first
-function grid_maxima(L::AbstractArray)
-    C = CartesianIndices(L)
-    nb = oneunit(first(C))
-    ismax(I) = isfinite(L[I]) && all(L[J] <= L[I] for J in max(first(C), I - nb):min(last(C), I + nb))
-    return sort(filter(ismax, vec(collect(C))); by=I -> L[I], rev=true)
+# `n` quasirandom points in the unit cube of dimension `d` (columns), from the R2 sequence of Roberts (2018), a Kronecker
+# sequence with the powers of the inverse of the generalized golden ratio φ (φ^(d + 1) = φ + 1) as generator, shifted by
+# a uniform random offset drawn from `rng`
+function r2_points(n::Integer, d::Integer, rng::AbstractRNG)
+    φ = 2.0
+    for _ in 1:100
+        φ = (1 + φ)^(1 / (d + 1))
+    end
+    s = rand(rng, d)
+    return [mod(s[j] + i / φ^j, 1) for j in 1:d, i in 1:n]
+end
+
+# Indices of the starting points chosen by multi-level single linkage (Rinnooy Kan & Timmer 1987) from the candidates
+# with coordinates `t` (columns, uniformly distributed in the unit cube) and log densities `lds`, best first: among the
+# best fraction `γ` of the candidates, each one with no better candidate within the critical distance r. Each such
+# candidate lies on a separate peak at the resolution of the candidates; r, a multiple of the typical distance between
+# them, shrinks as their number grows. At most `nstarts` are returned, with a warning if there are more.
+function select_starts(t::AbstractMatrix, lds::AbstractVector, nstarts::Integer; γ=0.2, σ=4)
+    d, n = size(t)
+    r2 = ((gamma(1 + d / 2) * σ * log(n) / n)^(1 / d) / sqrt(π))^2
+    order = sort(filter(i -> isfinite(lds[i]), 1:n); by=i -> -lds[i])
+    best = order[1:ceil(Int, γ * length(order))]
+    idx = [i for (k, i) in enumerate(best) if !any(j -> sum(abs2, view(t, :, j) .- view(t, :, i)) < r2, view(best, 1:k-1))]
+    length(idx) > nstarts && @warn "Found $(length(idx)) starting points for the local optimization; using the best `nstarts` = $nstarts. Increase `nstarts` to use them all."
+    return first(idx, nstarts)
 end
 
 """
@@ -245,16 +262,16 @@ Result of [`fit_ssp`](@ref), with fields
  - `map::NamedTuple`, the value of every parameter at the maximum a posteriori (MAP) solution,
  - `θ::Vector{Float64}`, the free parameters at the MAP, in the order of `model.free`,
  - `logdensity::Float64`, the log posterior density at the MAP (up to a constant),
- - `grid`, `nothing` or a `NamedTuple` with the values of the free `logAge` and `MH` on the starting grid, the log posterior density at each grid point with the free binary and background fractions maximized (`logdensity`), and the free parameters at each grid point (`θ`),
+ - `candidates`, `nothing` or a `NamedTuple` with the free parameters at each candidate starting point of [`fit_ssp`](@ref), with the free binary and background fractions maximized (`θ`), and the log posterior density there (`logdensity`),
  - `starts`, a vector with one `NamedTuple` per local optimization, with its starting point `θ0`, solution `θ`, and log posterior density `logdensity`,
  - `optim`, the Optim.jl results of the Nelder-Mead runs of the best local optimization.
 """
-struct SSPFit{M <: SSPModel, P <: NamedTuple, G, S, O}
+struct SSPFit{M <: SSPModel, P <: NamedTuple, C, S, O}
     model::M
     map::P
     θ::Vector{Float64}
     logdensity::Float64
-    grid::G
+    candidates::C
     starts::S
     optim::O
 end
@@ -262,44 +279,47 @@ ssp_hess(fit::SSPFit) = ssp_hess(fit.model, fit.map)
 ssp_mass(fit::SSPFit) = ssp_mass(fit.model, fit.map)
 
 """
-    fit_ssp(model::SSPModel; x0=nothing, ngrid::NTuple{2, Integer}=(16, 12), nstarts::Integer=4,
+    fit_ssp(model::SSPModel; x0=nothing, ncandidates::Integer=1000, nstarts::Integer=16,
             options::Optim.Options=Optim.Options(iterations=1000, g_tol=0.01), restarts::Integer=3,
-            restart_tol::Real=1)::SSPFit
+            restart_tol::Real=1, rng::AbstractRNG=default_rng())::SSPFit
 
 Finds the maximum a posteriori (MAP) parameters of `model` by local optimization with the Nelder-Mead method from one or more starting points. The optimization is done in unconstrained coordinates, so trial points stay within the support of the priors.
 
-If `x0`, a vector of the free parameters in the order of `model.free`, is given, it is the only starting point. Otherwise, free `logAge` and `MH` are evaluated on a grid of `ngrid` values placed at evenly spaced quantiles of their priors, with the other free parameters at their prior medians, except that free binary and background fractions are maximized at each grid point (which does not require recomputing the templates). The local optimization starts from the `nstarts` best local maxima of this grid, in parallel over threads, and the best solution is returned. Multiple starting points guard against converging to a secondary maximum, which the degeneracy between age and metallicity can produce.
+If `x0`, a vector of the free parameters in the order of `model.free`, is given, it is the only starting point. Otherwise, the log posterior density is evaluated at `ncandidates` candidate starting points spread evenly over the free `logAge`, `MH`, and `dmod`, each between the 0.02 and 0.98 quantiles of its prior (0.001 and 0.999 for a side on which the prior is unbounded), by the quasirandom R2 sequence [Roberts2018](@cite) with a random offset drawn from `rng`. The other free parameters are at their prior medians, except that free binary and background fractions are maximized at each candidate (which does not require recomputing the templates). The local optimization starts from every candidate that is the best in its neighborhood among the best 20% of the candidates, by multi-level single linkage [RinnooyKan1987](@citep), which finds one starting point for each separate peak the candidates resolve. These run in parallel over threads. The best of their solutions is the MAP, and the solution of every local optimization is kept in `starts` (one per starting point, so two starting points can reach the same peak). Multiple starting points guard against converging to a secondary maximum, which the degeneracies between age, metallicity, and distance can produce. If there are more than `nstarts` starting points, only the best `nstarts` are used, with a warning. The extinction is not searched but starts at its prior median, so give `x0` if its prior is much wider than about 0.2 mag. The result depends on `rng` but not on the number of threads.
 
 Because Nelder-Mead can stall before reaching the maximum, each local optimization is restarted from its solution with a fresh simplex, up to `restarts` times, until the log posterior density improves by less than `restart_tol`. `options` are passed to `Optim.optimize`; by default, each run stops when the standard deviation of the negative log density over the simplex falls below `g_tol = 0.01`. The default tolerances are loose because the MAP only needs to be within the region of the posterior that [`sample_ssp`](@ref) explores; posterior samples typically lie a few units of log density below the maximum. Returns an [`SSPFit`](@ref StarFormationHistories.SSPFit); sample the posterior with [`sample_ssp`](@ref), which uses every local solution in `starts` to find the modes of the posterior.
 """
-function fit_ssp(model::SSPModel; x0=nothing, ngrid::NTuple{2, Integer}=(16, 12), nstarts::Integer=4,
-                 options::Optim.Options=Optim.Options(iterations=1000, g_tol=0.01), restarts::Integer=3, restart_tol::Real=1)
+function fit_ssp(model::SSPModel; x0=nothing, ncandidates::Integer=1000, nstarts::Integer=16,
+                 options::Optim.Options=Optim.Options(iterations=1000, g_tol=0.01), restarts::Integer=3, restart_tol::Real=1,
+                 rng::AbstractRNG=default_rng())
     free = model.free
     isempty(free) && throw(ArgumentError("`model` has no free parameters."))
-    @argcheck nstarts >= 1
-    grid = nothing
+    @argcheck nstarts >= 1 && ncandidates >= 1
+    candidates = nothing
     if isnothing(x0)
         xmed = [quantile(model.params[k], 0.5) for k in free]
         jmix = [findfirst(==(k), free) for k in (:binary_fraction, :background_fraction) if k in free]
-        gridpars = [(k, n) for (k, n) in zip((:logAge, :MH), ngrid) if k in free]
-        if isempty(gridpars)
-            starts0 = [last(grid_logdensity(model, xmed, jmix))]
+        jdx = [findfirst(==(k), free) for k in (:logAge, :MH, :dmod) if k in free]
+        if isempty(jdx)
+            starts0 = [last(profiled_logdensity(model, xmed, jmix))]
         else
-            vals = [quantile.(model.params[k], ((1:n) .- 0.5) ./ n) for (k, n) in gridpars]
-            jdx = [findfirst(==(k), free) for (k, _) in gridpars]
-            points = collect(Iterators.product(vals...))
-            lds = Array{Float64}(undef, size(points))
-            θs = Array{Vector{Float64}}(undef, size(points))
-            Threads.@threads for j in eachindex(points, lds, θs)
+            # Quantiles 0.02 and 0.98 keep the candidates off the bounds of the priors, where the local optimization in
+            # unconstrained coordinates moves too slowly to leave; an unbounded side of a prior (e.g., a normal prior on the
+            # distance modulus) is searched further, to 0.001 or 0.999, in case the prior is off
+            lo = [(p = model.params[free[j]]; quantile(p, isfinite(minimum(p)) ? 0.02 : 0.001)) for j in jdx]
+            hi = [(p = model.params[free[j]]; quantile(p, isfinite(maximum(p)) ? 0.98 : 0.999)) for j in jdx]
+            t = r2_points(ncandidates, length(jdx), rng)
+            lds, θs = Vector{Float64}(undef, ncandidates), Vector{Vector{Float64}}(undef, ncandidates)
+            Threads.@threads for i in 1:ncandidates
                 # `θ` is assigned later in this function, so reusing that name here would share it between threads
-                θj = copy(xmed)
-                θj[jdx] .= points[j]
-                lds[j], θs[j] = grid_logdensity(model, θj, jmix)
+                θi = copy(xmed)
+                θi[jdx] .= lo .+ view(t, :, i) .* (hi .- lo)
+                lds[i], θs[i] = profiled_logdensity(model, θi, jmix)
             end
-            maxima = grid_maxima(lds)
-            isempty(maxima) && throw(ArgumentError("The log posterior density is not finite anywhere on the starting grid."))
-            starts0 = [θs[I] for I in first(maxima, nstarts)]
-            grid = NamedTuple{(first.(gridpars)..., :logdensity, :θ)}((vals..., lds, θs))
+            idx = select_starts(t, lds, nstarts)
+            isempty(idx) && throw(ArgumentError("The log posterior density is not finite at any candidate starting point."))
+            starts0 = θs[idx]
+            candidates = (θ=θs, logdensity=lds)
         end
     else
         @argcheck length(x0) == length(free) "`x0` must have one value per free parameter $free."
@@ -313,7 +333,7 @@ function fit_ssp(model::SSPModel; x0=nothing, ngrid::NTuple{2, Integer}=(16, 12)
     starts = [(θ0=θ0, θ=sol[1], logdensity=sol[2]) for (θ0, sol) in zip(starts0, sols)]
     any(sol -> isfinite(sol[2]), sols) || error("Every local optimization ended at a point with non-finite log posterior density.")
     θ, logdensity, results = sols[argmax([sol[2] for sol in sols])]
-    return SSPFit(model, ssp_params(model, θ), θ, logdensity, grid, starts, results)
+    return SSPFit(model, ssp_params(model, θ), θ, logdensity, candidates, starts, results)
 end
 
 # Widths of the posterior along each free parameter from the curvature of the log density at θ (with log density `ld0`).
