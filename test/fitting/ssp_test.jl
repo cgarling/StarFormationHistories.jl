@@ -1,8 +1,8 @@
 using DelimitedFiles: readdlm
-using Distributions: Normal, Uniform, Poisson, quantile
+using Distributions: Normal, Uniform, Poisson, quantile, MixtureModel, MvNormal, logpdf
 using InitialMassFunctions: Kroupa2001
 import LogDensityProblems
-import MCMCChains
+import StarFormationHistories as SFH
 import Optim
 using StableRNGs: StableRNG
 using StarFormationHistories: SSPModel, fit_ssp, sample_ssp, ssp_components, ssp_hess, ssp_mass, ssp_logdensity, with_fraction,
@@ -76,16 +76,24 @@ end
     @test all(isfinite, dθdz(model, [0.0, 800.0, -800.0]))
     fb = fit_ssp(model; x0=[25.0, 0.3, 0.0], restarts=0)
     @test all(isfinite, fb.θ) && isfinite(fb.logdensity)
-    chain = sample_ssp(fit, 40; nwalkers=8, rng=StableRNG(3), use_progress_meter=false)
-    @test chain isa MCMCChains.Chains
-    @test size(chain) == (20, 6, 8) # free parameters, mass, background_stars, and lp for 8 walkers
-    @test names(chain, :parameters) == [:dmod, :binary_fraction, :background_fraction, :mass, :background_stars]
-    @test all(isfinite, chain[:lp])
-    @test all(>(0), chain[:mass])
+    # Settings far too small for reliable estimates, so the precision warning is expected
+    s = @test_logs (:warn, r"effective samples") match_mode=:any sample_ssp(fit; pilot_steps=40, pilot_walkers=8, is_rounds=3,
+                                                                         is_samples=200, rng=StableRNG(3))
+    @test keys(s.samples) == (:dmod, :binary_fraction, :background_fraction, :mass, :background_stars, :lp, :mode)
+    @test all(length(c) == 600 for c in s.samples)
+    @test all(isfinite, s.samples.lp)
+    @test all(>(0), s.samples.mass)
+    @test length(s.modes) == 1 && all(==(1), s.samples.mode) && s.modes[1].weight ≈ 1
+    @test isfinite(s.logZ) && s.logZ ≈ s.modes[1].logZ
+    @test any(contains("effective samples"), s.warnings)
+    s2 = @test_logs (:warn, r"effective samples") match_mode=:any sample_ssp(fit; pilot_steps=40, pilot_walkers=8, is_rounds=3,
+                                                                          is_samples=200, rng=StableRNG(3))
+    @test s2.samples == s.samples # Reproducible for a given rng and number of threads
+    @test sum(s.samples.dmod) / 600 ≈ 25.0 atol=0.02
     # The mass at the MAP converts the expected number of SSP stars per solar mass formed (the blob of ssp_logdensity)
     @test ssp_mass(fit) ≈ sum(model.counts) * (1 - fit.map.background_fraction) / last(ssp_logdensity(model, fit.θ))
-    @test length(chain.info.accept_ratio) == 8
-    @test_throws "must be even" sample_ssp(fit, 40; nwalkers=7)
+    @test_throws "must be even" sample_ssp(fit; pilot_walkers=7)
+    @test_throws "must be at least 3" sample_ssp(fit; is_rounds=2)
     # Free age and metallicity start from a grid at quantiles of their priors
     # Magnitudes that depend on age and metallicity, so the log density varies over the grid
     isofunc_shift(logAge, MH, Av) = (m_ini, [m .+ (logAge - 10) .+ (MH + 1) for m in mags])
@@ -103,4 +111,33 @@ end
     @test gridfit.logdensity == maximum(s.logdensity for s in gridfit.starts)
     @test gridmodel.free == [:logAge, :MH, :dmod, :binary_fraction, :background_fraction]
     @test_throws "one value per free parameter" fit_ssp(gridmodel; x0=[25.0])
+end
+
+@testset "Adaptive importance sampling" begin
+    # A mixture of two Gaussians with evidence e^10 and mode weights 0.3 and 0.7, started from offset means and
+    # covariances that are too narrow
+    μ1, μ2 = [0.0, 0.0], [5.0, 3.0]
+    Σ1, Σ2 = [1.0 0.6; 0.6 1.0], [0.5 -0.2; -0.2 0.8]
+    mix = MixtureModel([MvNormal(μ1, Σ1), MvNormal(μ2, Σ2)], [0.3, 0.7])
+    rounds = SFH.adaptive_is(θ -> (logpdf(mix, θ) + 10.0, 1.0), [μ1 .+ 0.5, μ2 .- 0.4], [0.3 .* Σ1, 0.3 .* Σ2]; rounds=3, n=2000,
+                             rng=StableRNG(1))
+    a = SFH.amis_combine(rounds, 5)
+    W = SFH.softmax(a.lw)
+    @test SFH.logsumexp(a.lw) - log(length(a.lw)) ≈ 10 atol=0.05
+    @test [sum(W[a.mode .== k]) for k in 1:2] ≈ [0.3, 0.7] atol=0.02
+    d = SFH.round_diagnostics(last(rounds), 5, 1.5)
+    @test d.khat < 0.7 && maximum(d.shift) < 0.5
+    # A single round from proposals much too narrow has not converged
+    early = SFH.adaptive_is(θ -> (logpdf(mix, θ) + 10.0, 1.0), [μ1, μ2], [0.05 .* Σ1, 0.05 .* Σ2]; rounds=1, n=2000, rng=StableRNG(1))
+    d1 = SFH.round_diagnostics(last(early), 5, 1.5)
+    @test maximum(d1.shift) > 0.5 || d1.khat > 0.7
+    # Pareto k̂ recovers the shape of a Pareto tail of weights w = U^-k
+    rng = StableRNG(2)
+    @test sort([SFH.pareto_khat(-0.3 .* log.(rand(rng, 4000))) for _ in 1:30])[15] ≈ 0.3 atol=0.05
+    @test sort([SFH.pareto_khat(-0.9 .* log.(rand(rng, 4000))) for _ in 1:30])[15] ≈ 0.9 atol=0.05
+    @test SFH.pareto_khat(zeros(10)) == Inf # Too few weights for a fit
+    @test SFH.pareto_khat([fill(-1000.0, 1999); 0.0]) == Inf # One weight dominates the rest, which underflow to 0
+    # Systematic resampling draws each weight's share exactly, up to one sample
+    idx = SFH.systematic_resample([0.1, 0.6, 0.3], 1000, StableRNG(3))
+    @test [count(==(i), idx) for i in 1:3] == [100, 600, 300]
 end

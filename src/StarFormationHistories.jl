@@ -4,7 +4,7 @@ using Compat: allequal
 using ArgCheck: @argcheck
 using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logpdf,
     cdf, quantile, Multivariate, MvNormal, sampler, Uniform, UnivariateDistribution, Gamma,
-    ContinuousUnivariateDistribution, truncated
+    ContinuousUnivariateDistribution, truncated, MvTDist, Categorical, Chisq
 import Distributions # Extending pdf, cdf, mean, var for UniformSum in extinction.jl
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
@@ -14,7 +14,8 @@ using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
 # Need mul! for composite!, ∇loglikelihood!;
-using LinearAlgebra: BLAS, diag, dot, Hermitian, I, mul!, PosDefException # hermitianpart
+using LinearAlgebra: BLAS, diag, dot, Hermitian, I, mul!, PosDefException, Symmetric, logdet, tr, isposdef # hermitianpart
+using LogExpFunctions: logsumexp, logaddexp, softmax
 import LogDensityProblems # For interfacing with DynamicHMC
 using LoopVectorization: @turbo
 import Optim
@@ -23,7 +24,7 @@ using PDMats: PDMat
 using Printf: @sprintf
 import ProgressMeter
 using QuadGK: quadgk # For general mean(imf::UnivariateDistribution{Continuous}; kws...)
-using Random: AbstractRNG, default_rng, seed!
+using Random: AbstractRNG, default_rng, seed!, shuffle!
 using Roots: find_zero # For mass_limits in simulate.jl
 import Tables # For Tables.rows, process_ASTs
 using TaskLocalValues: TaskLocalValue # For threadsafe buffers

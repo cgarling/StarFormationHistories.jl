@@ -96,7 +96,8 @@ signif_plot[permutedims(obs_hess) .== 0] .= NaN
 # Initial mass points to plot
 plot_mass_points = true # Whether to plot these initial mass points
 mini_points = [0.11, 0.2, 0.5, 0.7, 0.78]
-mini_mags = SFH.interpolate_mini(m_ini, [F090W .+ distmod, F150W .+ distmod], mini_points)
+mini_knots, knot_mags = SFH.ingest_isochrone_filters(m_ini, [F090W, F150W])
+mini_mags = [SFH.interpolate_ingested(mini_knots, m, mini_points, distmod) for m in knot_mags]
 
 # Some plot options
 textx, texty = (0.95, 0.83)
