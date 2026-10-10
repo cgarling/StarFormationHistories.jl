@@ -413,16 +413,30 @@ end
 # same mode if either lies within the 99.9% chi-squared distance, for the number of free parameters, of the other's pilot
 # (the Mahalanobis distance with the pilot's mean and covariance). Solutions near an existing mode's pilot need no pilot
 # of their own; the others get one, which still joins them to an existing mode if that mode's solution lies within the
-# same distance of it (e.g., a small local maximum on a mode's flank, whose pilot moves into the mode).
+# same distance of it (e.g., a small local maximum on a mode's flank, whose pilot moves into the mode). The pilot of a
+# joining solution is pooled into the mode's mean and covariance rather than discarded: on an elongated mode (e.g., along
+# the age-metallicity-extinction degeneracy), pilots started from solutions at different points along it together
+# cover more of the mode than any one of them does in its few steps.
 function ssp_modes(model::SSPModel, sols; nwalkers, nsteps, radius, rng)
     τ2 = quantile(Chisq(length(model.free)), 0.999)
     near(θ, μ, Σ) = (δ = θ .- μ; dot(δ, Symmetric(Σ) \ δ) < τ2)
     modes = @NamedTuple{θ::Vector{Float64}, logdensity::Float64, μ::Vector{Float64}, Σ::Matrix{Float64}, accept_ratio::Float64}[]
+    npilots = Int[] # Pilots pooled into each mode
     for s in sols
         any(m -> near(s.θ, m.μ, m.Σ), modes) && continue
         μ, Σ, accept_ratio = ssp_pilot(model, s.θ; nwalkers, nsteps, radius, rng)
-        any(m -> near(m.θ, μ, Σ), modes) && continue
-        push!(modes, (θ=Vector{Float64}(s.θ), logdensity=Float64(s.logdensity), μ=μ, Σ=Σ, accept_ratio=accept_ratio))
+        k = findfirst(m -> near(m.θ, μ, Σ), modes)
+        if isnothing(k)
+            push!(modes, (θ=Vector{Float64}(s.θ), logdensity=Float64(s.logdensity), μ=μ, Σ=Σ, accept_ratio=accept_ratio))
+            push!(npilots, 1)
+        else
+            # Mean and covariance of the samples of all of the mode's pilots, which have equal numbers of samples
+            m, n = modes[k], npilots[k]
+            μp = (n .* m.μ .+ μ) ./ (n + 1)
+            Σp = (n .* (m.Σ .+ (m.μ .- μp) * (m.μ .- μp)') .+ Σ .+ (μ .- μp) * (μ .- μp)') ./ (n + 1)
+            modes[k] = (θ=m.θ, logdensity=m.logdensity, μ=μp, Σ=Matrix(Symmetric(Σp)), accept_ratio=(n * m.accept_ratio + accept_ratio) / (n + 1))
+            npilots[k] += 1
+        end
     end
     return modes
 end
@@ -658,7 +672,8 @@ and evidence of each mode, and convergence diagnostics.
     radius `radius` times the posterior width along each parameter, takes `pilot_steps` steps; the mean and covariance of
     the second half describe the mode. Two solutions are the same mode if either lies within the 99.9% chi-squared
     distance (for the number of free parameters) of the other's pilot, so solutions that belong to an existing mode
-    usually need no pilot of their own.
+    usually need no pilot of their own; when one does, its pilot is pooled with the mode's, so that solutions spread
+    along an elongated mode together describe it.
  2. **Adaptive importance sampling.** The posterior is sampled with `is_rounds` rounds of `is_samples` draws each from a
     mixture of multivariate ``t`` distributions, one per mode, starting from the pilots' means and covariances. After
     each round, each component is refitted to the importance-weighted draws it is responsible for. At least 3 rounds
