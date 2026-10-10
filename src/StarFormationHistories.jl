@@ -451,11 +451,13 @@ lerp_bracket(F::AbstractVector, (i, t)) = iszero(i) ? zero(eltype(F)) : F[i] + t
 # limited to the Hess diagram so that systems outside it can still scatter into it. Also serves as a type barrier.
 function aggregate_cells(w, x, y, mags, edges)
     Δx, Δy = step(edges[1]) / 2, step(edges[2]) / 2
-    index = Dict{NTuple{2, Int}, Int}()
+    # Cells are keyed by one Int (x cell in the high bits; unique while |y cell| < 2^31), which hashes about twice as
+    # fast as a tuple of the two cell indices
+    index = Dict{Int, Int}()
     W, X, Y, M = Float64[], Float64[], Float64[], [Float64[] for _ in mags]
     for k in eachindex(w, x, y)
         iszero(w[k]) && continue
-        cell = (floor(Int, (x[k] - first(edges[1])) / Δx), floor(Int, (y[k] - first(edges[2])) / Δy))
+        cell = floor(Int, (x[k] - first(edges[1])) / Δx) << 32 + floor(Int, (y[k] - first(edges[2])) / Δy)
         c = get!(index, cell) do
             foreach(v -> push!(v, 0), (W, X, Y, M...))
             length(W)
