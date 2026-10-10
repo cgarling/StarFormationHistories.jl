@@ -6,7 +6,7 @@ import StarFormationHistories as SFH
 import Optim
 using StableRNGs: StableRNG
 using StarFormationHistories: SSPModel, fit_ssp, sample_ssp, ssp_components, ssp_hess, ssp_mass, ssp_logdensity, with_fraction,
-    partial_cmd_smooth, binary_mass_fraction, exp_photerr, Martin2016_complete, NoBinaries, RandomBinaryPairs, BinaryMassRatio, dθdz, grid_logdensity
+    partial_cmd_smooth, binary_mass_fraction, exp_photerr, Martin2016_complete, NoBinaries, RandomBinaryPairs, BinaryMassRatio, dθdz, profiled_logdensity
 using Test
 
 isochrone, _ = readdlm(joinpath(@__DIR__, "../../data/isochrone.txt"), ' ', Float64, '\n'; header=true)
@@ -67,15 +67,18 @@ end
     expected = ssp_hess(SSPModel(isofunc, fill(30_000 / prod(nbins), nbins), edges, errs, 2, (1, 2), imf, comps, [zero, zero]; kws...), truth)
     data = rand.(StableRNG(2), Poisson.(expected))
     model = SSPModel(isofunc, data, edges, errs, 2, (1, 2), imf, comps, [zero, zero]; kws...)
-    fit = fit_ssp(model)
+    fit = fit_ssp(model; ncandidates=50, rng=StableRNG(1))
     @test fit.map.dmod ≈ 25.0 atol=0.02
     @test fit.map.binary_fraction ≈ 0.3 atol=0.08 # The MAP of these data is 0.35, with a posterior width of 0.04
     @test fit.map.background_fraction ≈ 0.1 atol=0.01
-    @test isnothing(fit.grid) # Neither age nor metallicity is free
+    # The free distance modulus, whose normal prior is unbounded, is searched between the 0.001 and 0.999 quantiles of its
+    # prior, beyond the 0.02 and 0.98 quantiles
+    @test all(θ -> 25 - 0.928 < θ[1] < 25 + 0.928, fit.candidates.θ) && any(θ -> abs(θ[1] - 25) > 0.617, fit.candidates.θ)
     # Starting with a fraction at a bound of its prior, far from z = 0 in the unconstrained coordinates
     @test all(isfinite, dθdz(model, [0.0, 800.0, -800.0]))
     fb = fit_ssp(model; x0=[25.0, 0.3, 0.0], restarts=0)
     @test all(isfinite, fb.θ) && isfinite(fb.logdensity)
+    @test isnothing(fb.candidates)
     # Settings far too small for reliable estimates, so the precision warning is expected
     s = @test_logs (:warn, r"effective samples") match_mode=:any sample_ssp(fit; pilot_steps=40, pilot_walkers=8, is_rounds=3,
                                                                          is_samples=200, rng=StableRNG(3))
@@ -94,23 +97,36 @@ end
     @test ssp_mass(fit) ≈ sum(model.counts) * (1 - fit.map.background_fraction) / last(ssp_logdensity(model, fit.θ))
     @test_throws "must be even" sample_ssp(fit; pilot_walkers=7)
     @test_throws "must be at least 3" sample_ssp(fit; is_rounds=2)
-    # Free age and metallicity start from a grid at quantiles of their priors
-    # Magnitudes that depend on age and metallicity, so the log density varies over the grid
+    # Free age, metallicity, and distance modulus are searched together
+    # Magnitudes that depend on age and metallicity, so the log density varies over the candidates
     isofunc_shift(logAge, MH, Av) = (m_ini, [m .+ (logAge - 10) .+ (MH + 1) for m in mags])
     gridmodel = SSPModel(isofunc_shift, data, edges, errs, 2, (1, 2), imf, comps, [zero, zero]; kws..., logAge=Uniform(9.9, 10.1), MH=Uniform(-1.1, -0.9))
-    gridfit = fit_ssp(gridmodel; ngrid=(4, 2), options=Optim.Options(iterations=200))
-    @test gridfit.grid.logAge ≈ [9.925, 9.975, 10.025, 10.075]
-    @test gridfit.grid.MH ≈ [-1.05, -0.95]
-    # The threaded grid matches serial evaluation at each grid point, where profiling the binary and background fractions
-    # can only improve on their prior medians
+    gridfit = fit_ssp(gridmodel; ncandidates=40, options=Optim.Options(iterations=200), rng=StableRNG(4))
+    @test all(θ -> 9.904 <= θ[1] <= 10.096 && -1.096 <= θ[2] <= -0.904, gridfit.candidates.θ)
+    # The threaded candidates match serial evaluation, where profiling the binary and background fractions can only
+    # improve on their prior medians
     x0 = [quantile(gridmodel.params[k], 0.5) for k in gridmodel.free]
     jmix = [findfirst(==(k), gridmodel.free) for k in (:binary_fraction, :background_fraction)]
-    @test gridfit.grid.logdensity == [first(grid_logdensity(gridmodel, [la; mh; x0[3:end]], jmix)) for la in gridfit.grid.logAge, mh in gridfit.grid.MH]
-    @test all(gridfit.grid.logdensity .>= [first(ssp_logdensity(gridmodel, [la; mh; x0[3:end]])) for la in gridfit.grid.logAge, mh in gridfit.grid.MH])
-    @test 1 <= length(gridfit.starts) <= 4
+    @test gridfit.candidates.logdensity == [first(profiled_logdensity(gridmodel, [θ[1:3]; x0[4:end]], jmix)) for θ in gridfit.candidates.θ]
+    @test all(gridfit.candidates.logdensity .>= [first(ssp_logdensity(gridmodel, [θ[1:3]; x0[4:end]])) for θ in gridfit.candidates.θ])
+    @test 1 <= length(gridfit.starts) <= 16
     @test gridfit.logdensity == maximum(s.logdensity for s in gridfit.starts)
     @test gridmodel.free == [:logAge, :MH, :dmod, :binary_fraction, :background_fraction]
     @test_throws "one value per free parameter" fit_ssp(gridmodel; x0=[25.0])
+end
+
+@testset "Starting points" begin
+    t = SFH.r2_points(500, 2, StableRNG(1))
+    @test size(t) == (2, 500) && all(x -> 0 <= x < 1, t)
+    @test t == SFH.r2_points(500, 2, StableRNG(1))
+    # Each coordinate is spread evenly: 50 points in each tenth of the unit interval, to within 5 (independent uniform
+    # points would vary by about 7)
+    @test all(j -> all(k -> abs(count(x -> (k - 1) / 10 <= x < k / 10, view(t, j, :)) - 50) <= 5, 1:10), 1:2)
+    # Two separated peaks give one starting point each, best first
+    lds = [100 * max(-sum(abs2, x .- 0.25), 0.01 - sum(abs2, x .- 0.75)) for x in eachcol(t)]
+    idx = SFH.select_starts(t, lds, 16)
+    @test length(idx) == 2 && sum(abs2, t[:, idx[1]] .- 0.75) < 0.01 && sum(abs2, t[:, idx[2]] .- 0.25) < 0.01
+    @test (@test_logs (:warn, r"Increase `nstarts`") SFH.select_starts(t, lds, 1)) == idx[1:1]
 end
 
 @testset "Adaptive importance sampling" begin
