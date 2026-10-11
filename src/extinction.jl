@@ -76,6 +76,167 @@ Distributions.var(d::UniformSum) = (d.λ1^2 + d.λ2^2) / 12
 Base.rand(rng::AbstractRNG, d::UniformSum) = d.a + d.λ1 * rand(rng, typeof(d.a)) + d.λ2 * rand(rng, typeof(d.a))
 
 """
+    ExponentialDiskExtinction(Av::Real, dAv::Real, s::Real; f_red::Real=1/2)
+
+Distribution of V-band extinctions for stars in a disk behind a foreground screen of extinction `Av`. The stars are
+embedded in a disk of dust with total extinction `dAv`. The stars and dust both have two-sided exponential
+vertical profiles, and the scale height of the stars is `s` times that of the dust. Each star has extinction
+`Av + dAv U`, where `U` is the fraction of the dust in front of it.
+The midplane of the dust is offset from that of the stars so that a fraction `f_red` of the stars lie behind it.
+
+With `s = 1` and `f_red = 1/2` the stars and dust are perfectly mixed and the distribution is a uniform tophat
+between `Av` and `Av + dAv`, as in the model of MATCH [Dolphin2002](@citep). For `f_red = 1/2`, `U` has
+density ``[2 \\, \\text{min}(u, 1-u)]^{1/s - 1} / s``, which for `s < 1` (stars embedded in the dust) peaks at
+`u = 1/2` and for `s > 1` diverges at `u = 0` and `u = 1`, tending to equal point masses at both as `s → ∞` (a thin dust
+layer). Supports `pdf`, `cdf`, `quantile`, `minimum`, `maximum`, `mean`, `var`, `rand`, and
+`InitialMassFunctions.partial_mean`.
+
+```jldoctest; setup = :(using StarFormationHistories: ExponentialDiskExtinction; using Distributions: cdf)
+julia> d = ExponentialDiskExtinction(0.2, 1.0, 3.0);
+
+julia> extrema(d)
+(0.2, 1.2)
+
+julia> cdf(d, 0.7) # half of the stars lie in front of the dust midplane
+0.5
+```
+"""
+struct ExponentialDiskExtinction{T <: Real} <: ContinuousUnivariateDistribution
+    Av::T
+    dAv::T
+    s::T
+    f_red::T
+    z0::T # offset of the dust midplane from the stellar midplane, in dust scale heights
+    function ExponentialDiskExtinction{T}(Av, dAv, s, f_red) where T <: Real
+        @argcheck Av >= 0 && dAv > 0 && s > 0 "Requires Av >= 0, dAv > 0, and s > 0."
+        @argcheck 0 < f_red < 1 "f_red must be between 0 and 1."
+        # Quantile f_red of the stellar profile, Laplace(0, s)
+        z0 = f_red < 1/2 ? s * log(2 * f_red) : -s * log(2 * (1 - f_red))
+        new{T}(Av, dAv, s, f_red, z0)
+    end
+end
+ExponentialDiskExtinction(Av::Real, dAv::Real, s::Real; f_red::Real=1/2) =
+    ExponentialDiskExtinction{float(promote_type(typeof(Av), typeof(dAv), typeof(s), typeof(f_red)))}(Av, dAv, s, f_red)
+Base.minimum(d::ExponentialDiskExtinction) = d.Av
+Base.maximum(d::ExponentialDiskExtinction) = d.Av + d.dAv
+
+# Closed forms for U on u <= 1/2, with k = (a, e^c, e^(a c)) for a = 1/s and c = z0; for u > 1/2 they follow from the
+# reflection F(u; c) = 1 - F(1 - u; -c), with kf = (a, e^-c, e^(-a c)). The dust has U = 1/2 at height c, and stars
+# above (below) height 0 have U <= 1/2 (> 1/2) where the dust is above (below) its midplane, giving the two pieces at
+# u = e^c / 2.
+# ∫_y^x v^(b-1) dv, accurate as b → 0
+powint(x, y, b) = iszero(b) ? log(x / y) : y^b * expm1(b * log(x / y)) / b
+diskF(u, (a, ec, eac)) = u <= ec / 2 ? (2u)^a / (2eac) : 1 - eac * (2u)^-a / 2
+diskp(u, (a, ec, eac)) = u <= ec / 2 ? a * (2u)^(a - 1) / eac : a * eac * (2u)^(-a - 1)
+diskQ(p, (a, ec, eac)) = p <= 1/2 ? ec * (2p)^(1 / a) / 2 : ec * (2 * (1 - p))^(-1 / a) / 2 # for p <= F(1/2)
+function diskI(u, (a, ec, eac)) # ∫_0^u F
+    τ = min(u, ec / 2)
+    I = (2τ)^(a + 1) / (4 * (a + 1) * eac)
+    return u > τ ? I + (u - τ) - eac * powint(2u, 2τ, 1 - a) / 4 : I
+end
+function diskJ(u, (a, ec, eac)) # ∫_0^u t F(t) dt
+    τ = min(u, ec / 2)
+    J = (2τ)^(a + 2) / (8 * (a + 2) * eac)
+    return u > τ ? J + (u^2 - τ^2) / 2 - eac * powint(2u, 2τ, 2 - a) / 8 : J
+end
+function diskpars(d::ExponentialDiskExtinction)
+    a, ec, eac = 1 / d.s, exp(d.z0), exp(d.z0 / d.s)
+    return (a, ec, eac), (a, 1 / ec, 1 / eac)
+end
+# F, ∫_0^u F, and ∫_0^u t F(t) dt on all of [0, 1]
+diskFU(u, k, kf) = u <= 1/2 ? diskF(u, k) : 1 - diskF(1 - u, kf)
+diskIU(u, k, kf) = u <= 1/2 ? diskI(u, k) : diskI(1//2, k) + (u - 1//2) - diskI(1//2, kf) + diskI(1 - u, kf)
+diskJU(u, k, kf) = u <= 1/2 ? diskJ(u, k) :
+    diskJ(1//2, k) + (u^2 - 1//4) / 2 - diskI(1//2, kf) + diskI(1 - u, kf) + diskJ(1//2, kf) - diskJ(1 - u, kf)
+
+function Distributions.cdf(d::ExponentialDiskExtinction, x::Real)
+    return diskFU(clamp((x - d.Av) / d.dAv, 0, 1), diskpars(d)...)
+end
+function Distributions.pdf(d::ExponentialDiskExtinction, x::Real)
+    k, kf = diskpars(d)
+    u = (x - d.Av) / d.dAv
+    return 0 <= u <= 1 ? (u <= 1/2 ? diskp(u, k) : diskp(1 - u, kf)) / d.dAv : zero(u)
+end
+Distributions.logpdf(d::ExponentialDiskExtinction, x::Real) = log(pdf(d, x))
+function Distributions.quantile(d::ExponentialDiskExtinction, p::Real)
+    k, kf = diskpars(d)
+    return d.Av + d.dAv * (p <= 1 - d.f_red ? diskQ(p, k) : 1 - diskQ(1 - p, kf))
+end
+# E[U] = 1 - ∫_0^1 F and E[U^2] = 1 - 2 ∫_0^1 t F(t) dt
+Distributions.mean(d::ExponentialDiskExtinction) = d.Av + d.dAv * (1 - diskIU(1, diskpars(d)...))
+function Distributions.var(d::ExponentialDiskExtinction)
+    m = 1 - diskIU(1, diskpars(d)...)
+    return d.dAv^2 * (1 - 2 * diskJU(1, diskpars(d)...) - m^2)
+end
+Base.rand(rng::AbstractRNG, d::ExponentialDiskExtinction) = quantile(d, rand(rng, typeof(d.Av)))
+function partial_mean(d::ExponentialDiskExtinction, x::Real)
+    x <= d.Av && return zero(float(x))
+    x >= maximum(d) && return mean(d)
+    k, kf = diskpars(d)
+    u = (x - d.Av) / d.dAv
+    # x F(x) - ∫_Av^x F
+    return x * diskFU(u, k, kf) - d.dAv * diskIU(u, k, kf)
+end
+# Each knot interval of a reddening path is divided into equal sub-segments (see deposit_paths!), whose probability,
+# mean, and variance of extinction depend only on the interval and the number of sub-segments. They are tabulated once
+# per template and shared by every source, so the extinction distribution is evaluated only a few hundred times.
+# The mean and variance across [b0, b1] follow from the cdf alone, by parts: E[X - b0] = ∫(F1 - F) / ΔF and
+# E[(X - b0)^2] = ∫2(x - b0)(F1 - F) / ΔF, where the cdf is bounded and continuous even where the density diverges or
+# jumps (e.g., ExponentialDiskExtinction with s > 1, or the additional extinction of young stars added to it).
+function segment_moments(dist, b0, b1, F0, F1)
+    ΔF = F1 - F0
+    m1 = quadgk(x -> F1 - cdf(dist, x), b0, b1; rtol=1e-8)[1] / ΔF
+    m2 = quadgk(x -> 2 * (x - b0) * (F1 - cdf(dist, x)), b0, b1; rtol=1e-8)[1] / ΔF
+    return b0 + m1, max(m2 - m1^2, zero(m2))
+end
+# (ΔF, Ā, v) of each sub-segment of knot interval n divided into m sub-segments, from the tables of interval n in `cache`
+function segment_table!(cache, dist, knots, n, m)
+    tabs = cache[n]
+    length(tabs) < m && append!(tabs, [eltype(tabs)() for _ in 1:m-length(tabs)])
+    if isempty(tabs[m])
+        b = range(knots[n], knots[n+1]; length=m + 1)
+        F = cdf.(dist, b)
+        # Sub-segments without probability are skipped by deposit_paths!
+        tabs[m] = [(F[s+1] - F[s], (F[s+1] > F[s] ? segment_moments(dist, b[s], b[s+1], F[s], F[s+1]) : (b[s], 0.0))...)
+                   for s in 1:m]
+    end
+    return tabs[m]
+end
+
+"""
+    UniformConvolution(base::Distributions.ContinuousUnivariateDistribution, w::Real)
+
+Distribution of `X + Y` for independent `X ~ base` and `Y ~ Uniform(0, w)`, e.g., the additional differential extinction
+of young stars in the model of MATCH [Dolphin2003](@citep) added to another distribution of extinctions; see
+[`match_extinction`](@ref). `base` must be bounded. The density is at most `1 / w`, so it is finite even where that of
+`base` is not. The `cdf` uses `InitialMassFunctions.partial_mean(base, x)`, which is integrated numerically unless `base`
+has a closed form, as [`ExponentialDiskExtinction`](@ref) does. Supports `pdf`, `cdf`, `minimum`, `maximum`, `mean`,
+`var`, and `rand`.
+"""
+struct UniformConvolution{T <: Real, D <: ContinuousUnivariateDistribution} <: ContinuousUnivariateDistribution
+    base::D
+    w::T
+    function UniformConvolution{T, D}(base, w) where {T <: Real, D <: ContinuousUnivariateDistribution}
+        @argcheck isfinite(minimum(base)) && isfinite(maximum(base)) "`base` must be bounded; truncate it, e.g., with `prepare_extinction`."
+        @argcheck w > 0 "The width of the uniform term must be positive."
+        new{T, D}(base, w)
+    end
+end
+UniformConvolution(base::ContinuousUnivariateDistribution, w::Real) = UniformConvolution{float(typeof(w)), typeof(base)}(base, w)
+Base.minimum(d::UniformConvolution) = minimum(d.base)
+Base.maximum(d::UniformConvolution) = maximum(d.base) + d.w
+Distributions.pdf(d::UniformConvolution, x::Real) = (cdf(d.base, x) - cdf(d.base, x - d.w)) / d.w
+Distributions.logpdf(d::UniformConvolution, x::Real) = log(pdf(d, x))
+# (1/w) ∫_{x-w}^x F, with ∫_{-∞}^x F = x F(x) - partial_mean(x)
+function Distributions.cdf(d::UniformConvolution, x::Real)
+    G(y) = y <= minimum(d.base) ? zero(float(y)) : y * cdf(d.base, y) - partial_mean(d.base, y)
+    return clamp((G(x) - G(x - d.w)) / d.w, 0, 1)
+end
+Distributions.mean(d::UniformConvolution) = mean(d.base) + d.w / 2
+Distributions.var(d::UniformConvolution) = Distributions.var(d.base) + d.w^2 / 12
+Base.rand(rng::AbstractRNG, d::UniformConvolution) = rand(rng, d.base) + d.w * rand(rng, typeof(d.w))
+
+"""
     match_extinction(Av::Real, dAv::Real, dAvy::Real, logAge::Real; t1::Real=4e7, t2::Real=1e8)
 
 Returns the distribution of V-band extinctions for stars with logarithmic age `logAge` (`log10(age [yr])`) in the
@@ -84,6 +245,13 @@ uniformly from `Av` to `Av + dAv`, and stars younger than `t2` years receive an 
 uniformly from 0 to `w(t) dAvy`, where `w(t)` is 1 for ages below `t1` and decreases linearly in age to 0 at `t2`
 [Dolphin2003](@citep). Returns a `Distributions.Uniform` when only one of the two terms is nonzero, and a
 [`UniformSum`](@ref) otherwise. Requires `dAv + w(t) dAvy > 0`.
+
+    match_extinction(base::Distributions.ContinuousUnivariateDistribution, dAvy::Real, logAge::Real;
+                     t1::Real=4e7, t2::Real=1e8)
+
+Adds the additional extinction of young stars, as above, to another distribution of extinctions `base` (e.g., an
+[`ExponentialDiskExtinction`](@ref)), returning `base` for stars older than `t2` and a [`UniformConvolution`](@ref)
+otherwise.
 
 ```jldoctest; setup = :(using StarFormationHistories: match_extinction; using Distributions: Uniform)
 julia> match_extinction(0.2, 0.6, 0.5, 9.0) == Uniform(0.2, 0.8) # older than t2; only dAv applies
@@ -94,13 +262,21 @@ julia> round.(extrema(match_extinction(0.2, 0.6, 0.5, 7.0)); digits=6) # younger
 ```
 """
 function match_extinction(Av::Real, dAv::Real, dAvy::Real, logAge::Real; t1::Real=4e7, t2::Real=1e8)
-    @argcheck Av >= 0 && dAv >= 0 && dAvy >= 0 && t2 > t1
-    w = clamp((t2 - exp10(logAge)) / (t2 - t1), 0, 1)
-    wy = w * dAvy
+    @argcheck Av >= 0 && dAv >= 0
+    wy = young_width(dAvy, logAge, t1, t2)
     @argcheck dAv + wy > 0 "The extinction distribution has zero width; use the method of `partial_cmd_smooth` without extinction."
     iszero(wy) && return Uniform(Av, Av + dAv)
     iszero(dAv) && return Uniform(Av, Av + wy)
     return UniformSum(Av, dAv, wy)
+end
+function match_extinction(base::ContinuousUnivariateDistribution, dAvy::Real, logAge::Real; t1::Real=4e7, t2::Real=1e8)
+    wy = young_width(dAvy, logAge, t1, t2)
+    return iszero(wy) ? base : UniformConvolution(base, wy)
+end
+# Width of the additional extinction of young stars, tapering linearly in age from dAvy at t1 to 0 at t2
+function young_width(dAvy, logAge, t1, t2)
+    @argcheck dAvy >= 0 && t2 > t1
+    return dAvy * clamp((t2 - exp10(logAge)) / (t2 - t1), 0, 1)
 end
 
 #################################
@@ -253,11 +429,14 @@ function reddened_hess(::Val{NF}, m_ini, mags, knots, dist, errs, y_index, color
     pmags = [[SVector{NF}(ntuple(f -> dense[n][f][j], Val(NF))) for j in eachindex(new_mini)] for n in 1:nk]
     imfw = [dispatch_imf(imf, m) * normalize_value / mean_mass for m in new_mini]
     # Single stars: each densified interval, with its two end points averaged as in the method without extinction
+    # Sub-segment tables shared by the single stars and binary systems, one vector of tables per knot interval
+    T = eltype(knots)
+    cache = [Vector{NTuple{3, T}}[] for _ in 1:nk-1]
     single = zeros(length(edges[1]) - 1, length(edges[2]) - 1)
     nint = length(new_mini) - 1
     deposit_paths!(single, [view(p, 1:nint) for p in pmags], [view(p, 2:nint+1) for p in pmags],
                    spacing .* view(imfw, 1:nint), spacing .* view(imfw, 2:nint+1), knots, dist, errs, comps, biases,
-                   i1, i2, y_index, xi, c, third, edges, max_shift)
+                   i1, i2, y_index, xi, c, third, edges, max_shift, cache)
     single_hist = Histogram(edges, single, :left, false)
     isnothing(binary_model) && return single_hist, nothing
     # Binary systems: as in binary_hess, aggregated in cells of half the bin width by their observed position at the
@@ -276,14 +455,17 @@ function reddened_hess(::Val{NF}, m_ini, mags, knots, dist, errs, y_index, color
     cmags = [[SVector{NF}(ntuple(f -> M[(n-1)*NF+f][k], Val(NF))) for k in eachindex(W)] for n in 1:nk]
     binary = zeros(length(edges[1]) - 1, length(edges[2]) - 1)
     deposit_paths!(binary, cmags, cmags, W, W, knots, dist, errs, comps, biases, i1, i2, y_index, xi, c, third, edges,
-                   max_shift)
+                   max_shift, cache)
     return single_hist, Histogram(edges, binary, :left, false)
 end
 
 # Deposits sources along their reddening paths. Source k has magnitudes A[n][k] and B[n][k] (SVectors over filters) at
 # knot n, which are averaged, and weights w0[k] and w1[k] multiplying the completeness at A and B; a single star is an
-# isochrone interval with end points A and B, and a cell of binary systems has A = B.
-function deposit_paths!(data, A, B, w0, w1, knots, dist, errs, comps, biases, i1, i2, y_index, xi, c, third, edges, max_shift)
+# isochrone interval with end points A and B, and a cell of binary systems has A = B. The type parameters force
+# specialization on the observational models, which are otherwise only passed to the closure `props` and so would be
+# called by dynamic dispatch when they are single joint callables.
+function deposit_paths!(data, A, B, w0, w1, knots, dist, errs::E, comps::C, biases::BI, i1, i2, y_index, xi, c, third, edges,
+                        max_shift, cache) where {E, C, BI}
     xe, ye = edges
     Δx, Δy, xmax, ymax = step(xe), step(ye), last(xe), last(ye)
     hist = Histogram(edges, data, :left, false)
@@ -322,23 +504,14 @@ function deposit_paths!(data, A, B, w0, w1, knots, dist, errs, comps, biases, i1
                                         (xmax + 4 * sqrt(P1.σx^2 + c^2 * P1.σy^2) - P0.x) / dx))
                 aend <= a0 && break # later knot intervals are fainter and redder still
             end
-            nsub = max(1, ceil(Int, (aend - a0) * q / max_shift))
-            Fprev, pprev = cdf(dist, a0), pdf(dist, a0)
+            # Sub-segments divide the whole knot interval, so that their tables are shared by all sources, and the
+            # path stops at the first one that starts beyond aend
+            nsub = max(1, ceil(Int, (a1 - a0) * q / max_shift))
+            tab = segment_table!(cache, dist, knots, n, nsub)
             for s in 1:nsub
-                b0, b1 = a0 + (aend - a0) * (s - 1) / nsub, a0 + (aend - a0) * s / nsub
-                F1, p1 = cdf(dist, b1), pdf(dist, b1)
-                ΔF, p0 = F1 - Fprev, pprev
-                Fprev, pprev = F1, p1
+                a0 + (a1 - a0) * (s - 1) / nsub >= aend && break
+                ΔF, Ā, v = tab[s]
                 ΔF > 0 || continue
-                # Mean and variance of extinction across the sub-segment, for a density varying linearly between its
-                # values at the ends (the midpoint and L^2/12 for a uniform density)
-                L = b1 - b0
-                if p0 + p1 > 0
-                    Ā = b0 + L * (p0 + 2p1) / (3 * (p0 + p1))
-                    v = L^2 * (p0^2 + 4p0 * p1 + p1^2) / (18 * (p0 + p1)^2)
-                else
-                    Ā, v = (b0 + b1) / 2, L^2 / 12
-                end
                 P = props(k, n, Ā)
                 wt = P.w * ΔF
                 wt > 0 || continue

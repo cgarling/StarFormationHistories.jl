@@ -72,11 +72,13 @@ template = partial_cmd_smooth(iso(0.2).m_ini, mags, knots, extinction, mag_err_f
                               completeness_funcs; dmod=dmod, edges=edges)
 ```
 
-The model of differential extinction in MATCH [Dolphin2002](@citep), in which all stars have extinctions distributed uniformly between ``A_V`` and ``A_V + dA_V`` and young stars have an additional spread [Dolphin2003](@citep), is provided by [`match_extinction`](@ref). Any other continuous distribution from Distributions.jl can also be used; [`prepare_extinction`](@ref StarFormationHistories.prepare_extinction) describes how unbounded distributions are truncated.
+The model of differential extinction in MATCH [Dolphin2002](@citep), in which all stars have extinctions distributed uniformly between ``A_V`` and ``A_V + dA_V`` and young stars have an additional spread [Dolphin2003](@citep), is provided by [`match_extinction`](@ref). [`ExponentialDiskExtinction`](@ref) generalizes it to stars and dust in exponential disks with different scale heights, e.g., young stars embedded in the dust layer or old stars in a thicker disk, most of which lie either in front of or behind a thin dust layer, and `match_extinction` can add the additional spread of young stars to it. Any other continuous distribution from Distributions.jl can also be used; [`prepare_extinction`](@ref StarFormationHistories.prepare_extinction) describes how unbounded distributions are truncated.
 
 ```@docs
 match_extinction
 UniformSum
+ExponentialDiskExtinction
+UniformConvolution
 StarFormationHistories.prepare_extinction
 ```
 
