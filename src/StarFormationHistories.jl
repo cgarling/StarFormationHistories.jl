@@ -8,7 +8,7 @@ using Distributions: Distribution, Sampleable, Univariate, Continuous, pdf, logp
 import Distributions # Extending pdf, cdf, mean, var for UniformSum in extinction.jl
 import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
-using InitialMassFunctions: partial_mean
+import InitialMassFunctions: partial_mean # Extending for extinction distributions in extinction.jl
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
 using IrrationalConstants: logten
 import LBFGSB # Used for one method in fitting.jl
@@ -722,7 +722,7 @@ include("extinction.jl")
 # Exports from StarFormationHistories.jl
 export mean, bin_cmd, bin_cmd_smooth, hess_mask, partial_cmd, partial_cmd_smooth
 # Exports from extinction.jl
-export match_extinction, UniformSum
+export match_extinction, UniformSum, ExponentialDiskExtinction, UniformConvolution
 # Exports from simulate.jl
 export generate_stars_mass, generate_stars_mag, generate_stars_mass_composite,
     generate_stars_mag_composite, model_cmd
