@@ -333,22 +333,27 @@ function binary_systems(model::RandomBinaryPairs, m::AbstractVector{<:Number}, i
 end
 function binary_systems(model::BinaryMassRatio, m::AbstractVector{<:Number}, imf; mean_mass::Number=mean(imf))
     Base.require_one_based_indexing(m)
-    # Equal-width cells in mass ratio q over the support of qdist, with their probabilities from the cdf
-    # ponytail: fixed number of q cells; tie to the Hess diagram bin width if templates need finer q sampling
-    qedges = range(minimum(model.qdist), maximum(model.qdist); length=51)
-    q, pq = midpoints(qedges), diff(cdf.(model.qdist, qedges))
+    # Mass ratio q at the probability midpoints of nq equal-probability cells of qdist, each with weight 1 / nq: the midpoint
+    # rule in u = cdf(qdist, q), which places the nodes where qdist is concentrated, so narrow distributions are resolved
+    # Here we use fixed q nodes shared by all primaries; for more accuracy, use per-primary q edges at the isochrone mass
+    # midpoints / m[i] merged with these quantile edges, and integrate the dead-primary branch exactly in u (one node
+    # per secondary). Its gain is hidden by the ds mass-quadrature error in binary_hess, so refine both together
+    nq = 50
+    q, pq = quantile.(model.qdist, ((1:nq) .- 1//2) ./ nq), 1 / nq
     a = trapezoid_weights(m)
     nb = binary_system_fraction(model) / mean_mass # `imf` is the distribution of system masses
     mmax = maximum(m)
     T = float(eltype(m))
     m1, m2, w = T[], T[], T[]
-    for i in eachindex(m, a), l in eachindex(q, pq)
+    for i in eachindex(m, a), l in eachindex(q)
         # Primary in the isochrone; system mass M = m1 (1 + q), so dM = (1 + q) dm1
         M = m[i] * (1 + q[l])
-        push!(m1, m[i]); push!(m2, m[i] * q[l]); push!(w, nb * a[i] * pq[l] * (1 + q[l]) * dispatch_imf(imf, M))
-        # Primary outside the isochrone and secondary in it; M = m2 (1 + q) / q, so dM = (1 + q) / q dm2
-        if m[i] / q[l] > mmax
-            push!(m1, m[i] / q[l]); push!(m2, m[i]); push!(w, nb * a[i] * pq[l] * (1 + q[l]) / q[l] * dispatch_imf(imf, M / q[l]))
+        push!(m1, m[i]); push!(m2, m[i] * q[l]); push!(w, nb * a[i] * pq * (1 + q[l]) * dispatch_imf(imf, M))
+        # Primary outside the isochrone and secondary in it; M = m2 (1 + q) / q, so dM = (1 + q) / q dm2. Systems with
+        # zero IMF probability are skipped, including those with q = 0 (quantiles that underflow), where the weight is Inf * 0
+        φ = dispatch_imf(imf, M / q[l])
+        if m[i] / q[l] > mmax && φ > 0
+            push!(m1, m[i] / q[l]); push!(m2, m[i]); push!(w, nb * a[i] * pq * (1 + q[l]) / q[l] * φ)
         end
     end
     return m1, m2, w
