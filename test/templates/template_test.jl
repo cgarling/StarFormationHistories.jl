@@ -1,5 +1,5 @@
 import DelimitedFiles: readdlm
-using Distributions: Normal, ContinuousUnivariateDistribution
+using Distributions: Normal, Beta, truncated, ContinuousUnivariateDistribution
 import Distributions: pdf
 using Test
 import StatsBase: Histogram, fit
@@ -85,6 +85,19 @@ end
 
 @testset "mean" begin
     @test mean(TestType(1.0,1.0)) ≈ mean(Normal(1.0,1.0))
+end
+
+@testset "binary_systems" begin
+    imf = Kroupa2001(0.08, 100.0)
+    m = collect(range(0.5, 1.0; length=11))
+    # The mass ratios q = m2 / m1 of the nodes with the first primary resolve a narrow distribution
+    m1, m2, w = StarFormationHistories.binary_systems(BinaryMassRatio(0.3, truncated(Normal(0.3, 0.005), 0, 1)), m, imf)
+    sel = m1 .== m[1]
+    q, p = m2[sel] ./ m1[sel], w[sel] ./ sum(w[sel])
+    @test sum(p .* q) ≈ 0.3 rtol=1e-3
+    @test sqrt(sum(p .* (q .- 0.3) .^ 2)) ≈ 0.005 rtol=0.1
+    # Distributions piled up at q = 0 have quantiles that underflow to 0, which must still give finite weights
+    @test all(isfinite, StarFormationHistories.binary_systems(BinaryMassRatio(0.3, Beta(0.01, 1)), m, imf)[3])
 end
 
 @testset "partial_cmd_smooth" begin
