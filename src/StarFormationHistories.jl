@@ -10,7 +10,7 @@ import Distributions: _rand! # Extending
 import DynamicHMC  # For random uncertainties in SFH fits
 import InitialMassFunctions: partial_mean # Extending for extinction distributions in extinction.jl
 using Interpolations: interpolate, Gridded, Linear, deduplicate_knots!, extrapolate, Flat
-using IrrationalConstants: logten
+using IrrationalConstants: logten, sqrt2, sqrt2π
 import LBFGSB # Used for one method in fitting.jl
 import LineSearches # For configuration of Optim.jl
 # Need mul! for composite!, ∇loglikelihood!;
@@ -28,7 +28,7 @@ using Random: AbstractRNG, default_rng, seed!, shuffle!
 using Roots: find_zero # For mass_limits in simulate.jl
 import Tables # For Tables.rows, process_ASTs
 using TaskLocalValues: TaskLocalValue # For threadsafe buffers
-using SpecialFunctions: erf, gamma
+using SpecialFunctions: erf, erfc, gamma
 using StaticArrays: SVector, sacollect
 using StatsBase: fit, Histogram, Weights
 import StatsBase: mean, median, mode, std # Extending
