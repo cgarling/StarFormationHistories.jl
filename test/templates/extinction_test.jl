@@ -5,7 +5,7 @@ using Test
 import InitialMassFunctions: Kroupa2001, partial_mean
 using StableRNGs: StableRNG
 using StarFormationHistories: partial_cmd_smooth, ssp_components, match_extinction, UniformSum, prepare_extinction,
-    ExponentialDiskExtinction, UniformConvolution, segment_moments, Martin2016_complete, exp_photerr, NoBinaries,
+    ExponentialDiskExtinction, UniformConvolution, cdf_integral, segment_moments, Martin2016_complete, exp_photerr, NoBinaries,
     RandomBinaryPairs, binary_mass_fraction
 
 @testset "Extinction distributions" begin
@@ -55,6 +55,7 @@ using StarFormationHistories: partial_cmd_smooth, ssp_components, match_extincti
         @test mean(d) ≈ 1.2 - ∫(F, 1.2)
         @test var(d) ≈ 2 * ∫(a -> (1.2 - a) * F(a), 1.2) - (1.2 - mean(d))^2
         @test partial_mean(d, 0.9) ≈ 0.9 * F(0.9) - ∫(F, 0.9)
+        @test cdf_integral(d, 0.9) ≈ ∫(F, 0.9) && cdf_integral(d, 1.5) ≈ 1.5 - mean(d) && cdf_integral(d, 0.1) == 0
         s < 20 && @test cdf.(d, quantile.(d, u)) ≈ u # For s = 20, most quantiles round to the ends of the support
         smp = rand(StableRNG(1), d, 10^5)
         @test mean(smp) ≈ mean(d) atol = 0.01
@@ -71,6 +72,46 @@ using StarFormationHistories: partial_cmd_smooth, ssp_components, match_extincti
     @test mean(d32) isa Float32 && var(d32) isa Float32
     @test_throws "f_red" ExponentialDiskExtinction(0.2, 1.0, 3.0; f_red=1.0)
     @test_throws "dAv > 0" ExponentialDiskExtinction(0.2, 0.0, 3.0)
+    @test_throws "σ >= 0" ExponentialDiskExtinction(0.2, 1.0, 3.0; σ=-0.1)
+
+    # Log-normal total extinction of the dust: A = Av + dAv exp(σ z) U, with z ~ Normal(0, 1) truncated at 3 and U the
+    # fraction of the dust in front of a star, as for a fixed total extinction
+    for (s, f_red, σ) in ((3.0, 0.7, 0.4), (20.0, 0.8, 0.3))
+        d = ExponentialDiskExtinction(0.2, 0.7, s; f_red, σ)
+        @test all(extrema(d) .≈ (0.2, 0.2 + 0.7 * exp(3σ)))
+        rng = StableRNG(1)
+        z = filter(<=(3), randn(rng, 2 * 10^6))[1:10^6]
+        smp = 0.2 .+ 0.7 .* exp.(σ .* z) .* rand(rng, ExponentialDiskExtinction(0.0, 1.0, s; f_red), 10^6)
+        x = range(0.25, 1.5; length=11)
+        @test [count(<=(xi), smp) / 10^6 for xi in x] ≈ cdf.(d, x) atol = 0.002
+        @test mean(smp) ≈ mean(d) atol = 0.005
+        @test var(smp) ≈ var(d) rtol = 0.02
+        @test mean(rand(StableRNG(2), d, 10^5)) ≈ mean(d) atol = 0.005
+        @test [(cdf(d, xi + 1e-5) - cdf(d, xi - 1e-5)) / 2e-5 for xi in x] ≈ pdf.(d, x) rtol = 1e-4
+        @test partial_mean(d, 0.9) ≈ 0.9 * cdf(d, 0.9) - quadgk(a -> cdf(d, a), 0.2, 0.9; rtol=1e-10)[1] rtol = 1e-8
+        @test cdf_integral(d, 0.9) ≈ quadgk(a -> cdf(d, a), 0.2, 0.9; rtol=1e-10)[1] rtol = 1e-8
+        @test cdf_integral(d, maximum(d) + 0.3) ≈ maximum(d) + 0.3 - mean(d)
+        @test cdf(match_extinction(d, 0.4, 7.0), 0.9) ≈ quadgk(a -> cdf(d, a), 0.5, 0.9; rtol=1e-10)[1] / 0.4 rtol = 1e-8
+        @test cdf.(d, quantile.(d, [0.3, 0.6, 0.95])) ≈ [0.3, 0.6, 0.95]
+    end
+    # Sub-segment moments across the support against quadrature of the cdf, for the disk and with the additional
+    # extinction of young stars; f_red = 0.7 and 0.8 put the kink of the density of U at the dust midplane close to u = 1
+    for (s, f_red, σ) in ((3.0, 0.7, 0.4), (20.0, 0.8, 0.3), (3.0, 0.7, 0.3), (3.0, 0.8, 0.3))
+        d = ExponentialDiskExtinction(0.2, 0.7, s; f_red, σ)
+        for dd in (d, match_extinction(d, 0.4, 7.0)), b0 in 0.25:0.1:1.55
+            b1 = b0 + 0.05
+            F0, F1 = cdf(dd, b0), cdf(dd, b1)
+            m1 = quadgk(a -> F1 - cdf(dd, a), b0, b1; rtol=1e-10)[1] / (F1 - F0)
+            m2 = quadgk(a -> 2 * (a - b0) * (F1 - cdf(dd, a)), b0, b1; rtol=1e-10)[1] / (F1 - F0)
+            Ā, v = segment_moments(dd, b0, b1, F0, F1)
+            @test abs(Ā - b0 - m1) < 0.005 * 0.05
+            @test v ≈ m2 - m1^2 rtol = 0.01
+        end
+    end
+    # In the limit of a thin dust layer, a fraction 1 - f_red of the stars has extinction Av
+    @test cdf(ExponentialDiskExtinction(0.2, 0.7, 1000.0; f_red=0.7, σ=0.4), 0.2 + 1e-6) ≈ 0.3 atol = 0.01
+    d32σ = ExponentialDiskExtinction(0.2f0, 0.7f0, 3.0f0; σ=0.4f0)
+    @test cdf(d32σ, 0.6f0) isa Float32 && mean(d32σ) isa Float32 && var(d32σ) isa Float32
 
     # Additional extinction of young stars: X + Uniform(0, w), with the cdf from the closed form of partial_mean
     base = ExponentialDiskExtinction(0.2, 1.0, 20.0; f_red=0.8)
@@ -125,7 +166,8 @@ end
 
     @testset "Accuracy against quadrature over extinction" begin
         disk = ExponentialDiskExtinction(0.2, 1.0, 20.0; f_red=0.8)
-        for dist in (Uniform(0.2, 1.2), Normal(0.7, 0.15), disk, match_extinction(disk, 0.5, 7.0))
+        diskσ = ExponentialDiskExtinction(0.2, 0.7, 3.0; f_red=0.7, σ=0.3)
+        for dist in (Uniform(0.2, 1.2), Normal(0.7, 0.15), disk, match_extinction(disk, 0.5, 7.0), diskσ)
             d = prepare_extinction(dist)
             # Points at equal steps in extinction and, for the exponential disk, whose density diverges at the ends of
             # the support, in probability
